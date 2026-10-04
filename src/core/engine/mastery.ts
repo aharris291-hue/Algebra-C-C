@@ -54,6 +54,8 @@ export const MASTERY_POLICY = {
   masteredMinScore: 0.88,
   masteredMinEvidence: 6,
   masteredMinIndependent: 4,
+  /** Mastered means retained: independent correct work must span at least this long (a later study day). */
+  masteredMinSpanMs: 20 * 60 * 60 * 1000,
   /** a MASTERED skill only drops when the recent score falls below this */
   masteredDropBelow: 0.7,
   reviewIntervalsDays: [2, 4, 7, 14, 30],
@@ -97,7 +99,9 @@ function baseStage(history: Evidence[], score: number): MasteryStage {
   if (history.length < MASTERY_POLICY.learningMinEvidence || score < MASTERY_POLICY.developingMinScore) return 'LEARNING';
   if (score < MASTERY_POLICY.proficientMinScore || indep < MASTERY_POLICY.proficientMinIndependent) return 'DEVELOPING';
   const formalCorrect = recent.some((e) => isFormal(e) && e.correct);
-  if (score >= MASTERY_POLICY.masteredMinScore && history.length >= MASTERY_POLICY.masteredMinEvidence && indep >= MASTERY_POLICY.masteredMinIndependent && formalCorrect) return 'MASTERED';
+  const indepTimes = recent.filter(isIndependent).map((e) => e.at);
+  const retained = indepTimes.length > 0 && Math.max(...indepTimes) - Math.min(...indepTimes) >= MASTERY_POLICY.masteredMinSpanMs;
+  if (score >= MASTERY_POLICY.masteredMinScore && history.length >= MASTERY_POLICY.masteredMinEvidence && indep >= MASTERY_POLICY.masteredMinIndependent && formalCorrect && retained) return 'MASTERED';
   return 'PROFICIENT';
 }
 

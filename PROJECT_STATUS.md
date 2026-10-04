@@ -1,47 +1,55 @@
 # Project Status
 
-**Application:** Algebra C&C Learning Academy (Windows desktop)
-**Current version:** 0.1.0 (pre-release, not installable yet)
-**Current phase:** Phases 1-4 done (curriculum verified, curriculum map, architecture, data model). Phase 5-8 in progress (shell, profiles, lesson engine, math validation).
-**Last updated:** 2026-10-04
+**Application:** Algebra C&C Learning Academy (Windows desktop, Electron + React + SQLite/WASM)
+**Current version:** 0.2.0 (pre-release: the full app works end to end for Lesson 1; Setup.exe not built yet)
+**Current phase:** Platform complete (Phases 1-9 of the build plan). Next phase: curriculum content for the remaining 89 course days.
+**Last updated:** 2026-10-04 (end of development session 1)
 
 ## Completed
-- Georgia A:C&C standards verified against GaDOE sources (docs/STANDARDS_SOURCES.md)
-- Standards coverage matrix (docs/STANDARDS_COVERAGE.md, generated from data)
-- 18-week / 90-day curriculum map with 86 course skills and 12 prerequisite skills (docs/CURRICULUM_MAP.md)
-- Architecture and database design (docs/ARCHITECTURE.md)
-- Exact math engine: rationals, parser, polynomials, radicals, answer checker with forms and misconceptions
+- Georgia A:C&C standards verified against GaDOE sources; coverage matrix; 18-week / 90-day curriculum map (66 lessons, 8 unit reviews, 8 unit assessments, checkpoint, cumulative review, 3 capstones, semester review and assessment; 83 course skills)
+- Exact math engine (rationals, parser, polynomials, exact radicals, every answer type, requested-form checks, misconception detection)
+- Problem generation framework with automatic validation of every problem (answer, hints, leaks, solution, steps)
+- Unit 1 Lesson 1 "Functions and Function Notation": full content and 5 verified generators
+- Engines: mastery (recency-weighted, retention required for Mastered, spaced review), grading, XP with anti-guessing, streaks
+- Database: 17-table schema, crash-safe atomic saves, recovery from previous save/auto backups, migrations with safety backup, daily auto backups
+- Services: Parent PIN (hashed, lockout, recovery code), profiles, settings, goals, practice engine, lesson player (10 gated sections, hints, step-by-step guided practice, Teach Me Again, quiz with deferred feedback, corrections, adaptive remediation, retakes, Show What You Know), achievements, student and parent dashboards, grade detail and trend, weekly report, assessment review, backup/restore, live answer preview
+- Electron shell: single instance, sandboxed renderer, CSP, network blocked, validated IPC, crash logging, file dialogs for backups, printing
+- React UI: first launch, profile picker, student dashboard (CONTINUE LEARNING), course map, skills, settings, lesson player, results, Parent Mode (overview, grades, mastery, assessments, time and support, weekly report, students and goals, backup and security)
+- Packaging: electron-builder NSIS config, app icon, GitHub Actions Windows workflow; README.md and docs/GRADING.md
 
 ## In development
-- Lesson U1L01 content and generators (first full-chain lesson)
-- Engines: mastery, grading, XP, streaks
-- Database layer and services; Electron shell; React UI
+- Curriculum content: 1 of 66 lessons done
 
-## Remaining
-See REQUIREMENTS_CHECKLIST.md (every NOT STARTED row). Largest items: lesson content for all 90 days, assessments, dashboards, backup/restore, installer.
+## Remaining (largest first; full list in REQUIREMENTS_CHECKLIST.md)
+1. Lesson content and verified generators for U1L02 through Unit 9 (65 lessons)
+2. Unit reviews, unit assessments, checkpoint, cumulative review, capstones, semester review and semester assessment (assembled from the skills' generators)
+3. Diagnostic / placement assessment and the first-launch offer
+4. Build Setup.exe on Windows (CI or PC) and run the clean-install, update and migration tests
+5. Standards browser screen in Parent Mode; multi-profile isolation test; backup/restore E2E; troubleshooting guide; accessibility audit
 
 ## Known bugs
-- None recorded yet.
+- None open. Fixed this session: Teach Me Again failed when no approach was chosen (optional argument arrived as null); stale Show What You Know results could mark a later quiz finished; graph curves were drawn flat outside the plot area; skills could reach Mastered in a single sitting (now requires retention on a later day).
 
-## Tests completed
-- tests/math/engine.test.ts: 31 tests (rational arithmetic, parser, surds, formatting, all answer kinds and forms) - passing
-- tests/curriculum/catalog.test.ts: 6 tests (90 days, pacing, references, skills taught once and assessed, prerequisite order, standards coverage) - passing
+## Tests completed (all passing)
+- 87 automated tests (`npm test`): math engine 31, curriculum catalog/content 12, generators 7 (300 seeds x 3 difficulties each), engines 18, database 7, lesson player 4, app API 5, IPC validation 3
+- End-to-end (`npm run test:e2e`): setup through Lesson 1 completion in the real UI, including a hint, wrong answers, a reload mid-lesson, a failed quiz, Teach Me Again, targeted practice, a passed retake, dashboard XP/achievements and Parent Mode reports
+- Bundled Electron main process smoke-tested with a stub Electron (database created, IPC validation, logging)
 
 ## Tests remaining
-- Generator verification across many seeds; engine tests; service/database tests; end-to-end UI flows; Windows install/update tests.
+- Windows: install, Start Menu/Desktop shortcuts, first launch, restart persistence, update over an older version, uninstall keeps data
+- Long-horizon spaced review; multi-profile isolation; backup/restore through the UI; every future lesson's generators and content
 
-## Files created or modified
-- package.json, tsconfig.json, vitest.config.ts, .gitignore
-- src/core/math/{rational,parser,poly,surd,evaluate,format,answers}.ts
-- src/core/curriculum/types.ts
-- src/content/{standards,catalog}.ts
-- scripts/gen-curriculum-docs.ts
-- tests/math/engine.test.ts, tests/curriculum/catalog.test.ts
-- docs/{ARCHITECTURE,CURRICULUM_MAP,STANDARDS_COVERAGE,STANDARDS_SOURCES}.md
-- REQUIREMENTS_CHECKLIST.md, PROJECT_STATUS.md
+## Files created or modified this session
+- src/main/services/{lessons,achievements,dashboard,backup,preview,api}.ts; src/main/{main,bootstrap,dispatch,ipc-schema}.ts; src/main/db/database.ts (in-memory upgrade)
+- src/preload/preload.ts; src/harness/server.ts; scripts/{build-main,make-icon}.mjs
+- src/renderer/** (App, api client, components, screens, styles)
+- src/core/engine/mastery.ts (retention rule)
+- tests/main/{lesson-flow,api,ipc}.test.ts; tests/engine/engines.test.ts; tests-e2e/first-lesson.spec.ts; playwright.config.ts; vite.config.ts
+- package.json (build config, v0.2.0), build/icon.png, .github/workflows/build-windows.yml
+- README.md, docs/GRADING.md, REQUIREMENTS_CHECKLIST.md, PROJECT_STATUS.md
 
 ## Blockers
-- Setup.exe cannot be built in the cloud sandbox (GitHub downloads are blocked). Needs either a GitHub repository with the included Windows CI workflow, or one build run on a Windows PC.
+- Setup.exe: this cloud environment cannot download Electron or NSIS binaries. Either connect a GitHub repository (the included workflow then builds Setup.exe on Windows automatically) or run `npm ci && npm run dist:win` once on a Windows PC.
 
 ## Next recommended step
-Finish U1L01 (content + generators + verification tests), then the engines and database layer, then the Electron shell and lesson player.
+Write Unit 1 lessons U1L02-U1L12 with their generators and verification tests, then the Unit 1 review and unit assessment, so Unit 1 is complete end to end.

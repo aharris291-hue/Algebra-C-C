@@ -15,10 +15,16 @@ describe('mastery engine', () => {
     expect(computeSkillState(prof).stage).toBe('PROFICIENT');
   });
   it('requires formal evidence and enough independent work for MASTERED', () => {
-    const practiceOnly = Array.from({ length: 8 }, (_, i) => ev(i, true));
+    const practiceOnly = Array.from({ length: 8 }, (_, i) => ev((i * D) / 4, true));
     expect(computeSkillState(practiceOnly).stage).toBe('PROFICIENT');
-    const withQuiz = [...practiceOnly, ev(10, true, 'quiz'), ev(11, true, 'quiz')];
+    const withQuiz = [...practiceOnly, ev(2 * D, true, 'quiz'), ev(2 * D + 1, true, 'quiz')];
     expect(computeSkillState(withQuiz).stage).toBe('MASTERED');
+  });
+  it('MASTERED needs retention: perfect work within one sitting stays PROFICIENT', () => {
+    const oneSitting = [...Array.from({ length: 10 }, (_, i) => ev(i * 60_000, true)), ev(11 * 60_000, true, 'quiz')];
+    expect(computeSkillState(oneSitting).stage).toBe('PROFICIENT');
+    const nextDay = [...oneSitting, ev(D, true, 'review')];
+    expect(computeSkillState(nextDay).stage).toBe('MASTERED');
   });
   it('hinted or retried answers count less than independent ones', () => {
     const indep = computeSkillState([ev(1, true), ev(2, true), ev(3, true)]).score;
@@ -28,12 +34,12 @@ describe('mastery engine', () => {
   });
   it('early mistakes fade: recent success overrides a bad start', () => {
     const bad = Array.from({ length: 6 }, (_, i) => ev(i, false));
-    const good = Array.from({ length: 10 }, (_, i) => ev(100 + i, true));
-    const quiz = [ev(200, true, 'quiz')];
+    const good = Array.from({ length: 10 }, (_, i) => ev(100 + (i * D) / 4, true));
+    const quiz = [ev(3 * D, true, 'quiz')];
     expect(computeSkillState([...bad, ...good, ...quiz]).stage).toBe('MASTERED');
   });
   it('one spaced-review miss does not remove MASTERED', () => {
-    const base = [...Array.from({ length: 8 }, (_, i) => ev(i, true)), ev(9, true, 'quiz'), ev(10, true, 'quiz')];
+    const base = [...Array.from({ length: 8 }, (_, i) => ev((i * D) / 4, true)), ev(2 * D, true, 'quiz'), ev(2 * D + 1, true, 'quiz')];
     expect(computeSkillState(base).stage).toBe('MASTERED');
     const oneMiss = [...base, ev(10 * D, false, 'review')];
     expect(computeSkillState(oneMiss).stage).toBe('MASTERED');

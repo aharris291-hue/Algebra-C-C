@@ -397,7 +397,7 @@ export function describeActivity(type: string, d: Record<string, unknown>): stri
     case 'test-out-start':
       return `Started Show What You Know for "${title}"`;
     case 'mastery':
-      return `Reached ${String(d.stage).toLowerCase()} on "${d.skill}"`;
+      return `Reached ${d.stage === 'MASTERED' ? 'Mastered' : 'Proficient'} on "${d.skill}"`;
     case 'achievement':
       return `Earned the "${d.title}" achievement`;
     case 'restore':

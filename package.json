@@ -1,7 +1,7 @@
 {
   "name": "algebra-cc-academy",
   "productName": "Algebra C&C Learning Academy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Offline Windows learning app for Georgia Algebra: Concepts & Connections",
   "author": "Adam Harris",
   "license": "UNLICENSED",
@@ -17,7 +17,8 @@
     "test:math": "vitest run tests/math",
     "test:e2e": "node scripts/build-main.mjs && vite build && playwright test",
     "harness": "node scripts/build-main.mjs && vite build && node dist/harness/server.js",
-    "dist:win": "npm run build && electron-builder --win nsis --x64"
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
+    "make-icon": "node scripts/make-icon.mjs"
   },
   "dependencies": {
     "katex": "^0.19.0",
@@ -43,5 +44,43 @@
     "vite": "^6.4.3",
     "vitest": "^3.2.7",
     "wait-on": "^9.5.1"
+  },
+  "build": {
+    "appId": "com.harris.algebracc.academy",
+    "productName": "Algebra C&C Learning Academy",
+    "copyright": "Copyright © 2026 Adam Harris",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/main/**",
+      "dist/renderer/**",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "AlgebraCC-Academy-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Algebra C&C Academy",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    }
   }
 }

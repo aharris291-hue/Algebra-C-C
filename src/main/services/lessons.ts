@@ -276,6 +276,8 @@ function startQuiz(ctx: ServiceContext, st: LessonState, content: LessonContent,
   addItems(ctx, ps, items);
   st.quiz = ps;
   st.quizStartedAt = ctx.now();
+  // results from an earlier attempt (e.g. a Show What You Know try) belong to that attempt
+  st.results = null;
 }
 
 function sectionComplete(st: LessonState, s: SectionId): boolean {

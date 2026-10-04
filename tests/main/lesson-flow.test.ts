@@ -229,6 +229,18 @@ describe('lesson player: U1L01 end to end', () => {
     expect(w.section).toBe('goal');
     expect(w.status).toBe('in_progress');
     expect(() => L.startTestOut(ctx, pid2, LESSON)).toThrow(/already/);
+    // the regular lesson quiz is fresh after a failed test-out
+    for (let i = 0; i < 4; i++) w = L.advanceSection(ctx, pid2, LESSON);
+    expect(w.section).toBe('guided');
+    expect(state(ctx, pid2).quiz).toBeNull();
+    w = solvePractice(ctx, pid2, w);
+    w = L.advanceSection(ctx, pid2, LESSON);
+    w = solvePractice(ctx, pid2, w);
+    w = L.advanceSection(ctx, pid2, LESSON);
+    expect(w.section).toBe('quiz');
+    expect(w.results).toBeNull();
+    expect(w.practice!.problems.length).toBe(6);
+    expect(w.canAdvance).toBe(false);
   });
 
   it('invalid input is explained and never counted as a wrong answer', async () => {

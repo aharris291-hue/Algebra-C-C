@@ -1,0 +1,35 @@
+# Builds and tests the app on Windows and publishes Setup.exe as a downloadable artifact.
+name: Build Windows installer
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Unit, math, curriculum and service tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: End-to-end test of the first lesson (Chromium + harness)
+        run: |
+          npx playwright install chromium
+          npx playwright test
+      - name: Package Setup.exe
+        run: npx electron-builder --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlgebraCC-Academy-Setup
+          path: release/*.exe
+          if-no-files-found: error
