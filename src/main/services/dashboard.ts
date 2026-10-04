@@ -165,10 +165,10 @@ function continueLesson(ctx: ServiceContext, profileId: number, course: CourseLe
   const mk = (id: string, section: string, resume: boolean) => {
     const l = LESSON_BY_ID.get(id)!;
     const u = UNIT_BY_ID.get(l.unitId)!;
-    return { lessonId: id, title: l.title, section, unitTitle: `Unit ${u.number}: ${u.title}`, resume };
+    return { lessonId: id, title: l.title, section, unitTitle: `Unit ${u.number}: ${u.title}`, resume, kind: l.kind };
   };
   if (inProgress && course.find((c) => c.id === inProgress.lesson_id)?.hasContent) return mk(inProgress.lesson_id, inProgress.section, true);
-  const next = course.find((c) => c.status === 'available' && c.hasContent && c.kind === 'lesson');
+  const next = course.find((c) => c.status === 'available' && c.hasContent);
   return next ? mk(next.id, 'goal', false) : null;
 }
 
@@ -398,6 +398,10 @@ export function describeActivity(type: string, d: Record<string, unknown>): stri
       return `Started Show What You Know for "${title}"`;
     case 'mastery':
       return `Reached ${d.stage === 'MASTERED' ? 'Mastered' : 'Proficient'} on "${d.skill}"`;
+    case 'assessment':
+      return `${d.passed ? 'Passed' : 'Took'} "${title}" (${d.percent}%, attempt ${d.attempt})`;
+    case 'review':
+      return `Finished "${title}" (${d.percent}% right on the first try)`;
     case 'achievement':
       return `Earned the "${d.title}" achievement`;
     case 'restore':

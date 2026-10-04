@@ -12,6 +12,7 @@ import { dispatch } from '../main/dispatch';
 import { MemoryLogger } from '../main/logger';
 import { getProblem } from '../main/services/practice';
 import { canonicalInput } from '../core/engine/problems';
+import { LESSONS } from '../content';
 
 const root = path.resolve(__dirname, '..', 'renderer');
 const port = Number(process.env.HARNESS_PORT ?? 5199);
@@ -28,7 +29,7 @@ async function main() {
     if (!row) return {};
     const st = JSON.parse(row.state_json);
     const out: Record<string, string> = {};
-    for (const ps of [st.guided, st.independent, st.quiz, st.corrections, st.remediation?.practice]) {
+    for (const ps of [st.guided, st.independent, st.quiz, st.corrections, st.remediation?.practice, st.practice]) {
       if (!ps) continue;
       for (const s of ps.items) {
         const p = getProblem(s.generatorId, s.seed, s.difficulty);
@@ -44,6 +45,23 @@ async function main() {
     if (process.env.HARNESS_TEST_ANSWERS === '1' && url.pathname === '/__test/answers') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(answers(Number(url.searchParams.get('profile')), String(url.searchParams.get('lesson')))));
+      return;
+    }
+    // Test-only: mark every lesson before `before` complete for a profile, so later days can be tested directly.
+    if (process.env.HARNESS_TEST_ANSWERS === '1' && url.pathname === '/__test/complete-before') {
+      const pid = Number(url.searchParams.get('profile'));
+      const before = String(url.searchParams.get('before'));
+      const target = LESSONS.find((l) => l.id === before);
+      if (!target) {
+        res.writeHead(404).end();
+        return;
+      }
+      for (const l of LESSONS) {
+        if (l.day >= target.day) break;
+        const state = l.kind === 'lesson' ? '{"v":1,"quizAttempts":1}' : '{"v":1,"day":true}';
+        ctx.db.run("INSERT OR REPLACE INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at) VALUES (?,?,'completed','summary',?,?,?,?)", [pid, l.id, state, Date.now(), Date.now(), Date.now()]);
+      }
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
       return;
     }
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) {

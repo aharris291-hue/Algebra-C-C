@@ -179,6 +179,33 @@ export interface LessonView {
   advanceBlockedReason?: string;
 }
 
+/** Review and assessment days (unit reviews, checkpoints, unit and semester assessments). */
+export interface DayView {
+  lessonId: string;
+  title: string;
+  kind: LessonKind;
+  mode: 'review' | 'assessment';
+  unitTitle: string;
+  week: number;
+  day: number;
+  durationMinutes: number;
+  standards: Array<{ code: string; text: string }>;
+  objectives: string[];
+  status: 'in_progress' | 'completed' | 'tested_out';
+  phase: 'overview' | 'practice' | 'results';
+  skills: Array<{ skillId: string; name: string; stage: MasteryStage; essential: boolean }>;
+  itemCount: number | null;
+  passPercent: number | null;
+  practice: PracticeView | null;
+  results: ResultsView | null;
+  corrections: PracticeView | null;
+  attempts: number;
+  canRetake: boolean;
+  retakeBlockedReason?: string;
+  startedAt: number | null;
+  xpThisDay: number;
+}
+
 export interface TeachAgainView {
   approach: TeachAgainApproach;
   title: string;
@@ -235,7 +262,7 @@ export interface Achievement {
 
 export interface StudentDashboard {
   profile: ProfileSummary;
-  continueLesson: { lessonId: string; title: string; section: string; unitTitle: string; resume: boolean } | null;
+  continueLesson: { lessonId: string; title: string; section: string; unitTitle: string; resume: boolean; kind: LessonKind } | null;
   todayGoal: string;
   semester: { completedLessons: number; totalLessons: number; percent: number; currentWeek: number; plannedWeek: number };
   currentUnit: { id: string; number: number; title: string; percent: number } | null;
@@ -342,6 +369,15 @@ export interface AcademyApi {
   retakeQuiz(profileId: number, lessonId: string): Promise<LessonView>;
   startTestOut(profileId: number, lessonId: string): Promise<LessonView>;
   teachMeAgain(profileId: number, lessonId: string, approach?: string): Promise<TeachAgainView>;
+  openDay(profileId: number, lessonId: string): Promise<DayView>;
+  startDay(profileId: number, lessonId: string): Promise<DayView>;
+  daySubmit(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number): Promise<DayView>;
+  dayHint(profileId: number, lessonId: string, problemKey: string): Promise<DayView>;
+  dayReveal(profileId: number, lessonId: string, problemKey: string): Promise<DayView>;
+  dayNext(profileId: number, lessonId: string): Promise<DayView>;
+  daySelect(profileId: number, lessonId: string, index: number): Promise<DayView>;
+  finishDay(profileId: number, lessonId: string): Promise<DayView>;
+  retakeDay(profileId: number, lessonId: string): Promise<DayView>;
   heartbeat(profileId: number, lessonId: string | null, activity: string, activeSeconds: number): Promise<void>;
   previewAnswer(input: string, kind: AnswerKind): Promise<{ tex: string | null; error: string | null }>;
   // dashboards
@@ -361,7 +397,7 @@ export const API_METHODS: Array<keyof AcademyApi> = [
   'getStatus', 'setupParent', 'verifyParentPin', 'changeParentPin', 'resetParentPin',
   'listProfiles', 'createProfile', 'updateProfile', 'getSettings', 'updateSettings', 'setOnboarding', 'setGoals',
   'getCourse', 'openLesson', 'goToSection', 'advanceSection', 'selectProblem', 'submitAnswer', 'requestHint', 'revealSolution', 'nextProblem',
-  'finishQuiz', 'startRemediation', 'retakeQuiz', 'startTestOut', 'teachMeAgain', 'heartbeat', 'previewAnswer',
+  'finishQuiz', 'startRemediation', 'retakeQuiz', 'startTestOut', 'teachMeAgain', 'openDay', 'startDay', 'daySubmit', 'dayHint', 'dayReveal', 'dayNext', 'daySelect', 'finishDay', 'retakeDay', 'heartbeat', 'previewAnswer',
   'getStudentDashboard', 'getParentDashboard', 'getWeeklyReport', 'getSkillMastery', 'getStandards', 'getAssessmentDetail',
   'exportBackup', 'inspectBackup', 'restoreBackup',
 ];

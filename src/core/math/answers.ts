@@ -667,7 +667,8 @@ function stripUnit(input: string, unit?: string): string {
     s = s.replace(new RegExp(`\\s*${u}\\.?$`, 'i'), '');
   }
   // strip trailing common unit words/symbols the student might add
-  s = s.replace(/\s*(%|dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|years?|yr|points?|pts|degrees?)\.?$/i, '');
+  s = s.replace(/\s*(?:per|\/)\s*(?:hours?|hr|h|minutes?|min|seconds?|sec|s|days?|weeks?|wk|months?|mo|years?|yr|miles?|mi|cars?|tickets?|items?|gallons?|gal)\.?$/i, '');
+  s = s.replace(/\s*(%|dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?)\.?$/i, '');
   return s;
 }
 
@@ -778,7 +779,10 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
     }
 
     case 'expression': {
-      const input = stripFunctionNotation(rawInput).replace(/^\s*y\s*=\s*/i, '');
+      // Expression answers never contain "=", so a leading "y =", "f(x) =", "C(m) =" or "a_n =" is just a label.
+      const input = stripFunctionNotation(rawInput)
+        .replace(/^\s*y\s*=\s*/i, '')
+        .replace(/^\s*[a-zA-Z](?:_?\{?[a-zA-Z0-9]{1,3}\}?)?\s*(?:\(\s*[a-zA-Z0-9]+\s*\))?\s*=\s*/, '');
       const n = parseExpression(input);
       const target = parseExpression(spec.value);
       const allowed = spec.variables ?? [...variablesOf(target)];

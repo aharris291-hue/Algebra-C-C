@@ -6,7 +6,7 @@ import { KIND_LABEL, STAGE_LABEL } from '../labels';
 
 const STATUS_LABEL: Record<string, string> = { locked: 'Locked', available: 'Ready', in_progress: 'In progress', completed: 'Complete', tested_out: 'Tested out', coming_soon: 'Coming in a later version' };
 
-export function CourseMap(props: { profileId: number; onOpenLesson: (id: string, testOut?: boolean) => void; onBack: () => void }) {
+export function CourseMap(props: { profileId: number; onOpenLesson: (id: string, testOut?: boolean, kind?: string) => void; onBack: () => void }) {
   const [units, setUnits] = useState<CourseUnit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -62,6 +62,11 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                     {(l.status === 'available' || l.status === 'in_progress') && l.kind === 'lesson' && (
                       <button className="btn btn-small btn-primary" onClick={() => props.onOpenLesson(l.id)}>
                         {l.status === 'in_progress' ? 'Continue' : 'Start'}
+                      </button>
+                    )}
+                    {l.kind !== 'lesson' && l.hasContent && l.status !== 'locked' && l.status !== 'coming_soon' && (
+                      <button className={`btn btn-small ${l.status === 'completed' ? '' : 'btn-primary'}`} onClick={() => props.onOpenLesson(l.id, false, l.kind)}>
+                        {l.status === 'in_progress' ? 'Continue' : l.status === 'completed' ? 'Open' : 'Start'}
                       </button>
                     )}
                     {(l.status === 'completed' || l.status === 'tested_out') && l.kind === 'lesson' && (

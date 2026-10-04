@@ -3,6 +3,8 @@ import { Rational } from '../../core/math/rational';
 import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { exactValue } from '../../core/math/answers';
 import type { Block, Problem, SolutionStep, Rng } from '../../core/curriculum/types';
+import { toPoly } from '../../core/math/poly';
+import { parseExpression } from '../../core/math/parser';
 
 export const Q = (n: number | bigint | string | Rational, d?: number): Rational => {
   const r = n instanceof Rational ? n : Rational.from(n as never);
@@ -96,4 +98,34 @@ export function pickDistinct(rng: Rng, count: number, min: number, max: number, 
 /** Plain-language sign-aware "add b" phrase for explanations. */
 export function addPhrase(b: Rational): string {
   return b.isNegative() ? `subtract ${b.abs().toTex()}` : `add ${b.toTex()}`;
+}
+
+/** Shuffle options into a multiple-choice answer; ids are a, b, c, d in display order. */
+export function makeChoice(rng: Rng, correct: string, distractors: string[]): { kind: 'choice'; options: { id: string; label: string }[]; correct: string } {
+  const labels = [correct, ...distractors.filter((d, i, all) => d !== correct && all.indexOf(d) === i)];
+  const order = rng.shuffle(labels.map((_, i) => i));
+  const ids = 'abcdefgh';
+  const options = order.map((k, i) => ({ id: ids[i], label: labels[k] }));
+  return { kind: 'choice', options, correct: ids[order.indexOf(0)] };
+}
+
+/** Label of the correct option of a choice answer. */
+export function choiceLabel(a: { kind: string; options?: { id: string; label: string }[]; correct?: string }): string {
+  return a.options?.find((o) => o.id === a.correct)?.label ?? '';
+}
+
+/** Turn generator TeX (fractions, \cdot) back into parser syntax, so verify() can re-read a prompt. */
+export function texToExpr(tex: string): string {
+  return tex
+    .replace(/\\left|\\right/g, '')
+    .replace(/\\dfrac|\\tfrac/g, '\\frac')
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '(($1)/($2))')
+    .replace(/\\cdot|\\times/g, '*')
+    .replace(/\\,|\\;|\\ /g, '')
+    .replace(/\{|\}/g, '');
+}
+
+/** Exact value of a constant expression written in parser syntax or generator TeX. */
+export function texValue(tex: string): Rational {
+  return toPoly(parseExpression(texToExpr(tex))).constantValue();
 }

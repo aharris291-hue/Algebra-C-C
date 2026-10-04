@@ -168,6 +168,8 @@ export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<stri
 
 export function isLessonPlayable(l: LessonMeta): boolean {
   if (l.kind === 'lesson') return LESSON_CONTENT.has(l.id);
+  // capstone projects need their own content (not built yet)
+  if (l.kind === 'capstone') return false;
   // review/assessment days are assembled from the skills they cover
   return l.skillsAssessed.length > 0 && l.skillsAssessed.every((s) => generatorsForSkill(s).length > 0);
 }

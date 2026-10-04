@@ -4,7 +4,7 @@ import type { StudentDashboard } from '../../shared/api';
 import { api, errorMessage } from '../api';
 import { AVATAR_EMOJI, KIND_LABEL, STAGE_LABEL, fmtDate } from '../labels';
 
-export function Home(props: { profileId: number; onOpenLesson: (id: string) => void; onCourse: () => void; onSkills: () => void; onSettings: () => void; onSwitch: () => void }) {
+export function Home(props: { profileId: number; onOpenLesson: (id: string, kind?: string) => void; onCourse: () => void; onSkills: () => void; onSettings: () => void; onSwitch: () => void }) {
   const [d, setD] = useState<StudentDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -59,7 +59,7 @@ export function Home(props: { profileId: number; onOpenLesson: (id: string) => v
               <div className="hero-title">{d.continueLesson.title}</div>
               <div className="hero-sub">{d.continueLesson.unitTitle}</div>
             </div>
-            <button className="btn btn-primary btn-xl" onClick={() => props.onOpenLesson(d.continueLesson!.lessonId)}>
+            <button className="btn btn-primary btn-xl" onClick={() => props.onOpenLesson(d.continueLesson!.lessonId, d.continueLesson!.kind)}>
               {d.continueLesson.resume ? 'CONTINUE LEARNING' : 'START LEARNING'}
             </button>
           </>

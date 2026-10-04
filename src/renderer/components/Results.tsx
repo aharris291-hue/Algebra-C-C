@@ -16,7 +16,7 @@ export function Results({ r }: { r: ResultsView }) {
         <div className="score-big">{r.percent}%</div>
         <div>
           <div className="score-line">
-            {r.score} of {r.maxScore} correct · {r.passed ? 'Passed' : `Not yet (${r.passPercent}% passes)`}
+            {r.kind === 'review' ? `${r.score} of ${r.maxScore} right on the first try, without hints` : `${r.score} of ${r.maxScore} correct · ${r.passed ? 'Passed' : `Not yet (${r.passPercent}% passes)`}`}
           </div>
           <div className="score-sub">
             Attempt {r.attemptNumber} · {fmtDuration(r.durationMs)}

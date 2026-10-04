@@ -9,6 +9,7 @@ import { Profiles } from './screens/Profiles';
 import { Home } from './screens/Home';
 import { CourseMap, SkillsView } from './screens/CourseMap';
 import { LessonPlayer } from './screens/LessonPlayer';
+import { DayPlayer } from './screens/DayPlayer';
 import { ParentMode } from './screens/Parent';
 import { SettingsScreen } from './screens/Settings';
 
@@ -21,6 +22,7 @@ type Screen =
   | { name: 'skills' }
   | { name: 'settings' }
   | { name: 'lesson'; lessonId: string; testOut?: boolean }
+  | { name: 'day'; lessonId: string }
   | { name: 'parent'; back: 'profiles' | 'home' };
 
 const HEARTBEAT_SECONDS = 15;
@@ -85,7 +87,7 @@ export function App() {
   }, [profileId, screen.name]);
 
   useEffect(() => {
-    if (screen.name !== 'lesson') activity.current = { lessonId: null, activity: screen.name === 'home' ? 'dashboard' : screen.name };
+    if (screen.name !== 'lesson' && screen.name !== 'day') activity.current = { lessonId: null, activity: screen.name === 'home' ? 'dashboard' : screen.name };
   }, [screen]);
 
   if (fatal)
@@ -112,7 +114,7 @@ export function App() {
   ) : null;
 
   const go = (s: Screen) => setScreen(s);
-  const openLesson = (id: string, testOut?: boolean) => go({ name: 'lesson', lessonId: id, testOut });
+  const openLesson = (id: string, testOut?: boolean, kind?: string) => go(kind && kind !== 'lesson' ? { name: 'day', lessonId: id } : { name: 'lesson', lessonId: id, testOut });
 
   return (
     <div className="app">
@@ -138,7 +140,7 @@ export function App() {
         />
       )}
       {screen.name === 'home' && profileId !== null && (
-        <Home profileId={profileId} onOpenLesson={(id) => openLesson(id)} onCourse={() => go({ name: 'course' })} onSkills={() => go({ name: 'skills' })} onSettings={() => go({ name: 'settings' })} onSwitch={() => go({ name: 'profiles' })} />
+        <Home profileId={profileId} onOpenLesson={(id, kind) => openLesson(id, false, kind)} onCourse={() => go({ name: 'course' })} onSkills={() => go({ name: 'skills' })} onSettings={() => go({ name: 'settings' })} onSwitch={() => go({ name: 'profiles' })} />
       )}
       {screen.name === 'course' && profileId !== null && <CourseMap profileId={profileId} onOpenLesson={openLesson} onBack={() => go({ name: 'home' })} />}
       {screen.name === 'skills' && profileId !== null && <SkillsView profileId={profileId} onBack={() => go({ name: 'home' })} />}
@@ -153,6 +155,9 @@ export function App() {
           onOpenLesson={(id) => openLesson(id)}
           setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })}
         />
+      )}
+      {screen.name === 'day' && profileId !== null && (
+        <DayPlayer key={screen.lessonId} profileId={profileId} lessonId={screen.lessonId} onExit={() => go({ name: 'home' })} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} />
       )}
       {screen.name === 'parent' && (
         <ParentMode

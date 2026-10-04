@@ -7,6 +7,7 @@ import { ServiceContext } from './context';
 import * as parent from './parent';
 import * as profiles from './profiles';
 import * as lessons from './lessons';
+import * as days from './days';
 import * as dashboard from './dashboard';
 import * as backup from './backup';
 import { previewAnswer } from './preview';
@@ -104,6 +105,33 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     },
     async teachMeAgain(id, lessonId, approach) {
       return lessons.teachMeAgain(ctx, id, lessonId, approach);
+    },
+    async openDay(id, lessonId) {
+      return days.openDay(ctx, id, lessonId);
+    },
+    async startDay(id, lessonId) {
+      return days.startDay(ctx, id, lessonId);
+    },
+    async daySubmit(id, lessonId, key, response, elapsed) {
+      return days.daySubmit(ctx, id, lessonId, key, response, elapsed);
+    },
+    async dayHint(id, lessonId, key) {
+      return days.dayHint(ctx, id, lessonId, key);
+    },
+    async dayReveal(id, lessonId, key) {
+      return days.dayReveal(ctx, id, lessonId, key);
+    },
+    async dayNext(id, lessonId) {
+      return days.dayNext(ctx, id, lessonId);
+    },
+    async daySelect(id, lessonId, index) {
+      return days.daySelect(ctx, id, lessonId, index);
+    },
+    async finishDay(id, lessonId) {
+      return days.finishDay(ctx, id, lessonId);
+    },
+    async retakeDay(id, lessonId) {
+      return days.retakeDay(ctx, id, lessonId);
     },
     async heartbeat(id, lessonId, activity, activeSeconds) {
       profiles.requireProfile(ctx, id);
