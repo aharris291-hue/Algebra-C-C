@@ -151,6 +151,15 @@ export class AppDatabase {
     return new AppDatabase(sql, new sql.Database(bytes), '', log, Date.now);
   }
 
+  /** Bring an in-memory database (e.g. a backup being restored) up to the current schema. */
+  upgradeInMemory(appVersion: string): number | undefined {
+    const v = this.schemaVersion();
+    if (v > CURRENT_SCHEMA_VERSION) throw new NewerDatabaseError(v);
+    if (v === CURRENT_SCHEMA_VERSION) return undefined;
+    this.migrate(v, appVersion);
+    return v;
+  }
+
   private migrate(from: number, appVersion: string): void {
     for (const m of MIGRATIONS.filter((x) => x.version > from)) {
       this.db.exec('BEGIN');
