@@ -68,6 +68,7 @@ export type Block =
   | { t: 'callout'; variant: 'tip' | 'warning' | 'why' | 'realworld' | 'vocab'; title?: string; text: string }
   | { t: 'table'; headers: string[]; rows: string[][]; caption?: string }
   | { t: 'graph'; spec: GraphSpec; caption?: string }
+  | { t: 'numberline'; spec: NumberLineSpec; caption?: string }
   | { t: 'steps'; items: SolutionStep[] };
 
 export interface GraphSpec {
@@ -91,6 +92,20 @@ export interface GraphSpec {
   /** discrete point plots (sequences, scatter plots) */
   scatter?: Array<{ x: number; y: number }>;
   showLineOfFit?: { m: number; b: number };
+  ariaLabel: string;
+}
+
+/** One-variable number line: points (open or closed) and rays or segments of solutions. */
+export interface NumberLineSpec {
+  min: number;
+  max: number;
+  /** tick spacing; default 1 */
+  step?: number;
+  points?: Array<{ x: number; closed: boolean }>;
+  /** a shaded ray starting at a point and running off one end of the line */
+  rays?: Array<{ from: number; closed: boolean; dir: 'left' | 'right' }>;
+  /** a shaded piece between two points */
+  segments?: Array<{ from: number; to: number; fromClosed: boolean; toClosed: boolean }>;
   ariaLabel: string;
 }
 

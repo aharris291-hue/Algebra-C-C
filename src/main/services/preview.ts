@@ -34,7 +34,8 @@ export function previewAnswer(input: string, kind: AnswerKind): { tex: string | 
         ops.forEach((op, i) => (tex += ` ${REL_TEX[op]} ${astTex(parts[i + 1])}`));
         return { tex, error: null };
       }
-      case 'point': {
+      case 'point':
+      case 'region-point': {
         const m = s.match(/^\(?\s*([^,]+?)\s*,\s*([^,]+?)\s*\)?$/);
         if (!m) return { tex: null, error: 'Write a point as (x, y), for example (3, -2).' };
         return { tex: `\\left(${astTex(parseExpression(m[1]))},\\ ${astTex(parseExpression(m[2]))}\\right)`, error: null };

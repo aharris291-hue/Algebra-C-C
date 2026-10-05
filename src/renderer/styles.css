@@ -1447,3 +1447,10 @@ figcaption {
     border: none;
   }
 }
+
+.numberline .graph-svg {
+  max-width: 520px;
+}
+.numberline-arrow {
+  fill: var(--text);
+}

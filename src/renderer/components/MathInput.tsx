@@ -40,6 +40,7 @@ const EXAMPLES: Partial<Record<AnswerKind, string>> = {
   equation: 'Example: y = 2x + 3',
   inequality: 'Example: x > 4 or y ≤ -2x + 1',
   point: 'Example: (3, -2)',
+  'region-point': 'Example: (3, -2)',
   solutions: 'Example: x = 2, x = -5 (or "no real solutions")',
   interval: 'Example: [2, 7) or x > 3',
   'sequence-terms': 'Example: 4, 7, 10',

@@ -7,7 +7,7 @@ A UI placeholder never counts as IMPLEMENTED. TESTED is only used when the under
 
 Last updated: 2026-10-04 (v0.2.0, end of development session 1).
 
-E2E = `tests-e2e/first-lesson.spec.ts` and `tests-e2e/unit-days.spec.ts` (Playwright, real UI in Chromium + real services via the harness). Service tests = `tests/main/*.test.ts`.
+E2E = `tests-e2e/first-lesson.spec.ts`, `tests-e2e/unit-days.spec.ts` and `tests-e2e/unit2.spec.ts` (Playwright, real UI in Chromium + real services via the harness). Service tests = `tests/main/*.test.ts`.
 
 ## A. Curriculum and standards [§4, §5, §6, §56]
 
@@ -18,9 +18,9 @@ E2E = `tests-e2e/first-lesson.spec.ts` and `tests-e2e/unit-days.spec.ts` (Playwr
 | A3 | Complete 18-week curriculum map, 4-5 activities/week, 30-45 min | TESTED | docs/CURRICULUM_MAP.md; test: 90 days, 5 per week, unit pacing inside GaDOE block ranges |
 | A4 | Every lesson records standard ID, description, objective, prerequisites, skills taught, skills assessed | TESTED | src/content/catalog.ts; catalog test validates references |
 | A5 | Curriculum stored as data, not hard-coded in UI | TESTED | Catalog + lesson content modules; lesson player renders data (service + E2E tests) |
-| A6 | Lesson content for all 90 days (instruction, examples, practice, quizzes) | IN PROGRESS | Unit 1 complete: 10 of 66 instructional lessons (U1L01-U1L10), each math-reviewed independently (content tests + E2E for U1L01). Units 2-9 NOT STARTED |
-| A7 | Unit reviews, unit assessments, cumulative reviews, checkpoint, semester review, semester assessment | IN PROGRESS | Engine for every review/assessment kind TESTED (days service tests + E2E on Unit 1 Review and Unit 1 Assessment). Content available for Unit 1 only; other units need their generators. Capstones NOT STARTED |
-| A8 | Real-world contexts (gaming, sports, phones, money, jobs, shopping, transport, streaming, school) [§36] | IN PROGRESS | U1 generators use gym membership, savings, phone battery, water tank, hiking, rideshare, car wash, candle, gaming, sports and travel-speed contexts |
+| A6 | Lesson content for all 90 days (instruction, examples, practice, quizzes) | IN PROGRESS | Units 1-2 complete: 14 of 66 instructional lessons (U1L01-U1L10, U2L01-U2L04), each math-reviewed independently; every one runs end to end in tests/main/all-lessons.test.ts. Units 3-9 NOT STARTED |
+| A7 | Unit reviews, unit assessments, cumulative reviews, checkpoint, semester review, semester assessment | IN PROGRESS | Engine for every review/assessment kind TESTED (days service tests for Units 1 and 2 + E2E on Unit 1 Review and Assessment). Content for Units 1-2. Capstones NOT STARTED |
+| A8 | Real-world contexts (gaming, sports, phones, money, jobs, shopping, transport, streaming, school) [§36] | IN PROGRESS | U1-U2 generators use gym, savings, phone battery and storage, rideshare, games, sports leagues, fitness apps, part-time jobs, bake sales, theater tickets, carnival prizes and team snacks |
 | A9 | Curriculum audit (follow-up prompt 1) | NOT STARTED | |
 
 ## B. Windows application [§2, §3, §42]
@@ -57,10 +57,10 @@ E2E = `tests-e2e/first-lesson.spec.ts` and `tests-e2e/unit-days.spec.ts` (Playwr
 | ID | Requirement | Status | Evidence / notes |
 |---|---|---|---|
 | D1 | Exact arithmetic (no floating-point grading) | TESTED | src/core/math/rational.ts; tests/math/engine.test.ts |
-| D2 | Answer types: integers, decimals, fractions, expressions, equations, ordered pairs, multiple choice, solution sets, intervals, inequalities | TESTED | 31 checker tests (tests/math/engine.test.ts) |
+| D2 | Answer types: integers, decimals, fractions, expressions, equations, ordered pairs, multiple choice, solution sets, intervals, inequalities | TESTED | 33 checker tests (tests/math/engine.test.ts), including "any point in a region" answers for systems of inequalities |
 | D3 | Recognize equivalent answers (forms, order, notation) | TESTED | Polynomial canonical form, exact radicals, half-plane inequalities, interval/set-builder/inequality notation |
 | D4 | Requested-form checks (factored, expanded, vertex, simplified radical, slope-intercept, point-slope, standard) | TESTED | Wrong-form answers get "equivalent but rewrite" feedback, not marked wrong |
-| D5 | Graph interpretation responses | IN PROGRESS | SVG graph component; U1 graph generators (function notation, slope from a graph, key features, domain and range of segments/rays, sequence scatter plots) stress-tested. Other graph types come with their units |
+| D5 | Graph interpretation responses | IN PROGRESS | SVG graph component and new number line; U1-U2 graph generators (function notation, slope, key features, domain/range, sequences, shaded half-planes, systems of inequalities) stress-tested. Other graph types come with their units |
 | D6 | Misconception detection with targeted, non-revealing feedback | TESTED | Misconception answers produce targeted feedback and are tagged; repeated patterns reported to the parent |
 | D7 | Every generated problem validated before use (answer, solution, hints, ambiguity); bad problems rejected | TESTED | produceProblem validates key, misconceptions, 4 hints (no leaks), solution and steps; retries on failure (generator tests) |
 | D8 | Generators tested across many variations | TESTED | Each generator stress-tested over 300 seeds x 3 difficulties with independent verify() |
@@ -79,7 +79,7 @@ E2E = `tests-e2e/first-lesson.spec.ts` and `tests-e2e/unit-days.spec.ts` (Playwr
 
 | ID | Requirement | Status | Evidence / notes |
 |---|---|---|---|
-| F1 | Lesson quizzes, unit reviews, unit assessments, cumulative review, semester assessment | IN PROGRESS | Lesson quizzes TESTED. Unit reviews and unit assessments TESTED for Unit 1 (service tests + E2E: no hints, graded at end, corrections, retake, best of two). Checkpoint, cumulative review, semester review/assessment use the same engine but are untested until their units have content |
+| F1 | Lesson quizzes, unit reviews, unit assessments, cumulative review, semester assessment | IN PROGRESS | Lesson quizzes TESTED. Unit reviews and unit assessments TESTED for Units 1-2 (service tests; E2E for Unit 1). Checkpoint, cumulative review, semester review/assessment use the same engine but are untested until their units have content |
 | F2 | Store date/time, score, duration, attempts, skills/standards, missed questions, hints, mastery changes | TESTED | assessments table: times, duration, score, attempts, skills, standards, items with responses and misconceptions, mastery before/after; parent can review every answer (api test + E2E) |
 | F3 | Results show What You Did Well, Needs More Practice, Recommended Next Step | TESTED | Results show did well / keep practicing / next step / skill changes / item review (E2E) |
 | F4 | Transparent, documented grading system; categories separated; reproducible from stored data | TESTED | docs/GRADING.md; computeGrade tests; grade recomputed from stored assessments |
@@ -134,7 +134,7 @@ E2E = `tests-e2e/first-lesson.spec.ts` and `tests-e2e/unit-days.spec.ts` (Playwr
 |---|---|---|---|
 | K1 | Automated unit tests (math, engines, services) | TESTED | 87 automated tests passing |
 | K2 | Mathematics verification tests across many generated variations | TESTED | Generator stress tests + independent verify for every U1 generator |
-| K3 | End-to-end tests of the full student and parent flows | IN PROGRESS | E2E passing: first lesson + parent reports; Unit 1 Review and Assessment. Backup/restore and multi-profile E2E NOT STARTED |
+| K3 | End-to-end tests of the full student and parent flows | IN PROGRESS | E2E passing: first lesson + parent reports; Unit 1 Review and Assessment; Unit 2 lessons (number line, systems). Backup/restore and multi-profile E2E NOT STARTED |
 | K4 | Test list in §43 (fresh install … update/migration) | IN PROGRESS | Covered: fresh start, setup, lesson, quiz fail/retake, resume, reports, backup/restore (service level). Not covered: Windows install, update, migration on real data |
 | K5 | Production build | TESTED | npm run build succeeds; bundled main process smoke-tested |
 | K6 | Windows Setup.exe | BLOCKED | Packaging config and CI workflow are ready; Setup.exe must be built on Windows or GitHub Actions (this sandbox cannot download Electron/NSIS binaries; no GitHub repo connected yet) |

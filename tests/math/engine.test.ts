@@ -230,6 +230,30 @@ describe('checkAnswer: equations and inequalities', () => {
     expect(checkAnswer(spec, 'y >= 2x - 1').misconception).toBe('boundary-line');
     expect(st(spec, 'y > 2x + 1')).toBe('incorrect');
   });
+  it('inequalities: one variable, other variables named, flipped forms', () => {
+    const one: AnswerSpec = { kind: 'inequality', value: 'x >= -7/2' };
+    expect(st(one, 'x >= -3.5')).toBe('correct');
+    expect(st(one, '-3.5 <= x')).toBe('correct');
+    expect(checkAnswer(one, 'x <= -7/2').misconception).toBe('inequality-direction');
+    expect(st(one, 'x = -7/2')).toBe('invalid');
+    const two: AnswerSpec = { kind: 'inequality', value: '3x + 5y <= 60' };
+    expect(st(two, 'y <= -3/5x + 12')).toBe('correct');
+    expect(st(two, '60 >= 5y + 3x')).toBe('correct');
+    expect(st(two, '3a + 5b <= 60')).toBe('invalid'); // wrong variable names get a message, not a wrong mark
+  });
+  it('region points: any point satisfying every constraint is correct', () => {
+    const spec: AnswerSpec = { kind: 'region-point', constraints: ['y <= 2x + 1', 'y > -x + 3'], example: { x: '3', y: '2' } };
+    expect(st(spec, '(3, 2)')).toBe('correct');
+    expect(st(spec, '(5, 1/2)')).toBe('correct');
+    expect(st(spec, '(1.5, 4)')).toBe('correct'); // on the solid boundary y = 2x + 1
+    expect(st(spec, '(0, 3)')).toBe('incorrect'); // on the dashed boundary y = -x + 3
+    expect(checkAnswer(spec, '(2, 7)').message).toMatch(/does not make/);
+    expect(st(spec, '(2)')).toBe('invalid');
+    const whole: AnswerSpec = { kind: 'region-point', constraints: ['x + y <= 10', 'x >= 0', 'y >= 0'], example: { x: '2', y: '3' }, wholeNumbers: true };
+    expect(st(whole, '(2, 3)')).toBe('correct');
+    expect(st(whole, '(2.5, 3)')).toBe('incorrect');
+    expect(st(whole, '(11, 0)')).toBe('incorrect');
+  });
 });
 
 describe('checkAnswer: points, solutions, intervals', () => {

@@ -150,3 +150,36 @@ describe('review and assessment days', () => {
     expect(again.practice!.problems.map((p) => p.key)).toEqual(v.practice!.problems.map((p) => p.key));
   });
 });
+
+describe('Unit 2 review and assessment days', () => {
+  it('cover every Unit 2 skill and pass with correct answers', async () => {
+    const ctx = await makeCtx();
+    setupParent(ctx, '2468');
+    const pid = createProfile(ctx, 'Ana', 'owl').id;
+    const review = LESSON_BY_ID.get('U2L05')!;
+    for (const [id, l] of LESSON_BY_ID)
+      if (l.day < review.day) ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at) VALUES (?,?,?,?,?,?,?,?)", [pid, id, 'completed', 'summary', '{"v":1,"quizAttempts":1}', 1, 1, 1]);
+    D.openDay(ctx, pid, 'U2L05');
+    let v = D.startDay(ctx, pid, 'U2L05');
+    expect(new Set(dayState(ctx, pid, 'U2L05').practice!.items.map((i) => i.skillId))).toEqual(new Set(review.skillsAssessed));
+    while (!v.practice!.complete) {
+      const cur = v.practice!.problems[v.practice!.currentIndex];
+      if (cur.state === 'open') v = D.daySubmit(ctx, pid, 'U2L05', cur.key, key(ctx, pid, 'U2L05', cur.key), 20_000);
+      else v = D.dayNext(ctx, pid, 'U2L05');
+    }
+    v = D.finishDay(ctx, pid, 'U2L05');
+    expect(v.results!.score).toBe(v.results!.maxScore);
+    expect(lessonStatuses(ctx, pid).get('U2L06')!.status).toBe('available');
+    D.openDay(ctx, pid, 'U2L06');
+    v = D.startDay(ctx, pid, 'U2L06');
+    const skills = dayState(ctx, pid, 'U2L06').practice!.items.map((i) => i.skillId);
+    expect(new Set(skills).size).toBe(6);
+    // essential skills (S2.01, S2.03, S2.05) appear twice
+    for (const s of ['S2.01', 'S2.03', 'S2.05']) expect(skills.filter((x) => x === s).length).toBe(2);
+    for (const p of v.practice!.problems) v = D.daySubmit(ctx, pid, 'U2L06', p.key, key(ctx, pid, 'U2L06', p.key), 30_000);
+    v = D.finishDay(ctx, pid, 'U2L06');
+    expect(v.results!.passed).toBe(true);
+    expect(v.results!.score).toBe(v.results!.maxScore);
+    expect(SKILL_BY_ID.get('S2.05')!.essential).toBe(true);
+  });
+});

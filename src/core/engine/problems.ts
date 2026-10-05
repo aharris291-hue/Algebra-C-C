@@ -21,6 +21,8 @@ export function canonicalInput(spec: AnswerSpec): string {
       return spec.value;
     case 'point':
       return `(${spec.x}, ${spec.y})`;
+    case 'region-point':
+      return `(${spec.example.x}, ${spec.example.y})`;
     case 'solutions':
       return spec.values.length === 0 ? 'no real solutions' : spec.values.join(', ');
     case 'choice':

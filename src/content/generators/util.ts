@@ -129,3 +129,8 @@ export function texToExpr(tex: string): string {
 export function texValue(tex: string): Rational {
   return toPoly(parseExpression(texToExpr(tex))).constantValue();
 }
+
+/** TeX for a number: a decimal when it terminates, otherwise a fraction. */
+export function decimalOrFraction(x: Rational): string {
+  return x.isInteger() || x.isTerminatingDecimal() ? x.toDecimalString(10) : x.toTex();
+}

@@ -64,7 +64,7 @@ export interface AppStatus {
 // Problems
 // ---------------------------------------------------------------------------
 
-export type AnswerKind = 'number' | 'expression' | 'equation' | 'inequality' | 'point' | 'solutions' | 'interval' | 'choice' | 'sequence-terms';
+export type AnswerKind = 'number' | 'expression' | 'equation' | 'inequality' | 'point' | 'region-point' | 'solutions' | 'interval' | 'choice' | 'sequence-terms';
 
 export interface FeedbackView {
   status: CheckStatus;

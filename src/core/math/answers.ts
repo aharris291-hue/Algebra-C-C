@@ -72,6 +72,8 @@ export type AnswerSpec =
   | { kind: 'equation'; value: string; form?: EquationForm }
   | { kind: 'inequality'; value: string }
   | { kind: 'point'; x: string; y: string }
+  /** Any point that satisfies every constraint (inequalities in x and y) is correct; `example` is one such point. */
+  | { kind: 'region-point'; constraints: string[]; example: { x: string; y: string }; wholeNumbers?: boolean }
   | { kind: 'solutions'; values: string[]; variable?: string; roundTo?: number }
   | { kind: 'interval'; value: string } // interval notation, set-builder or inequality accepted
   | { kind: 'choice'; options: { id: string; label: string }[]; correct: string }
@@ -484,6 +486,34 @@ function equationsEquivalentImpl(a: Relation, b: Relation): boolean {
   return false;
 }
 
+/** Does (x, y) satisfy the relation? */
+export function relationHolds(r: Relation, x: Rational, y: Rational): boolean {
+  const vals = { x, y };
+  const lp = tryPoly(r.lhs);
+  const rp = tryPoly(r.rhs);
+  if (!lp || !rp) throw new Error('constraint must be polynomial');
+  const l = lp.evaluate(vals);
+  const rr = rp.evaluate(vals);
+  const c = l.sub(rr).sign();
+  switch (r.op) {
+    case '=':
+      return c === 0;
+    case '<':
+      return c < 0;
+    case '>':
+      return c > 0;
+    case '<=':
+      return c <= 0;
+    case '>=':
+      return c >= 0;
+  }
+}
+
+/** Light TeX for a typed relation ("y <= 2x + 1" to "y \le 2x + 1"). */
+export function relationTex(src: string): string {
+  return src.replace(/<=/g, ' \\le ').replace(/>=/g, ' \\ge ').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+}
+
 /** Inequality equivalence: same half-plane / half-line. */
 export function inequalitiesEquivalent(a: Relation, b: Relation): boolean {
   const la = tryPoly(a.lhs);
@@ -694,6 +724,11 @@ function withValue(spec: AnswerSpec, value: string): AnswerSpec {
       const [x, y] = value.split('|');
       return { ...spec, x, y };
     }
+    case 'region-point': {
+      // a misconception is one specific wrong point
+      const [x, y] = value.split('|');
+      return { kind: 'point', x, y };
+    }
     case 'solutions':
     case 'sequence-terms':
       return { ...spec, values: value === '' ? [] : value.split('|') } as AnswerSpec;
@@ -829,6 +864,11 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
       const target = parseRelation(spec.value);
       const got = parseRelation(rawInput);
       if (got.op === '=') return quiet ? bad() : invalid('Use an inequality symbol: <, >, <= (≤) or >= (≥).');
+      {
+        const tVars = new Set([...variablesOf(target.lhs), ...variablesOf(target.rhs)]);
+        const extra = [...variablesOf(got.lhs), ...variablesOf(got.rhs)].filter((v) => !tVars.has(v));
+        if (extra.length && !quiet) return invalid(`Use the variable${tVars.size === 1 ? '' : 's'} ${[...tVars].sort().join(' and ')}. I see ${[...new Set(extra)].join(', ')}.`);
+      }
       if (inequalitiesEquivalent(got, target)) return ok();
       // same boundary, wrong symbol: give a targeted nudge
       const la = tryPoly(got.lhs)?.sub(tryPoly(got.rhs)!);
@@ -842,6 +882,25 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
         if (strict(tOp) !== strict(got.op)) return bad('The boundary is right. Should the boundary itself be included?', 'boundary-line');
       }
       return bad();
+    }
+
+    case 'region-point': {
+      const s = normalizeInput(rawInput).trim().replace(/^\(/, '').replace(/\)$/, '');
+      const parts = s.split(',');
+      if (parts.length !== 2) return invalid('Type an ordered pair like (3, -2).');
+      const x = exactValue(parts[0]);
+      const y = exactValue(parts[1]);
+      if (!x || !y || !x.isRational() || !y.isRational()) return invalid('Each coordinate should be a number.');
+      const xv = x.rationalPart();
+      const yv = y.rationalPart();
+      if (spec.wholeNumbers && (!xv.isInteger() || !yv.isInteger() || xv.isNegative() || yv.isNegative()))
+        return bad('In this situation both numbers have to be whole numbers (0, 1, 2, ...).', 'other');
+      for (const c of spec.constraints) {
+        if (!relationHolds(parseRelation(c), xv, yv)) {
+          return bad(quiet ? undefined : `$(${xv.toTex()}, ${yv.toTex()})$ does not make $${relationTex(c)}$ true. Substitute it to see why, then pick a point inside the region where all the shading overlaps.`, 'shading');
+        }
+      }
+      return ok();
     }
 
     case 'point': {
@@ -998,6 +1057,8 @@ export function answerToText(spec: AnswerSpec): string {
       return spec.value;
     case 'point':
       return `(${spec.x}, ${spec.y})`;
+    case 'region-point':
+      return `any point that makes ${spec.constraints.join(' and ')} true${spec.wholeNumbers ? ' (whole numbers)' : ''}, for example (${spec.example.x}, ${spec.example.y})`;
     case 'solutions':
       return spec.values.length === 0 ? 'no real solutions' : spec.values.map((v) => `${spec.variable ?? 'x'} = ${v}`).join(' or ');
     case 'interval':

@@ -71,15 +71,20 @@ export function Graph({ spec, caption }: { spec: GraphSpec; caption?: string }) 
         return null;
       }
       const pts: string[] = [];
+      const raw: string[] = [];
       const N = 200;
+      const span = yMax - yMin;
       for (let i = 0; i <= N; i++) {
         const x = xMin + ((xMax - xMin) * i) / N;
-        const y = Math.max(yMin, Math.min(yMax, evalNumeric(ast, { x })));
+        const yv = evalNumeric(ast, { x });
+        const y = Math.max(yMin, Math.min(yMax, yv));
         pts.push(`${sx(x).toFixed(1)},${sy(y).toFixed(1)}`);
+        // the boundary itself is drawn unclamped (and clipped), so it never runs along the window edge
+        raw.push(`${sx(x).toFixed(1)},${sy(Math.max(yMin - span, Math.min(yMax + span, yv))).toFixed(1)}`);
       }
       const edgeY = q.side === 'above' ? yMax : yMin;
       const poly = [...pts, `${sx(xMax)},${sy(edgeY)}`, `${sx(xMin)},${sy(edgeY)}`].join(' ');
-      const line = 'M' + pts.join(' L');
+      const line = 'M' + raw.join(' L');
       return { poly, line, color: q.color ?? COLORS[idx % COLORS.length], strict: q.strict };
     });
   }, [spec, xMin, xMax, yMin, yMax]);
