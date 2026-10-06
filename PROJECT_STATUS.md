@@ -1,9 +1,9 @@
 # Project Status
 
 **Application:** Algebra C&C Learning Academy (Windows desktop, Electron + React + SQLite/WASM)
-**Current version:** 0.4.0 (pre-release: Units 1 and 2 are complete end to end, days 1-18; Setup.exe not built yet)
-**Current phase:** Curriculum content. Units 1-2 (days 1-18) done; Units 3-9, the checkpoint, cumulative review, capstones and semester days remain.
-**Last updated:** 2026-10-05 (end of development session 3)
+**Current version:** 0.5.0 (pre-release: Units 1-3 are complete end to end, days 1-23; Setup.exe not built yet)
+**Current phase:** Curriculum content. Units 1-3 (days 1-23) done; Units 4-9, the checkpoint, cumulative review, capstones and semester days remain.
+**Last updated:** 2026-10-06 (end of development session 4)
 
 ## Completed
 - Georgia A:C&C standards verified against GaDOE sources; coverage matrix; 18-week / 90-day curriculum map (66 lessons, 8 unit reviews, 8 unit assessments, checkpoint, cumulative review, 3 capstones, semester review and assessment; 83 course skills)
@@ -13,6 +13,8 @@
 - 28 verified Unit 1 generators covering all 17 Unit 1 skills (function notation, slope and rate of change, writing and converting linear equations, intercepts, key features, domain and range, arithmetic sequences, linear models, unit rates, parent functions). Each lesson's math was re-checked by an independent reviewer; no math errors found, 3 wording fixes made
 - Review and assessment days engine (works for every unit): review mixes every unit skill with extra items for weak skills; assessment has no hints, is graded at the end with a 70% bar, builds corrections, allows a retake after corrections, best of the first two attempts counts, XP awarded once
 - Unit 2 complete (Analyzing Linear Inequalities): lessons U2L01-U2L04, the Unit 2 Review (U2L05) and the Unit 2 Assessment (U2L06). 12 verified generators cover all 6 Unit 2 skills: solving one-variable inequalities (with the flip rule), number lines, phrases to symbols, two-variable inequalities from situations, boundary line and shading, writing an inequality from a graph, testing solutions, possible/not possible in context (whole-number and non-negative counts), systems of inequalities, any point in a system's region, modeling with a system, and greatest/least whole numbers under two constraints. Independent reviewers re-checked all lesson math: no math errors; 5 wording fixes
+- Unit 3 complete (Investigating Rational and Irrational Numbers): lessons U3L01-U3L03, the Unit 3 Review (U3L04) and the Unit 3 Assessment (U3L05). 8 verified generators cover all 7 Unit 3 skills: classify a number with its reason (integers, fractions, terminating and repeating decimals, perfect and non-perfect roots, multiples of pi, non-repeating pattern decimals), pick the one irrational/rational number, closure of sums and products (specific cases, always/sometimes rules checked by brute force over sample numbers, counterexamples), simplify square roots and cube roots (including negatives), add and subtract radicals, multiply radicals (distributive, conjugates, squares), and radicals with variables. Every key is checked two ways: exact radical arithmetic on the re-read prompt and a decimal check. An independent reviewer re-checked all lesson math: no arithmetic errors; 4 wording fixes in U3L01 (e.g. "not a whole number" no longer used as a reason for irrational) and 3 explanation fixes in generators
+- Radical answers: function names are recognized inside typed text ("3x^2sqrt(2x)", "2cbrt(5)"); a decimal close to an exact irrational answer now gets "that is only an approximation, give the exact value"
 - New answer type: "any point in the region" (every point that satisfies all constraints is accepted, with feedback naming the inequality a wrong point breaks; optional whole-number rule). New number-line graphic for one-variable inequalities. Inequality answers now say so when the wrong variable names are used
 - Answer checking now accepts labelled answers ("a_n = 3n + 2", "C(m) = ...") and rate units ("12 per hour", "$/gallon")
 - Engines: mastery (recency-weighted, retention required for Mastered, spaced review), grading, XP with anti-guessing, streaks
@@ -23,10 +25,10 @@
 - Packaging: electron-builder NSIS config, app icon, GitHub Actions Windows workflow; README.md and docs/GRADING.md
 
 ## In development
-- Curriculum content: 14 of 66 lessons and 4 of 24 review/assessment days done (all of Units 1 and 2)
+- Curriculum content: 17 of 66 lessons and 6 of 24 review/assessment days done (all of Units 1-3)
 
 ## Remaining (largest first; full list in REQUIREMENTS_CHECKLIST.md)
-1. Lesson content and verified generators for Units 3-9 (52 lessons). Unit reviews and assessments for those units will work automatically once their skills have generators
+1. Lesson content and verified generators for Units 4-9 (49 lessons). Unit reviews and assessments for those units will work automatically once their skills have generators
 2. Checkpoint, cumulative review, semester review and semester assessment content checks (engine already supports them); the 3 capstone projects (not playable yet)
 3. Diagnostic / placement assessment and the first-launch offer
 4. Build Setup.exe on Windows (CI or PC) and run the clean-install, update and migration tests
@@ -36,23 +38,22 @@
 - None open. Fixed in session 2: unit-review E2E exposed no app bugs; generator issues found by the stress tests (fractional-slope table sometimes gave an integer slope; a rate context gave away its answer; unit-rate wording) were fixed before release. Fixed in session 1: Teach Me Again failed when no approach was chosen (optional argument arrived as null); stale Show What You Know results could mark a later quiz finished; graph curves were drawn flat outside the plot area; skills could reach Mastered in a single sitting (now requires retention on a later day).
 
 ## Tests completed (all passing)
-- 234 automated tests (`npm test`): math engine 33, curriculum catalog 6, lesson content 84, generators 44 (all 40 generators over 300 seeds x 3 difficulties, each with an independent re-derivation), every written lesson run end to end through the lesson services 14, engines 18, database 7, lesson player 4, review/assessment days 4 (incl. Unit 2), app API 5, IPC validation 3
-- End-to-end (`npm run test:e2e`, 3 tests): (0) Unit 2 in the real UI: number lines in Lesson 1, then Lesson 4 (shaded systems, any-point answers) through guided and independent practice; (1) Unit 1 Review and Unit 1 Assessment in the real UI: overview, hint, full mixed review, review results, 23-question assessment with no hints, 3 wrong answers graded 20/23 Passed, corrections, then the retake opens; (2) setup through Lesson 1 completion in the real UI, including a hint, wrong answers, a reload mid-lesson, a failed quiz, Teach Me Again, targeted practice, a passed retake, dashboard XP/achievements and Parent Mode reports
+- 275 automated tests (`npm test`): math engine 35, curriculum catalog 6, lesson content 102, generators 73 (all 48 generators over 300 seeds x 3 difficulties, each with an independent re-derivation), every written lesson run end to end through the lesson services 17, engines 18, database 7, lesson player 4, review/assessment days 5 (incl. Units 2 and 3), app API 5, IPC validation 3
+- End-to-end (`npm run test:e2e`, 4 tests): (U3) Lesson U3L03 in the real UI from instruction through guided practice, independent practice (wrong answers first), a 100% quiz, mastery check and lesson complete, typing radical answers; (0) Unit 2 in the real UI: number lines in Lesson 1, then Lesson 4 (shaded systems, any-point answers) through guided and independent practice; (1) Unit 1 Review and Unit 1 Assessment in the real UI: overview, hint, full mixed review, review results, 23-question assessment with no hints, 3 wrong answers graded 20/23 Passed, corrections, then the retake opens; (2) setup through Lesson 1 completion in the real UI, including a hint, wrong answers, a reload mid-lesson, a failed quiz, Teach Me Again, targeted practice, a passed retake, dashboard XP/achievements and Parent Mode reports
 - Bundled Electron main process smoke-tested with a stub Electron (database created, IPC validation, logging)
 
 ## Tests remaining
 - Windows: install, Start Menu/Desktop shortcuts, first launch, restart persistence, update over an older version, uninstall keeps data
-- Long-horizon spaced review; multi-profile isolation; backup/restore through the UI; Units 3-9 generators and content
+- Long-horizon spaced review; multi-profile isolation; backup/restore through the UI; Units 4-9 generators and content
 
 ## Files created or modified this session
-- Content: src/content/lessons/U2/U2L01-U2L04; src/content/generators/{u2-common,u2-contexts,u2-one-var,u2-two-var,u2-solutions,u2-systems}.ts; src/content/index.ts; util.ts (decimalOrFraction)
-- Math engine: src/core/math/answers.ts (region-point answers, relationHolds, inequality variable check); src/core/engine/problems.ts; src/main/services/preview.ts; src/shared/api.ts
-- UI: src/renderer/components/NumberLine.tsx (new), Blocks.tsx, Graph.tsx (boundary lines no longer run along the window edge), MathInput.tsx, styles.css; src/core/curriculum/types.ts (numberline block)
-- Tests: tests/generators/u2-unit.test.ts, u2-list.ts, tests/main/all-lessons.test.ts (new), days.test.ts, tests/math/engine.test.ts, tests-e2e/unit2.spec.ts (new)
-- docs/CURRICULUM_MAP.md, docs/STANDARDS_COVERAGE.md (regenerated), PROJECT_STATUS.md, REQUIREMENTS_CHECKLIST.md, package.json (0.4.0)
+- Content: src/content/lessons/U3/U3L01-U3L03; src/content/generators/{u3-common,u3-numbers,u3-radicals}.ts; src/content/index.ts
+- Math engine: src/core/math/parser.ts (sqrt/cbrt/abs/root inside letter runs); src/core/math/answers.ts (decimal-approximation feedback)
+- Tests: tests/generators/u3-unit.test.ts, u3-list.ts (new), tests/main/days.test.ts (Unit 3 days), tests/math/engine.test.ts, tests-e2e/unit3.spec.ts (new)
+- docs/CURRICULUM_MAP.md, docs/STANDARDS_COVERAGE.md (regenerated), PROJECT_STATUS.md, REQUIREMENTS_CHECKLIST.md, package.json (0.5.0)
 
 ## Blockers
 - Setup.exe: this cloud environment cannot download Electron or NSIS binaries. Either connect a GitHub repository (the included workflow then builds Setup.exe on Windows automatically) or run `npm ci && npm run dist:win` once on a Windows PC.
 
 ## Next recommended step
-Unit 3 (Investigating Rational and Irrational Numbers: rational vs irrational, square and cube roots): lessons, verified generators and tests, the same way as Units 1-2. Its review and assessment days need no new engine work.
+Unit 4 (Modeling and Analyzing Quadratic Functions, the largest unit: quadratic expressions, factoring, graphs and key features, solving by square roots, factoring and the quadratic formula): lessons, verified generators and tests, the same way as Units 1-3.

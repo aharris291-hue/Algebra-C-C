@@ -83,13 +83,18 @@ function tokenize(src: string): Tok[] {
       while (j < s.length && /[a-zA-Z]/.test(s[j])) j++;
       const word = s.slice(i, j);
       const lower = word.toLowerCase();
-      if (FUNC_NAMES.has(lower)) {
-        out.push({ k: 'id', v: lower });
-      } else if (lower === 'root') {
-        out.push({ k: 'id', v: 'sqrt' });
-      } else {
-        // A run of letters like "xy" means x*y. Each letter is its own variable.
-        for (const ch of word) out.push({ k: 'id', v: ch });
+      // A run of letters like "xy" means x*y: each letter is its own variable. Function names
+      // may be glued to variables, as in "3xsqrt(2x)", so they are split out wherever they occur.
+      let k = 0;
+      while (k < lower.length) {
+        const fn = ['sqrt', 'cbrt', 'abs', 'root'].find((f) => lower.startsWith(f, k));
+        if (fn) {
+          out.push({ k: 'id', v: fn === 'root' ? 'sqrt' : fn });
+          k += fn.length;
+        } else {
+          out.push({ k: 'id', v: word[k] });
+          k++;
+        }
       }
       i = j;
       continue;

@@ -12,6 +12,8 @@ import { U2_ONE_VAR_GENERATORS } from './generators/u2-one-var';
 import { U2_TWO_VAR_GENERATORS } from './generators/u2-two-var';
 import { U2_SOLUTION_GENERATORS } from './generators/u2-solutions';
 import { U2_SYSTEM_GENERATORS } from './generators/u2-systems';
+import { U3_NUMBER_GENERATORS } from './generators/u3-numbers';
+import { U3_RADICAL_GENERATORS } from './generators/u3-radicals';
 import { U1L01 } from './lessons/U1/U1L01';
 import { U1L02 } from './lessons/U1/U1L02';
 import { U1L03 } from './lessons/U1/U1L03';
@@ -26,6 +28,9 @@ import { U2L01 } from './lessons/U2/U2L01';
 import { U2L02 } from './lessons/U2/U2L02';
 import { U2L03 } from './lessons/U2/U2L03';
 import { U2L04 } from './lessons/U2/U2L04';
+import { U3L01 } from './lessons/U3/U3L01';
+import { U3L02 } from './lessons/U3/U3L02';
+import { U3L03 } from './lessons/U3/U3L03';
 
 export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U1_FUNCTION_GENERATORS,
@@ -40,11 +45,13 @@ export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U2_TWO_VAR_GENERATORS,
   ...U2_SOLUTION_GENERATORS,
   ...U2_SYSTEM_GENERATORS,
+  ...U3_NUMBER_GENERATORS,
+  ...U3_RADICAL_GENERATORS,
 ];
 
 export const GENERATORS: ReadonlyMap<string, GeneratorDef> = new Map(ALL_GENERATORS.map((g) => [g.id, g]));
 
-export const LESSON_CONTENT: ReadonlyMap<string, LessonContent> = new Map([U1L01, U1L02, U1L03, U1L04, U1L05, U1L06, U1L07, U1L08, U1L09, U1L10, U2L01, U2L02, U2L03, U2L04].map((l) => [l.lessonId, l]));
+export const LESSON_CONTENT: ReadonlyMap<string, LessonContent> = new Map([U1L01, U1L02, U1L03, U1L04, U1L05, U1L06, U1L07, U1L08, U1L09, U1L10, U2L01, U2L02, U2L03, U2L04, U3L01, U3L02, U3L03].map((l) => [l.lessonId, l]));
 
 /** Generators that practice a skill (used for spaced review and remediation). */
 export function generatorsForSkill(skillId: string): GeneratorDef[] {

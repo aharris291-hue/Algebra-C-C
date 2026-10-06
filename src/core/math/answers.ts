@@ -754,8 +754,28 @@ export function checkAnswer(spec: AnswerSpec, input: string, misconceptions?: Mi
       m = null;
     }
     if (m) return m;
+    const approx = decimalApproximation(spec, input);
+    if (approx) return approx;
   }
   return r;
+}
+
+/** A typed decimal that is close to an exact irrational answer gets a pointer to the exact form. */
+function decimalApproximation(spec: AnswerSpec, input: string): CheckResult | null {
+  if (spec.kind !== 'expression' && spec.kind !== 'number') return null;
+  if (!/^\s*-?\d*\.\d+\s*$/.test(input)) return null;
+  try {
+    const target = parseExpression(spec.value);
+    if (variablesOf(target).size > 0) return null;
+    const exact = trySurd(target);
+    if (exact && exact.isRational()) return null;
+    const t = evalNumeric(target, {});
+    const v = Number(input);
+    if (Math.abs(t - v) <= 0.01 * Math.max(1, Math.abs(t))) return bad('That decimal is close, but it is only an approximation. Give the exact value, using a radical like √2.', 'radical-simplify');
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckResult {

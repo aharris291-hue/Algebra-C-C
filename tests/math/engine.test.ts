@@ -314,3 +314,24 @@ describe('absolute value is not confused with its argument', () => {
     expect(st({ kind: 'expression', value: 'abs(x)' }, '|x|')).toBe('correct');
   });
 });
+
+describe('Unit 3 radical input', () => {
+  it('reads sqrt, cbrt and root inside letter runs', () => {
+    const spec: AnswerSpec = { kind: 'expression', value: '3x^2sqrt(2x)', form: 'simplified-radical' };
+    expect(checkAnswer(spec, '3x^2sqrt(2x)').status).toBe('correct');
+    expect(checkAnswer(spec, '3x^2*sqrt(2x)').status).toBe('correct');
+    expect(checkAnswer(spec, 'sqrt(18x^5)').status).toBe('wrong-form');
+    const c: AnswerSpec = { kind: 'expression', value: '-3cbrt(18)', form: 'simplified-radical' };
+    expect(checkAnswer(c, '-3cbrt(18)').status).toBe('correct');
+    expect(checkAnswer(c, 'cbrt(-486)').status).toBe('wrong-form');
+    expect(checkAnswer(c, '3cbrt(18)').status).toBe('incorrect');
+  });
+  it('a decimal approximation of an irrational answer gets a specific message', () => {
+    const spec: AnswerSpec = { kind: 'expression', value: '6sqrt(2)', form: 'simplified-radical' };
+    const r = checkAnswer(spec, '8.485');
+    expect(r.status).toBe('incorrect');
+    expect(r.message).toMatch(/approximation/);
+    expect(checkAnswer(spec, '6sqrt(2)').status).toBe('correct');
+    expect(checkAnswer(spec, 'sqrt(72)').status).toBe('wrong-form');
+  });
+});
