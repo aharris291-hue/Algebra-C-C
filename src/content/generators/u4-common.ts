@@ -143,3 +143,128 @@ export function factorPairs(n: number): Array<[number, number]> {
 }
 
 export const pairLabel = (p: number, q: number) => `$${p}$ and $${q}$`;
+
+// ---------------------------------------------------------------------------
+// Quadratic functions (Unit 4, Lessons 12-19)
+// ---------------------------------------------------------------------------
+
+type Num = number | Rational;
+const R = (n: Num): Rational => (n instanceof Rational ? n : Q(n));
+
+/** p evaluated at a number. */
+export function ev(poly: Poly, x: Num, v = 'x'): Rational {
+  return poly.evaluate({ [v]: R(x) });
+}
+
+/** a, b, c and the vertex (h, k) of a quadratic in v. */
+export function vertexOf(poly: Poly, v = 'x'): { a: Rational; b: Rational; c: Rational; h: Rational; k: Rational } {
+  const cs = poly.coeffsIn(v);
+  if (cs.length !== 3 || cs[2].isZero()) throw new Error('not quadratic');
+  const [c, b, a] = cs;
+  const h = b.neg().div(a.mul(2));
+  return { a, b, c, h, k: ev(poly, h, v) };
+}
+
+/** Leading factor in TeX / parser syntax: 1 -> "", -1 -> "-", 1/2 -> "\frac{1}{2}" / "(1/2)". */
+export function coefTex(a: Num): string {
+  const r = R(a);
+  if (r.eq(1)) return '';
+  if (r.eq(-1)) return '-';
+  return r.toTex();
+}
+export function coefPlain(a: Num): string {
+  const r = R(a);
+  if (r.eq(1)) return '';
+  if (r.eq(-1)) return '-';
+  return r.isInteger() ? r.toString() : `(${r.toString()})`;
+}
+
+/** " + 3" / " - 3" / "" for a trailing constant. */
+export function tailTex(k: Num): string {
+  const r = R(k);
+  return r.isZero() ? '' : r.isNegative() ? ` - ${r.abs().toTex()}` : ` + ${r.toTex()}`;
+}
+export function tailPlain(k: Num): string {
+  const r = R(k);
+  return r.isZero() ? '' : r.isNegative() ? ` - ${r.abs().toString()}` : ` + ${r.toString()}`;
+}
+
+/** (v - h) in TeX / plain; just v when h = 0. */
+const shiftTex = (h: Num, v: string) => (R(h).isZero() ? v : `\\left(${polyTex(Poly.fromCoeffs(v, [R(h).neg(), Q(1)]), [v])}\\right)`);
+const shiftPlain = (h: Num, v: string) => (R(h).isZero() ? v : `(${polyPlain(Poly.fromCoeffs(v, [R(h).neg(), Q(1)]), [v])})`);
+
+/** a(x - h)^2 + k */
+export function vtxTex(a: Num, h: Num, k: Num, v = 'x'): string {
+  return `${coefTex(a)}${shiftTex(h, v)}^{2}${tailTex(k)}`;
+}
+export function vtxPlain(a: Num, h: Num, k: Num, v = 'x'): string {
+  return `${coefPlain(a)}${shiftPlain(h, v)}^2${tailPlain(k)}`;
+}
+export function vtxPoly(a: Num, h: Num, k: Num, v = 'x'): Poly {
+  const s = Poly.fromCoeffs(v, [R(h).neg(), Q(1)]);
+  return s.mul(s).scale(R(a)).add(Poly.const(R(k)));
+}
+
+/** a(x - r)(x - s); a repeated zero is written as a square. */
+export function factTex(a: Num, r: Num, s: Num, v = 'x'): string {
+  if (R(s).isZero() && !R(r).isZero()) [r, s] = [s, r]; // a bare x factor goes first: x(x + 3)
+  if (R(r).eq(R(s))) return `${coefTex(a)}${shiftTex(r, v)}^{2}`;
+  return `${coefTex(a)}${shiftTex(r, v)}${shiftTex(s, v)}`;
+}
+export function factPlain(a: Num, r: Num, s: Num, v = 'x'): string {
+  if (R(s).isZero() && !R(r).isZero()) [r, s] = [s, r]; // a bare x factor goes first: x(x + 3)
+  if (R(r).eq(R(s))) return `${coefPlain(a)}${shiftPlain(r, v)}^2`;
+  return `${coefPlain(a)}${shiftPlain(r, v)}${shiftPlain(s, v)}`;
+}
+export function factPoly(a: Num, r: Num, s: Num, v = 'x'): Poly {
+  return Poly.fromCoeffs(v, [R(r).neg(), Q(1)]).mul(Poly.fromCoeffs(v, [R(s).neg(), Q(1)])).scale(R(a));
+}
+
+/** The polynomial on the right of "f(x) = ..." in generator TeX. */
+export function rhsPoly(tex: string): Poly {
+  const i = tex.indexOf('=');
+  return texPoly(i >= 0 ? tex.slice(i + 1) : tex);
+}
+
+/** All math blocks of a prompt, in order. */
+export function mathBlocks(pr: Pick<Problem, 'prompt'>): string[] {
+  return (pr.prompt as Block[]).filter((b): b is Extract<Block, { t: 'math' }> => b.t === 'math').map((b) => b.tex);
+}
+
+/** Text of all paragraph blocks of a prompt. */
+export function promptText(pr: Pick<Problem, 'prompt'>): string {
+  return (pr.prompt as Block[]).map((b) => (b.t === 'p' ? b.text : '')).join(' ');
+}
+
+/** The first graph in a prompt. */
+export function graphOf(pr: Pick<Problem, 'prompt'>): Extract<Block, { t: 'graph' }>['spec'] | null {
+  for (const b of pr.prompt as Block[]) if (b.t === 'graph') return b.spec;
+  return null;
+}
+
+/** TeX of a number substituted into an expression: negatives and fractions in parentheses. */
+export function subTex(x: Num): string {
+  const r = R(x);
+  return r.isNegative() || !r.isInteger() ? `\\left(${r.toTex()}\\right)` : r.toTex();
+}
+
+/** "3 + 4 - 5" from signed numbers (TeX). */
+export function joinNums(ns: Num[]): string {
+  return ns.map((n, i) => {
+    const r = R(n);
+    if (i === 0) return r.toTex();
+    return r.isNegative() ? ` - ${r.abs().toTex()}` : ` + ${r.toTex()}`;
+  }).join('');
+}
+
+/** "f(-3) = 2(-3)^2 - 5(-3) + 1" substitution TeX for a standard-form quadratic. */
+export function substituteTex(a: Num, b: Num, c: Num, x: Num): string {
+  const A = R(a);
+  const B = R(b);
+  const C = R(c);
+  const px = `\\left(${R(x).toTex()}\\right)`;
+  let s = `${coefTex(A)}${px}^{2}`;
+  if (!B.isZero()) s += `${B.isNegative() ? ' - ' : ' + '}${B.abs().eq(1) ? '' : B.abs().toTex()}${px}`;
+  s += tailTex(C);
+  return s;
+}

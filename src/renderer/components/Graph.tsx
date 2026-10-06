@@ -154,7 +154,14 @@ export function Graph({ spec, caption }: { spec: GraphSpec; caption?: string }) 
         )}
         {curves.map((c, i) => c && <path key={'c' + i} clipPath={`url(#${clipId})`} d={c.d} stroke={c.color} strokeWidth={2.6} fill="none" strokeDasharray={c.dashed ? '7 5' : undefined} />)}
         {(spec.segments ?? []).map((s, i) => (
-          <line key={'s' + i} x1={sx(s.x1)} y1={sy(s.y1)} x2={sx(s.x2)} y2={sy(s.y2)} stroke={s.color ?? '#666'} strokeWidth={1.8} strokeDasharray={s.dashed ? '5 4' : undefined} />
+          <g key={'s' + i}>
+            <line x1={sx(s.x1)} y1={sy(s.y1)} x2={sx(s.x2)} y2={sy(s.y2)} stroke={s.color ?? '#666'} strokeWidth={1.8} strokeDasharray={s.dashed ? '5 4' : undefined} />
+            {s.label && (
+              <text x={sx(Math.max(s.x1, s.x2)) + 6} y={sy(Math.max(s.y1, s.y2)) + 14} className="graph-point-label">
+                {s.label}
+              </text>
+            )}
+          </g>
         ))}
         {(spec.scatter ?? []).map((p, i) => (
           <circle key={'sc' + i} cx={sx(p.x)} cy={sy(p.y)} r={4} className="graph-scatter" />

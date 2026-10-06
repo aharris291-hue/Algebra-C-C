@@ -237,3 +237,36 @@ describe('Units 1-4 checkpoint day', () => {
     expect(lessonStatuses(ctx, pid).get('U4L11')!.status).toBe('completed');
   });
 });
+
+describe('Unit 4 review and assessment days', () => {
+  it('cover every Unit 4 skill and pass with correct answers', async () => {
+    const ctx = await makeCtx();
+    setupParent(ctx, '2468');
+    const pid = createProfile(ctx, 'Ana', 'owl').id;
+    const review = LESSON_BY_ID.get('U4L20')!;
+    for (const [id, l] of LESSON_BY_ID)
+      if (l.day < review.day) ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at) VALUES (?,?,?,?,?,?,?,?)", [pid, id, 'completed', 'summary', '{"v":1,"quizAttempts":1}', 1, 1, 1]);
+    D.openDay(ctx, pid, 'U4L20');
+    let v = D.startDay(ctx, pid, 'U4L20');
+    expect(new Set(dayState(ctx, pid, 'U4L20').practice!.items.map((i) => i.skillId))).toEqual(new Set(review.skillsAssessed));
+    while (!v.practice!.complete) {
+      const cur = v.practice!.problems[v.practice!.currentIndex];
+      if (cur.state === 'open') v = D.daySubmit(ctx, pid, 'U4L20', cur.key, key(ctx, pid, 'U4L20', cur.key), 20_000);
+      else v = D.dayNext(ctx, pid, 'U4L20');
+    }
+    v = D.finishDay(ctx, pid, 'U4L20');
+    expect(v.results!.score).toBe(v.results!.maxScore);
+    expect(lessonStatuses(ctx, pid).get('U4L21')!.status).toBe('available');
+    D.openDay(ctx, pid, 'U4L21');
+    v = D.startDay(ctx, pid, 'U4L21');
+    const skills = dayState(ctx, pid, 'U4L21').practice!.items.map((i) => i.skillId);
+    expect(new Set(skills).size).toBe(21);
+    // essential skills appear twice
+    for (const s of ['S4.03', 'S4.05', 'S4.06', 'S4.09', 'S4.12', 'S4.15']) expect(skills.filter((x) => x === s).length).toBe(2);
+    for (const p of v.practice!.problems) v = D.daySubmit(ctx, pid, 'U4L21', p.key, key(ctx, pid, 'U4L21', p.key), 30_000);
+    v = D.finishDay(ctx, pid, 'U4L21');
+    expect(v.results!.passed).toBe(true);
+    expect(v.results!.score).toBe(v.results!.maxScore);
+  });
+});
+

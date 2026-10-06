@@ -140,3 +140,31 @@ test('Unit 4: factoring and solution lists typed through a whole lesson', async 
 
   expect(errors).toEqual([]);
 });
+
+test('Unit 4: graphing lesson with points, axis equations and interval answers', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+
+  await newProfile(page, 'Rowan', 'U4L13');
+  lessonId = 'U4L13';
+  await expect(page.locator('.hero-title')).toHaveText('Graphing Quadratics: Key Features');
+  await page.getByRole('button', { name: /START LEARNING|CONTINUE LEARNING/ }).click();
+  for (const next of ['What You Need to Know', 'Learn', 'Worked Examples', 'Guided Practice']) {
+    await page.getByRole('button', { name: new RegExp(`Continue to ${next}`) }).click();
+    await expect(page.locator('.section-title')).toHaveText(next);
+  }
+  await shot(page, 'u4l13-guided');
+  await solveSet(page);
+  await act(page, () => page.getByRole('button', { name: /Continue to Independent Practice/ }).click());
+  await solveSet(page, { wrongFirst: true });
+  await act(page, () => page.getByRole('button', { name: /Continue to Quiz/ }).click());
+  await takeQuiz(page, 0);
+  await expect(page.locator('.score-big')).toHaveText('100%');
+  await shot(page, 'u4l13-results');
+  await page.getByRole('button', { name: /Continue to Mastery Check/ }).click();
+  await expect(page.locator('.big-check')).toContainText('passed');
+  await page.getByRole('button', { name: /Continue to Lesson Summary/ }).click();
+  await page.getByRole('button', { name: /Finish lesson/ }).click();
+  await expect(page.locator('.complete-title')).toHaveText('Lesson complete!');
+  expect(errors).toEqual([]);
+});
