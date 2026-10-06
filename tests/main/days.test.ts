@@ -215,3 +215,25 @@ describe('Unit 3 review and assessment days', () => {
     expect(v.results!.score).toBe(v.results!.maxScore);
   });
 });
+
+describe('Units 1-4 checkpoint day', () => {
+  it('mixes every checkpoint skill and passes with correct answers', async () => {
+    const ctx = await makeCtx();
+    setupParent(ctx, '2468');
+    const pid = createProfile(ctx, 'Ana', 'owl').id;
+    const cp = LESSON_BY_ID.get('U4L11')!;
+    for (const [id, l] of LESSON_BY_ID)
+      if (l.day < cp.day) ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at) VALUES (?,?,?,?,?,?,?,?)", [pid, id, 'completed', 'summary', '{"v":1,"quizAttempts":1}', 1, 1, 1]);
+    D.openDay(ctx, pid, 'U4L11');
+    let v = D.startDay(ctx, pid, 'U4L11');
+    expect(new Set(dayState(ctx, pid, 'U4L11').practice!.items.map((i) => i.skillId))).toEqual(new Set(cp.skillsAssessed));
+    while (!v.practice!.complete) {
+      const cur = v.practice!.problems[v.practice!.currentIndex];
+      if (cur.state === 'open') v = D.daySubmit(ctx, pid, 'U4L11', cur.key, key(ctx, pid, 'U4L11', cur.key), 20_000);
+      else v = D.dayNext(ctx, pid, 'U4L11');
+    }
+    v = D.finishDay(ctx, pid, 'U4L11');
+    expect(v.results!.score).toBe(v.results!.maxScore);
+    expect(lessonStatuses(ctx, pid).get('U4L11')!.status).toBe('completed');
+  });
+});

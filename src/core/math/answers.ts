@@ -251,7 +251,9 @@ export function isCompletelyFactored(n: Node): boolean {
     } else if (!irreducibleOverQ(p, vars[0])) return false;
     // no common numeric factor left inside a factor (2x + 4 is not completely factored)
     const allInt = [...p.terms.values()].every((c) => c.isInteger());
-    if (allInt && contentOf(p).gt(1)) return false;
+    // factor over the integers: (x + 0.5) belongs inside an integer factor like (2x + 1)
+    if (!allInt) return false;
+    if (contentOf(p).gt(1)) return false;
     // a bare monomial factor such as 3x is fine; a factor like x^2 written as x·x is fine too
   }
   return nonConst >= 1;
@@ -762,6 +764,7 @@ export function checkAnswer(spec: AnswerSpec, input: string, misconceptions?: Mi
 
 /** A typed decimal that is close to an exact irrational answer gets a pointer to the exact form. */
 function decimalApproximation(spec: AnswerSpec, input: string): CheckResult | null {
+  if (spec.kind === 'solutions') return decimalSolutions(spec, input);
   if (spec.kind !== 'expression' && spec.kind !== 'number') return null;
   if (!/^\s*-?\d*\.\d+\s*$/.test(input)) return null;
   try {
@@ -772,6 +775,23 @@ function decimalApproximation(spec: AnswerSpec, input: string): CheckResult | nu
     const t = evalNumeric(target, {});
     const v = Number(input);
     if (Math.abs(t - v) <= 0.01 * Math.max(1, Math.abs(t))) return bad('That decimal is close, but it is only an approximation. Give the exact value, using a radical like √2.', 'radical-simplify');
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** Decimal solutions typed for exact irrational solutions: say so instead of a bare "incorrect". */
+function decimalSolutions(spec: Extract<AnswerSpec, { kind: 'solutions' }>, input: string): CheckResult | null {
+  if (spec.roundTo !== undefined || spec.values.length === 0) return null;
+  const parts = input.replace(/^\s*[a-z]\s*=\s*/i, '').split(/,|\bor\b/).map((x) => x.replace(/^\s*[a-z]\s*=\s*/i, '').trim()).filter(Boolean);
+  if (!parts.length || !parts.every((x) => /^-?\d*\.\d+$/.test(x))) return null;
+  try {
+    const exact = spec.values.map((v) => trySurd(parseExpression(v)));
+    if (exact.every((e) => !e || e.isRational())) return null;
+    const targets = spec.values.map((v) => evalNumeric(parseExpression(v), {}));
+    const close = parts.every((x) => targets.some((t) => Math.abs(t - Number(x)) <= 0.01 * Math.max(1, Math.abs(t))));
+    if (close) return bad('Those decimals are close, but they are only approximations. Give the exact solutions, using a radical like √2.', 'radical-simplify');
   } catch {
     return null;
   }

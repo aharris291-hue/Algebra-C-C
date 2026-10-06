@@ -335,3 +335,25 @@ describe('Unit 3 radical input', () => {
     expect(checkAnswer(spec, 'sqrt(72)').status).toBe('wrong-form');
   });
 });
+
+describe('Unit 4 quadratic answers', () => {
+  it('factored form means factored over the integers', () => {
+    const spec: AnswerSpec = { kind: 'expression', value: '(2x+1)(x-3)', form: 'factored' };
+    expect(checkAnswer(spec, '(x-3)(2x+1)').status).toBe('correct');
+    expect(checkAnswer(spec, '2(x+0.5)(x-3)').status).toBe('wrong-form');
+    expect(checkAnswer(spec, '2x^2-5x-3').status).toBe('wrong-form');
+    const g: AnswerSpec = { kind: 'expression', value: '2(x+3)(x-1)', form: 'factored' };
+    expect(checkAnswer(g, '(2x+6)(x-1)').status).toBe('wrong-form');
+    expect(checkAnswer(g, '2(x-1)(x+3)').status).toBe('correct');
+  });
+  it('solution lists with ± and radicals; decimals for exact radical solutions are flagged', () => {
+    const spec: AnswerSpec = { kind: 'solutions', values: ['(3+sqrt(17))/4', '(3-sqrt(17))/4'] };
+    expect(checkAnswer(spec, '(3 ± sqrt(17))/4').status).toBe('correct');
+    expect(checkAnswer(spec, 'x = (3+sqrt17)/4, (3-sqrt17)/4').status).toBe('correct');
+    const r = checkAnswer(spec, '1.78, -0.28');
+    expect(r.status).toBe('incorrect');
+    expect(r.message).toMatch(/approximations/);
+    expect(checkAnswer({ kind: 'solutions', values: [] }, 'no real solutions').status).toBe('correct');
+    expect(checkAnswer({ kind: 'solutions', values: ['1.79', '-2.79'], roundTo: 2 }, '1.79, -2.79').status).toBe('correct');
+  });
+});
