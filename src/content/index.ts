@@ -20,6 +20,8 @@ import { U4_MODEL_GENERATORS } from './generators/u4-models';
 import { U4_SOLVE_GENERATORS } from './generators/u4-solve';
 import { U5_EXPONENT_GENERATORS } from './generators/u5-exponents';
 import { U5_MODEL_GENERATORS } from './generators/u5-models';
+import { U6_FUNCTION_GENERATORS } from './generators/u6-functions';
+import { U6_SEQUENCE_GENERATORS } from './generators/u6-sequences';
 import { U1L01 } from './lessons/U1/U1L01';
 import { U1L02 } from './lessons/U1/U1L02';
 import { U1L03 } from './lessons/U1/U1L03';
@@ -61,6 +63,16 @@ import { U5L03 } from './lessons/U5/U5L03';
 import { U5L04 } from './lessons/U5/U5L04';
 import { U5L05 } from './lessons/U5/U5L05';
 import { U5L06 } from './lessons/U5/U5L06';
+import { U6L01 } from './lessons/U6/U6L01';
+import { U6L02 } from './lessons/U6/U6L02';
+import { U6L03 } from './lessons/U6/U6L03';
+import { U6L04 } from './lessons/U6/U6L04';
+import { U6L05 } from './lessons/U6/U6L05';
+import { U6L06 } from './lessons/U6/U6L06';
+import { U6L07 } from './lessons/U6/U6L07';
+import { U6L08 } from './lessons/U6/U6L08';
+import { U6L09 } from './lessons/U6/U6L09';
+import { U6L10 } from './lessons/U6/U6L10';
 
 export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U1_FUNCTION_GENERATORS,
@@ -83,11 +95,13 @@ export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U4_MODEL_GENERATORS,
   ...U5_EXPONENT_GENERATORS,
   ...U5_MODEL_GENERATORS,
+  ...U6_FUNCTION_GENERATORS,
+  ...U6_SEQUENCE_GENERATORS,
 ];
 
 export const GENERATORS: ReadonlyMap<string, GeneratorDef> = new Map(ALL_GENERATORS.map((g) => [g.id, g]));
 
-export const LESSON_CONTENT: ReadonlyMap<string, LessonContent> = new Map([U1L01, U1L02, U1L03, U1L04, U1L05, U1L06, U1L07, U1L08, U1L09, U1L10, U2L01, U2L02, U2L03, U2L04, U3L01, U3L02, U3L03, U4L01, U4L02, U4L03, U4L04, U4L05, U4L06, U4L07, U4L08, U4L09, U4L10, U4L12, U4L13, U4L14, U4L15, U4L16, U4L17, U4L18, U4L19, U5L01, U5L02, U5L03, U5L04, U5L05, U5L06].map((l) => [l.lessonId, l]));
+export const LESSON_CONTENT: ReadonlyMap<string, LessonContent> = new Map([U1L01, U1L02, U1L03, U1L04, U1L05, U1L06, U1L07, U1L08, U1L09, U1L10, U2L01, U2L02, U2L03, U2L04, U3L01, U3L02, U3L03, U4L01, U4L02, U4L03, U4L04, U4L05, U4L06, U4L07, U4L08, U4L09, U4L10, U4L12, U4L13, U4L14, U4L15, U4L16, U4L17, U4L18, U4L19, U5L01, U5L02, U5L03, U5L04, U5L05, U5L06, U6L01, U6L02, U6L03, U6L04, U6L05, U6L06, U6L07, U6L08, U6L09, U6L10].map((l) => [l.lessonId, l]));
 
 /** Generators that practice a skill (used for spaced review and remediation). */
 export function generatorsForSkill(skillId: string): GeneratorDef[] {

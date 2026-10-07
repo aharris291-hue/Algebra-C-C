@@ -390,3 +390,29 @@ describe('Unit 5 exponent and exponential answers', () => {
     expect(st(spec, '8235')).toBe('incorrect');
   });
 });
+
+describe('Unit 6 sequence and exponential answers', () => {
+  it('geometric formulas with a negative ratio are compared at whole-number inputs', () => {
+    const spec: AnswerSpec = { kind: 'expression', value: '5*(-2)^(n-1)', variables: ['n'] };
+    expect(st(spec, '5(-2)^(n-1)')).toBe('correct');
+    expect(st(spec, 'a_n = -2.5(-2)^n')).toBe('correct');
+    expect(st(spec, '5(-2)^n')).toBe('incorrect');
+    expect(st(spec, '5(2)^(n-1)')).toBe('incorrect');
+    expect(st(spec, '-5(2)^(n-1)')).toBe('incorrect');
+    const half: AnswerSpec = { kind: 'expression', value: '96*(-1/2)^(n-1)', variables: ['n'] };
+    expect(st(half, '96(-0.5)^(n-1)')).toBe('correct');
+    expect(st(half, '-192(-1/2)^n')).toBe('correct');
+  });
+  it('positive-ratio formulas accept a_1(r)^(n-1) and (a_1/r)(r)^n', () => {
+    const spec: AnswerSpec = { kind: 'expression', value: '3*(2)^(n-1)', variables: ['n'] };
+    expect(st(spec, '3(2)^(n-1)')).toBe('correct');
+    expect(st(spec, 'f(n) = 1.5(2)^n')).toBe('correct');
+    expect(st(spec, '6^(n-1)')).toBe('incorrect');
+    expect(st(spec, '3(2)^n')).toBe('incorrect');
+  });
+  it('doubling-time models in any equivalent form', () => {
+    const spec: AnswerSpec = { kind: 'equation', value: 'y = 200*(2)^(t/3)' };
+    expect(st(spec, 'y = 200(2)^(t/3)')).toBe('correct');
+    expect(st(spec, 'y = 200(2)^(t)')).toBe('incorrect');
+  });
+});

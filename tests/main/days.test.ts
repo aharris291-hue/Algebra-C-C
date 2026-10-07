@@ -302,3 +302,38 @@ describe('Unit 5 review and assessment days', () => {
   });
 });
 
+
+describe('Unit 6 review and assessment days', () => {
+  it('play the cumulative review, the unit review and the assessment with every Unit 6 skill', async () => {
+    const ctx = await makeCtx();
+    setupParent(ctx, '2468');
+    const pid = createProfile(ctx, 'Ana', 'owl').id;
+    const first = LESSON_BY_ID.get('U6L11')!;
+    for (const [id, l] of LESSON_BY_ID)
+      if (l.day < first.day) ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at) VALUES (?,?,?,?,?,?,?,?)", [pid, id, 'completed', 'summary', '{"v":1,"quizAttempts":1}', 1, 1, 1]);
+    for (const day of ['U6L11', 'U6L12']) {
+      const lesson = LESSON_BY_ID.get(day)!;
+      D.openDay(ctx, pid, day);
+      let v = D.startDay(ctx, pid, day);
+      expect(new Set(dayState(ctx, pid, day).practice!.items.map((i) => i.skillId))).toEqual(new Set(lesson.skillsAssessed));
+      while (!v.practice!.complete) {
+        const cur = v.practice!.problems[v.practice!.currentIndex];
+        if (cur.state === 'open') v = D.daySubmit(ctx, pid, day, cur.key, key(ctx, pid, day, cur.key), 20_000);
+        else v = D.dayNext(ctx, pid, day);
+      }
+      v = D.finishDay(ctx, pid, day);
+      expect(v.results!.score).toBe(v.results!.maxScore);
+    }
+    expect(lessonStatuses(ctx, pid).get('U6L13')!.status).toBe('available');
+    D.openDay(ctx, pid, 'U6L13');
+    let v = D.startDay(ctx, pid, 'U6L13');
+    const skills = dayState(ctx, pid, 'U6L13').practice!.items.map((i) => i.skillId);
+    expect(new Set(skills).size).toBe(10);
+    // essential skills appear twice
+    for (const s of ['S6.02', 'S6.07']) expect(skills.filter((x) => x === s).length).toBe(2);
+    for (const p of v.practice!.problems) v = D.daySubmit(ctx, pid, 'U6L13', p.key, key(ctx, pid, 'U6L13', p.key), 30_000);
+    v = D.finishDay(ctx, pid, 'U6L13');
+    expect(v.results!.passed).toBe(true);
+    expect(v.results!.score).toBe(v.results!.maxScore);
+  });
+});

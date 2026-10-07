@@ -84,6 +84,21 @@ export function numericallyEquivalent(a: Node, b: Node, vars: string[], assumePo
     }
     if (valid >= 8) return true;
   }
+  // A negative base with a variable exponent, like 5(-2)^(n-1), is only defined at whole-number
+  // inputs, so real samples are inconclusive. Fall back to whole-number inputs (sequence indices).
+  if (vars.length === 1) {
+    let valid = 0;
+    for (let i = 1; i <= 14; i++) {
+      const p = { [vars[0]]: i };
+      const x = evalNumeric(a, p);
+      const y = evalNumeric(b, p);
+      if (Number.isFinite(x) !== Number.isFinite(y)) return false;
+      if (!Number.isFinite(x)) continue;
+      if (!close(x, y)) return false;
+      valid++;
+    }
+    if (valid >= 8) return true;
+  }
   return null;
 }
 

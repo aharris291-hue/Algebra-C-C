@@ -661,8 +661,10 @@ export function parseInterval(src: string): Interval {
     return { lo: loV, loClosed: m[1] === '[', hi: hiV, hiClosed: m[4] === ']' };
   }
   if (/[<>]/.test(s)) {
-    const vars = s.match(/[a-zA-Z]/g);
-    return intervalFromInequality(s, vars ? vars[0] : 'x');
+    // function notation names the output: "f(x) < 0" and "5 <= M(t) <= 160" mean y < 0 and 5 <= y <= 160
+    const t = s.replace(/[a-zA-Z]\s*\(\s*[a-zA-Z]\s*\)/g, 'y');
+    const vars = t.match(/[a-zA-Z]/g);
+    return intervalFromInequality(t, vars ? vars[0] : 'x');
   }
   throw new MathSyntaxError('Write the answer in interval notation like [2, ∞), set-builder notation like {x | x ≥ 2}, or as an inequality.');
 }
@@ -775,6 +777,11 @@ function numberValueOf(input: string): { value: Rational | null; literal: boolea
   return { value: null, literal, node: n };
 }
 
+/** "24,000" -> "24000": thousands separators in expression and equation answers (a comma there never means anything else). */
+function stripThousands(s: string): string {
+  return s.replace(/(\d),(?=\d{3}(?!\d))/g, '$1');
+}
+
 function stripUnit(input: string, unit?: string): string {
   let s = input.trim().replace(/^\$/, '');
   if (unit) {
@@ -782,8 +789,8 @@ function stripUnit(input: string, unit?: string): string {
     s = s.replace(new RegExp(`\\s*${u}\\.?$`, 'i'), '');
   }
   // strip trailing common unit words/symbols the student might add
-  s = s.replace(/\s*(?:per|\/)\s*(?:hours?|hr|h|minutes?|min|seconds?|sec|s|days?|weeks?|wk|months?|mo|years?|yr|miles?|mi|cars?|tickets?|items?|gallons?|gal)\.?$/i, '');
-  s = s.replace(/\s*(%|dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?)\.?$/i, '');
+  s = s.replace(/\s*(?:per|\/)\s*(?:hours?|hrs?|h|minutes?|min|seconds?|sec|s|days?|weeks?|wk|months?|mo|years?|yr|miles?|mi|cars?|tickets?|items?|gallons?|gal)\.?$/i, '');
+  s = s.replace(/\s*(%|dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?|milligrams?|mg|grams?|hrs|yrs|people|persons|followers|views|bacteria|cells|customers|fish)\.?$/i, '');
   return s;
 }
 
@@ -940,7 +947,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
 
     case 'expression': {
       // Expression answers never contain "=", so a leading "y =", "f(x) =", "C(m) =" or "a_n =" is just a label.
-      const input = stripFunctionNotation(rawInput)
+      const input = stripFunctionNotation(stripThousands(rawInput))
         .replace(/^\s*y\s*=\s*/i, '')
         .replace(/^\s*[a-zA-Z](?:_?\{?[a-zA-Z0-9]{1,3}\}?)?\s*(?:\(\s*[a-zA-Z0-9]+\s*\))?\s*=\s*/, '');
       const n = parseExpression(input);
@@ -969,6 +976,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
 
     case 'equation': {
       const target = parseRelation(spec.value);
+      rawInput = stripThousands(rawInput);
       let got: Relation;
       try {
         got = parseRelation(rawInput);
@@ -1102,7 +1110,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
 
     case 'sequence-terms': {
       const parts = normalizeInput(rawInput)
-        .split(/\s*,\s*/)
+        .split(/,/.test(rawInput) ? /\s*,\s*/ : /\s+/)
         .filter((p) => p.length > 0);
       if (parts.length !== spec.values.length) return invalid(`Type ${spec.values.length} terms separated by commas.`);
       for (let i = 0; i < parts.length; i++) {

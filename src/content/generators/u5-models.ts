@@ -16,7 +16,7 @@ import { mathBlocks, graphOf } from './u4-common';
 type Hints = [string, string, string, string];
 
 /** Money in text: "\\$1,500" or "\\$1,234.56". */
-function moneyText(x: Rational): string {
+export function moneyText(x: Rational): string {
   const s = x.isInteger() ? x.toDecimalString(0) : fixedPlaces(x, 2);
   const [i, f] = s.split('.');
   return '\\$' + i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f ? '.' + f : '');
