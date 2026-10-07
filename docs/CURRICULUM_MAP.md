@@ -163,9 +163,9 @@ Pacing: GaDOE curriculum map, block schedule (one semester). 90 instructional da
 | Day | ID | Unit | Title | Type | Standards | Skills |
 |---|---|---|---|---|---|---|
 | 71 | U7L06 | 7 | Scatter Plots and Association | Lesson | A.DSR.10.3 | S7.06 Scatter plots and association |
-| 72 | U7L07 | 7 | Linear Models: Slope and Intercept in Context | Lesson | A.DSR.10.4 | S7.07 Interpret linear models |
-| 73 | U7L08 | 7 | Lines of Best Fit and Correlation | Lesson | A.DSR.10.5, A.MP.5 | S7.08 Line of best fit and r |
-| 74 | U7L09 | 7 | Choosing Models; Correlation vs Causation | Lesson | A.DSR.10.6, A.DSR.10.7 | S7.09 Choose a model; S7.10 Correlation vs causation |
+| 72 | U7L07 | 7 | Linear Models: Slope and Intercept in Context | Lesson | A.DSR.10.4, A.MM.1.4 | S7.07 Interpret linear models |
+| 73 | U7L08 | 7 | Lines of Best Fit and Correlation | Lesson | A.DSR.10.5, A.MM.1.4, A.MP.5 | S7.08 Line of best fit and r |
+| 74 | U7L09 | 7 | Choosing Models; Correlation vs Causation | Lesson | A.DSR.10.6, A.DSR.10.7, A.MM.1.2 | S7.09 Choose a model; S7.10 Correlation vs causation |
 | 75 | U7L10 | 7 | Unit 7 Review | Unit review | A.DSR.10.1, A.DSR.10.2, A.DSR.10.3, A.DSR.10.4, A.DSR.10.5, A.DSR.10.6, A.DSR.10.7 | S7.01 Mean and median; S7.02 Quartiles and IQR; S7.03 Standard deviation; S7.04 Shape and outliers; S7.05 Compare distributions; S7.06 Scatter plots and association; S7.07 Interpret linear models; S7.08 Line of best fit and r; S7.09 Choose a model; S7.10 Correlation vs causation |
 
 ## Week 16
@@ -841,7 +841,7 @@ Pacing: GaDOE curriculum map, block schedule (one semester). 90 instructional da
 
 ### U7L07 Linear Models: Slope and Intercept in Context
 - Type: Lesson, Week 15, Day 72, 40 min, difficulty 1
-- Standards: A.DSR.10.4
+- Standards: A.DSR.10.4, A.MM.1.4
 - Objectives: Interpret the slope and intercept of a linear model for data.
 - Prerequisites: U7L06
 - Skills taught: S7.07
@@ -850,7 +850,7 @@ Pacing: GaDOE curriculum map, block schedule (one semester). 90 instructional da
 
 ### U7L08 Lines of Best Fit and Correlation
 - Type: Lesson, Week 15, Day 73, 40 min, difficulty 2
-- Standards: A.DSR.10.5, A.MP.5
+- Standards: A.DSR.10.5, A.MM.1.4, A.MP.5
 - Objectives: Use a regression line to make predictions. Interpret the correlation coefficient r.
 - Prerequisites: U7L07
 - Skills taught: S7.08
@@ -859,7 +859,7 @@ Pacing: GaDOE curriculum map, block schedule (one semester). 90 instructional da
 
 ### U7L09 Choosing Models; Correlation vs Causation
 - Type: Lesson, Week 15, Day 74, 40 min, difficulty 1
-- Standards: A.DSR.10.6, A.DSR.10.7
+- Standards: A.DSR.10.6, A.DSR.10.7, A.MM.1.2
 - Objectives: Choose a linear, quadratic or exponential model from a graph. Distinguish correlation from causation.
 - Prerequisites: U7L08
 - Skills taught: S7.09, S7.10

@@ -793,9 +793,9 @@ export const genExpModel: GeneratorDef = {
       const change = byFactor ? (r.eq(2) ? 'doubles' : 'triples') + ` every ${c.per}` : `${grow ? 'grows' : 'decreases'} by ${pct(r)}% each ${c.per}`;
       const key = `y = ${numStr(a)}*(${numStr(b)})^t`;
       const mis: Misconception[] = ([
-        { answer: `y = ${numStr(a)}*(${numStr(r)})^t`, tag: 'percent', feedback: grow ? 'The growth factor is $1 + r$, not $r$ alone.' : 'The decay factor is $1 - r$: what is left after the decrease.' },
-        { answer: `y = ${numStr(a)}*(${numStr(grow ? Q(1).sub(r) : r.add(1))})^t`, tag: 'percent', feedback: grow ? 'Growth means the factor is greater than 1.' : 'A decrease means the factor is less than 1.' },
-        ...(grow && !byFactor ? [{ answer: `y = ${numStr(a)}*(${numStr(Q(1).add(r.mul(100)))})^t`, tag: 'percent', feedback: 'Change the percent to a decimal before adding it to 1.' }] : []),
+        { answer: `y = ${numStr(a)}*(${numStr(r)})^t`, tag: 'percent-rate', feedback: grow ? 'The growth factor is $1 + r$, not $r$ alone.' : 'The decay factor is $1 - r$: what is left after the decrease.' },
+        { answer: `y = ${numStr(a)}*(${numStr(grow ? Q(1).sub(r) : r.add(1))})^t`, tag: 'percent-rate', feedback: grow ? 'Growth means the factor is greater than 1.' : 'A decrease means the factor is less than 1.' },
+        ...(grow && !byFactor ? [{ answer: `y = ${numStr(a)}*(${numStr(Q(1).add(r.mul(100)))})^t`, tag: 'percent-rate', feedback: 'Change the percent to a decimal before adding it to 1.' }] : []),
         { answer: `y = ${numStr(a)}+${numStr(a.mul(b.sub(1)))}*t`, tag: 'other', feedback: 'That is linear. The amount changes by the same factor each time, so the model is exponential.' },
       ] as Misconception[]).filter((m, i, all) => all.findIndex((o) => o.answer === m.answer) === i && checkAnswer({ kind: 'equation', value: key }, m.answer).status === 'incorrect');
       return makeProblem({

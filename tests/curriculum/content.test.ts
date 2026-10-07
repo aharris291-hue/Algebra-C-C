@@ -43,6 +43,24 @@ describe('lesson content integrity', () => {
         const blocks = [...c.instruction, ...c.examples.flatMap((e) => e.problem), ...c.teachMeAgain.flatMap((t) => t.blocks)];
         for (const b of blocks) if (b.t === 'graph') for (const f of b.spec.functions ?? []) expect(() => parseExpression(f.expr)).not.toThrow();
       });
+      it('data plots are well formed', () => {
+        const blocks = [...c.needToKnow, ...c.instruction, ...c.examples.flatMap((e) => e.problem), ...c.teachMeAgain.flatMap((t) => t.blocks)];
+        for (const b of blocks) {
+          if (b.t !== 'dataplot') continue;
+          const s = b.spec;
+          if (s.kind === 'box') {
+            for (const x of s.boxes) {
+              expect([x.min, x.q1, x.median, x.q3, x.max]).toEqual([x.min, x.q1, x.median, x.q3, x.max].sort((p, q) => p - q));
+              for (const v of [x.min, x.max, ...(x.outliers ?? [])]) expect(v >= s.min && v <= s.max, s.ariaLabel).toBe(true);
+            }
+          } else if (s.kind === 'dot') {
+            for (const v of s.values) expect(v >= s.min && v <= s.max, s.ariaLabel).toBe(true);
+          } else {
+            for (let i = 1; i < s.bins.length; i++) expect(s.bins[i].from).toBe(s.bins[i - 1].to);
+            for (const bin of s.bins) expect(bin.count >= 0 && Number.isInteger(bin.count)).toBe(true);
+          }
+        }
+      });
     });
   }
 });

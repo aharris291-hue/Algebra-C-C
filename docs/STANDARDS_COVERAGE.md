@@ -9,9 +9,9 @@ Mathematical Practices (A.MP.1-8) and Mathematical Modeling (A.MM.1) are integra
 | Standard | Big idea | Unit | Taught in | Reviewed in | Assessed in |
 |---|---|---|---|---|---|
 | **A.MM.1.1** | Mathematical Modeling | 1, 2, 4, 8 | U1L02, U1L09, U2L01, U2L03, U4L10, U8L06 | U1L11, U2L05, U4L01, U4L12, U5L03, U6L01, U8L07 | U1L12, U2L06, U8L08, U9L01, U9L02, U9L03 + lesson quizzes |
-| **A.MM.1.2** | Mathematical Modeling | 2, 4, 5, 6 | U2L04, U4L18, U5L06, U6L10 | U2L05, U4L20, U5L07, U6L12, U9L05 | U2L06, U4L21, U5L08, U6L13, U9L01, U9L02 + lesson quizzes |
+| **A.MM.1.2** | Mathematical Modeling | 2, 4, 5, 6, 7 | U2L04, U4L18, U5L06, U6L10, U7L09 | U2L05, U4L20, U5L07, U6L12, U9L05 | U2L06, U4L21, U5L08, U6L13, U9L01, U9L02 + lesson quizzes |
 | **A.MM.1.3** | Mathematical Modeling | 1, 5, 8 | U1L03, U1L09, U5L06, U8L06 | U1L11, U7L07 | U1L12 + lesson quizzes |
-| **A.MM.1.4** | Mathematical Modeling | 1, 4, 6 | U1L09, U4L18, U6L10 | U1L11, U2L01, U5L03 | U1L12, U9L01 + lesson quizzes |
+| **A.MM.1.4** | Mathematical Modeling | 1, 4, 6, 7 | U1L09, U4L18, U6L10, U7L07, U7L08 | U1L11, U2L01, U5L03 | U1L12, U9L01 + lesson quizzes |
 | **A.MM.1.5** | Mathematical Modeling | 1, 4, 5, 7 | U1L09, U4L01, U5L02, U7L01 | U1L11, U2L01, U5L03 | U1L12, U9L01, U9L03 + lesson quizzes |
 | **A.FGR.2.1** | Functional & Graphical Reasoning | 1 | U1L07, U1L08 | U1L11, U6L07, U6L08, U9L04 | U1L12, U9L06 + lesson quizzes |
 | **A.FGR.2.2** | Functional & Graphical Reasoning | 1 | U1L03, U1L04, U1L05, U1L09 | U1L06, U1L07, U1L08, U1L10, U1L11, U2L01, U2L02, U4L11, U4L13, U4L17, U4L19, U5L03, U6L04, U6L11, U7L06, U7L07, U8L03, U9L04 | U1L12, U9L01, U9L06 + lesson quizzes |

@@ -3,6 +3,7 @@ import type { Block, SolutionStep } from '../../core/curriculum/types';
 import { Inline, RichParagraph, Tex } from './RichText';
 import { Graph } from './Graph';
 import { NumberLine } from './NumberLine';
+import { DataPlot } from './DataPlot';
 
 const CALLOUT_LABEL: Record<string, string> = { tip: 'Tip', warning: 'Watch out', why: 'Why it works', realworld: 'In real life', vocab: 'Vocabulary' };
 
@@ -87,6 +88,8 @@ export function BlockView({ b }: { b: Block }) {
       return <Graph spec={b.spec} caption={b.caption} />;
     case 'numberline':
       return <NumberLine spec={b.spec} caption={b.caption} />;
+    case 'dataplot':
+      return <DataPlot spec={b.spec} caption={b.caption} />;
     case 'steps':
       return <Steps items={b.items} />;
   }

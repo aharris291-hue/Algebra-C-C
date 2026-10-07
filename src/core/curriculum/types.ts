@@ -69,6 +69,7 @@ export type Block =
   | { t: 'table'; headers: string[]; rows: string[][]; caption?: string }
   | { t: 'graph'; spec: GraphSpec; caption?: string }
   | { t: 'numberline'; spec: NumberLineSpec; caption?: string }
+  | { t: 'dataplot'; spec: DataPlotSpec; caption?: string }
   | { t: 'steps'; items: SolutionStep[] };
 
 export interface GraphSpec {
@@ -108,6 +109,23 @@ export interface NumberLineSpec {
   segments?: Array<{ from: number; to: number; fromClosed: boolean; toClosed: boolean }>;
   ariaLabel: string;
 }
+
+/** One box of a box plot: the five-number summary, with any outliers drawn as separate dots (whiskers then stop at the last non-outlier). */
+export interface BoxSummary {
+  label?: string;
+  min: number;
+  q1: number;
+  median: number;
+  q3: number;
+  max: number;
+  outliers?: number[];
+}
+
+/** Statistical displays of one-variable data on a number-line axis. */
+export type DataPlotSpec =
+  | { kind: 'box'; min: number; max: number; step?: number; axisLabel?: string; boxes: BoxSummary[]; ariaLabel: string }
+  | { kind: 'dot'; min: number; max: number; step?: number; axisLabel?: string; values: number[]; ariaLabel: string }
+  | { kind: 'histogram'; bins: Array<{ from: number; to: number; count: number }>; xLabel?: string; yLabel?: string; yStep?: number; ariaLabel: string };
 
 export interface SolutionStep {
   /** what is done in this step, in words */

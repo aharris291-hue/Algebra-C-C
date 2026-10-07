@@ -3,6 +3,7 @@ import { parseExpression } from '../../src/core/math/parser';
 import { toPoly, Poly } from '../../src/core/math/poly';
 import { toSurd, Surd } from '../../src/core/math/surd';
 import { checkAnswer, AnswerSpec, parseInterval, intervalsEqual, isCompletelyFactored, isVertexForm, isExpandedForm } from '../../src/core/math/answers';
+import { fiveNumber, iqr, stdDev, variance, outliers, linearRegression } from '../../src/core/math/stats';
 import { polyTex, linearTex, quadTex, vertexFormTex, polyPlain } from '../../src/core/math/format';
 
 const st = (spec: AnswerSpec, input: string) => checkAnswer(spec, input).status;
@@ -414,5 +415,51 @@ describe('Unit 6 sequence and exponential answers', () => {
     const spec: AnswerSpec = { kind: 'equation', value: 'y = 200*(2)^(t/3)' };
     expect(st(spec, 'y = 200(2)^(t/3)')).toBe('correct');
     expect(st(spec, 'y = 200(2)^(t)')).toBe('incorrect');
+  });
+});
+
+describe('statistics (Unit 7 conventions)', () => {
+  const S = (xs: number[]) => xs.map((x) => Rational.parse(String(x)));
+  it('five-number summary leaves the median out of both halves for an odd count', () => {
+    const f = fiveNumber(S([13, 2, 8, 4, 10, 5, 7]));
+    expect([f.min, f.q1, f.median, f.q3, f.max].map((x) => x.toString())).toEqual(['2', '4', '7', '10', '13']);
+    const g = fiveNumber(S([1, 3, 4, 6, 9, 12]));
+    expect([g.q1, g.median, g.q3].map((x) => x.toString())).toEqual(['3', '5', '9']);
+    expect(iqr(S([1, 3, 4, 6, 9, 12])).toString()).toBe('6');
+  });
+  it('population standard deviation divides by n', () => {
+    expect(stdDev(S([2, 4, 4, 4, 5, 5, 7, 9]))).toBe(2);
+    expect(variance(S([1, 2, 3, 4])).toString()).toBe('5/4');
+  });
+  it('1.5 IQR outliers', () => {
+    expect(outliers(S([1, 2, 3, 4, 5, 6, 7, 30])).map(String)).toEqual(['30']);
+    expect(outliers(S([10, 11, 12, 13, 14]))).toEqual([]);
+  });
+  it('least-squares line and r', () => {
+    const reg = linearRegression(S([1, 2, 3, 4, 5]), S([2, 4, 5, 4, 5]));
+    expect(reg.a.toString()).toBe('3/5');
+    expect(reg.b.toString()).toBe('11/5');
+    expect(reg.r).toBeCloseTo(0.7746, 4);
+    expect(linearRegression(S([1, 2, 3]), S([7, 5, 3])).r).toBeCloseTo(-1, 12);
+  });
+});
+
+describe('Unit 7 data answers', () => {
+  it('statistics with units, rounding and percents', () => {
+    expect(st({ kind: 'number', value: '3', unit: 'minutes' }, '3 minutes')).toBe('correct');
+    expect(st({ kind: 'number', value: '25', unit: '%' }, '25%')).toBe('correct');
+    expect(st({ kind: 'number', value: '25', unit: '%' }, '75%')).toBe('incorrect');
+    expect(st({ kind: 'number', value: '7.071067811865', roundTo: 1, unit: 'hours' }, '7.1')).toBe('correct');
+    expect(st({ kind: 'number', value: '7.071067811865', roundTo: 1, unit: 'hours' }, '7.0')).toBe('incorrect');
+    expect(st({ kind: 'number', value: '64.35', roundTo: 1 }, '64.4')).toBe('correct');
+  });
+  it('five-number summaries and one-SD intervals', () => {
+    const five: AnswerSpec = { kind: 'sequence-terms', values: ['2', '4', '7', '10', '13'] };
+    expect(st(five, '2, 4, 7, 10, 13')).toBe('correct');
+    expect(st(five, '2 4 7 10 13')).toBe('correct');
+    expect(st(five, '2, 4.5, 7, 9.5, 13')).toBe('incorrect');
+    const within: AnswerSpec = { kind: 'interval', value: '[62, 78]' };
+    expect(st(within, '[62, 78]')).toBe('correct');
+    expect(st(within, '[54, 86]')).toBe('incorrect');
   });
 });
