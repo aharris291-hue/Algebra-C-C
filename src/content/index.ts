@@ -18,6 +18,8 @@ import { U4_POLY_GENERATORS } from './generators/u4-poly';
 import { U4_FUNCTION_GENERATORS } from './generators/u4-functions';
 import { U4_MODEL_GENERATORS } from './generators/u4-models';
 import { U4_SOLVE_GENERATORS } from './generators/u4-solve';
+import { U5_EXPONENT_GENERATORS } from './generators/u5-exponents';
+import { U5_MODEL_GENERATORS } from './generators/u5-models';
 import { U1L01 } from './lessons/U1/U1L01';
 import { U1L02 } from './lessons/U1/U1L02';
 import { U1L03 } from './lessons/U1/U1L03';
@@ -53,6 +55,12 @@ import { U4L16 } from './lessons/U4/U4L16';
 import { U4L17 } from './lessons/U4/U4L17';
 import { U4L18 } from './lessons/U4/U4L18';
 import { U4L19 } from './lessons/U4/U4L19';
+import { U5L01 } from './lessons/U5/U5L01';
+import { U5L02 } from './lessons/U5/U5L02';
+import { U5L03 } from './lessons/U5/U5L03';
+import { U5L04 } from './lessons/U5/U5L04';
+import { U5L05 } from './lessons/U5/U5L05';
+import { U5L06 } from './lessons/U5/U5L06';
 
 export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U1_FUNCTION_GENERATORS,
@@ -73,11 +81,13 @@ export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U4_SOLVE_GENERATORS,
   ...U4_FUNCTION_GENERATORS,
   ...U4_MODEL_GENERATORS,
+  ...U5_EXPONENT_GENERATORS,
+  ...U5_MODEL_GENERATORS,
 ];
 
 export const GENERATORS: ReadonlyMap<string, GeneratorDef> = new Map(ALL_GENERATORS.map((g) => [g.id, g]));
 
-export const LESSON_CONTENT: ReadonlyMap<string, LessonContent> = new Map([U1L01, U1L02, U1L03, U1L04, U1L05, U1L06, U1L07, U1L08, U1L09, U1L10, U2L01, U2L02, U2L03, U2L04, U3L01, U3L02, U3L03, U4L01, U4L02, U4L03, U4L04, U4L05, U4L06, U4L07, U4L08, U4L09, U4L10, U4L12, U4L13, U4L14, U4L15, U4L16, U4L17, U4L18, U4L19].map((l) => [l.lessonId, l]));
+export const LESSON_CONTENT: ReadonlyMap<string, LessonContent> = new Map([U1L01, U1L02, U1L03, U1L04, U1L05, U1L06, U1L07, U1L08, U1L09, U1L10, U2L01, U2L02, U2L03, U2L04, U3L01, U3L02, U3L03, U4L01, U4L02, U4L03, U4L04, U4L05, U4L06, U4L07, U4L08, U4L09, U4L10, U4L12, U4L13, U4L14, U4L15, U4L16, U4L17, U4L18, U4L19, U5L01, U5L02, U5L03, U5L04, U5L05, U5L06].map((l) => [l.lessonId, l]));
 
 /** Generators that practice a skill (used for spaced review and remediation). */
 export function generatorsForSkill(skillId: string): GeneratorDef[] {

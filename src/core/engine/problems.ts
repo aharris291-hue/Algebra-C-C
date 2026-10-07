@@ -7,13 +7,15 @@
  * A problem that fails is rejected and the next seed is tried (spec §41, §44).
  */
 import type { Difficulty, GeneratorDef, Problem, ProblemStep } from '../curriculum/types';
-import { checkAnswer, AnswerSpec } from '../math/answers';
+import { checkAnswer, AnswerSpec, exactValue, fixedPlaces } from '../math/answers';
 import { createRng, deriveSeed } from './rng';
 
 /** Text that the checker should accept as the key for a spec. */
 export function canonicalInput(spec: AnswerSpec): string {
   switch (spec.kind) {
     case 'number':
+      // a rounded answer is typed rounded (the exact key can be a very long fraction, e.g. compound interest)
+      return spec.roundTo !== undefined ? fixedPlaces(exactValue(spec.value)!.rationalPart(), spec.roundTo) : spec.value;
     case 'expression':
     case 'equation':
     case 'inequality':

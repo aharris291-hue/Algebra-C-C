@@ -270,3 +270,35 @@ describe('Unit 4 review and assessment days', () => {
   });
 });
 
+describe('Unit 5 review and assessment days', () => {
+  it('cover every Unit 5 skill and pass with correct answers', async () => {
+    const ctx = await makeCtx();
+    setupParent(ctx, '2468');
+    const pid = createProfile(ctx, 'Ana', 'owl').id;
+    const review = LESSON_BY_ID.get('U5L07')!;
+    for (const [id, l] of LESSON_BY_ID)
+      if (l.day < review.day) ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at) VALUES (?,?,?,?,?,?,?,?)", [pid, id, 'completed', 'summary', '{"v":1,"quizAttempts":1}', 1, 1, 1]);
+    D.openDay(ctx, pid, 'U5L07');
+    let v = D.startDay(ctx, pid, 'U5L07');
+    expect(new Set(dayState(ctx, pid, 'U5L07').practice!.items.map((i) => i.skillId))).toEqual(new Set(review.skillsAssessed));
+    while (!v.practice!.complete) {
+      const cur = v.practice!.problems[v.practice!.currentIndex];
+      if (cur.state === 'open') v = D.daySubmit(ctx, pid, 'U5L07', cur.key, key(ctx, pid, 'U5L07', cur.key), 20_000);
+      else v = D.dayNext(ctx, pid, 'U5L07');
+    }
+    v = D.finishDay(ctx, pid, 'U5L07');
+    expect(v.results!.score).toBe(v.results!.maxScore);
+    expect(lessonStatuses(ctx, pid).get('U5L08')!.status).toBe('available');
+    D.openDay(ctx, pid, 'U5L08');
+    v = D.startDay(ctx, pid, 'U5L08');
+    const skills = dayState(ctx, pid, 'U5L08').practice!.items.map((i) => i.skillId);
+    expect(new Set(skills).size).toBe(6);
+    // essential skills appear twice
+    for (const s of ['S5.01', 'S5.02', 'S5.03']) expect(skills.filter((x) => x === s).length).toBe(2);
+    for (const p of v.practice!.problems) v = D.daySubmit(ctx, pid, 'U5L08', p.key, key(ctx, pid, 'U5L08', p.key), 30_000);
+    v = D.finishDay(ctx, pid, 'U5L08');
+    expect(v.results!.passed).toBe(true);
+    expect(v.results!.score).toBe(v.results!.maxScore);
+  });
+});
+

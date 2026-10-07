@@ -18,9 +18,12 @@ export type ExpressionForm =
   | 'expanded' // sum of monomials, like terms combined
   | 'factored' // completely factored over the integers
   | 'vertex' // a(x-h)^2 + k
-  | 'simplified-radical';
+  | 'simplified-radical'
+  | 'exponent-simplified'; // one coefficient, each variable once, positive exponents only, no powers of products
 
-export type EquationForm = 'any' | 'slope-intercept' | 'point-slope' | 'standard' | 'vertex' | 'factored' | 'quadratic-standard';
+
+
+export type EquationForm = 'any' | 'slope-intercept' | 'point-slope' | 'standard' | 'vertex' | 'factored' | 'quadratic-standard' | 'exponential';
 
 export interface Misconception {
   /** Answer the misconception produces, written in the same spec language as the correct answer. */
@@ -415,6 +418,86 @@ function collectRadicands(n: Node, out: string[] = []): string[] {
 // Relations (equations / inequalities)
 // ---------------------------------------------------------------------------
 
+
+/**
+ * Is a monomial quotient written in simplest exponent form? One numeric factor on top and at most one
+ * on the bottom (in lowest terms), each variable written once, every exponent a positive integer, and
+ * no power applied to a product, quotient or number. Returns a student-facing reason when it is not.
+ */
+export function isExponentSimplified(n: Node): { ok: boolean; reason?: string } {
+  const nums: Array<{ value: Rational; top: boolean }> = [];
+  const vars = new Map<string, number>();
+  let reason: string | undefined;
+  const fail = (r: string) => {
+    reason ??= r;
+  };
+  const intExp = (e: Node): number | null => {
+    if (e.type === 'num' && e.value.isInteger()) return Number(e.value.toNumber());
+    if (e.type === 'neg' && e.arg.type === 'num' && e.arg.value.isInteger()) return -Number(e.arg.value.toNumber());
+    return null;
+  };
+  const walk = (m: Node, top: boolean) => {
+    switch (m.type) {
+      case 'num':
+        nums.push({ value: m.value, top });
+        return;
+      case 'var':
+        vars.set(m.name, (vars.get(m.name) ?? 0) + 1);
+        return;
+      case 'neg':
+        walk(m.arg, top);
+        return;
+      case 'mul':
+        walk(m.left, top);
+        walk(m.right, top);
+        return;
+      case 'div':
+        walk(m.left, top);
+        walk(m.right, !top);
+        return;
+      case 'pow': {
+        const e = intExp(m.exp);
+        if (m.base.type !== 'var') {
+          if (m.base.type === 'num' || (m.base.type === 'neg' && m.base.arg.type === 'num')) fail('Work out the numerical power.');
+          else fail('Apply the exponent to every factor inside the parentheses.');
+          return;
+        }
+        if (e === null) return fail('Use whole-number exponents.');
+        if (e === 0) fail('Anything (except 0) to the zero power is 1. Replace that power with 1.');
+        else if (e < 0) fail('Rewrite it using positive exponents only.');
+        vars.set(m.base.name, (vars.get(m.base.name) ?? 0) + 1);
+        return;
+      }
+      default:
+        fail('Write it as a single term: a number times powers of the variables.');
+    }
+  };
+  walk(n, true);
+  if (reason) return { ok: false, reason };
+  if ([...vars.values()].some((c) => c > 1)) return { ok: false, reason: 'Combine the powers of each variable, so each variable appears only once.' };
+  const top = nums.filter((x) => x.top);
+  const bottom = nums.filter((x) => !x.top);
+  if (top.length > 1 || bottom.length > 1) return { ok: false, reason: 'Multiply the numbers together into one coefficient.' };
+  if (top.length === 1 && bottom.length === 1) {
+    const a = top[0].value;
+    const b = bottom[0].value;
+    const absB = b.num < 0n ? -b.num : b.num;
+    if (!a.isInteger() || !b.isInteger() || a.div(b).den !== absB) return { ok: false, reason: 'Simplify the numerical fraction.' };
+  }
+  if (bottom.length === 1 && bottom[0].value.eq(1)) return { ok: false, reason: 'Dividing by 1 changes nothing; leave it out.' };
+  return { ok: true };
+}
+
+/** Is `side` written as a·b^v (a and b numbers, v a variable)? Used for y = a(b)^x answers. */
+export function isExponentialForm(side: Node): boolean {
+  const constant = (m: Node) => variablesOf(m).size === 0;
+  const powerPart = (m: Node) => m.type === 'pow' && constant(m.base) && m.exp.type === 'var';
+  const s = side.type === 'neg' ? side.arg : side;
+  if (powerPart(s)) return true;
+  if (s.type === 'mul') return (constant(s.left) && powerPart(s.right)) || (powerPart(s.left) && constant(s.right));
+  return false;
+}
+
 export type RelOp = '=' | '<' | '>' | '<=' | '>=';
 export interface Relation {
   lhs: Node;
@@ -804,7 +887,8 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
       return rawInput === spec.correct ? ok() : bad();
 
     case 'number': {
-      const input = stripUnit(rawInput, spec.unit);
+      // "x = 4/3" answers a "solve for x" question: a single-letter label is fine
+      const input = stripUnit(rawInput, spec.unit).replace(/^\s*[a-zA-Z]\s*=\s*/, '');
       const exact = exactValue(spec.value);
       if (!exact || !exact.isRational()) throw new Error('number spec must be rational: ' + spec.value);
       const target = exact.rationalPart();
@@ -826,6 +910,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
         if (v.round(spec.roundTo).eq(rounded) && v.sub(target).abs().le(Rational.of(1n, 10n ** BigInt(spec.roundTo)))) {
           return ok(`Correct. Rounded to ${spec.roundTo} decimal place${spec.roundTo === 1 ? '' : 's'}, that's ${rounded.toDecimalString(spec.roundTo)}.`);
         }
+        if (v.sub(target).abs().lt(1)) return bad(`Close. Check your rounding: round to ${spec.roundTo === 0 ? 'the nearest whole number' : spec.roundTo === 2 && spec.unit === 'dollars' ? 'the nearest cent' : `${spec.roundTo} decimal place${spec.roundTo === 1 ? '' : 's'}`}, and only at the very end.`, 'other');
         return bad();
       }
       if (v.eq(target)) {
@@ -871,6 +956,10 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
       if (f === 'expanded' && !isExpandedForm(n)) return form("That's equivalent. Now multiply out and combine like terms.");
       if (f === 'factored' && !isCompletelyFactored(n)) return form("That's equivalent, but it isn't completely factored yet.");
       if (f === 'vertex' && !isVertexForm(n, allowed[0] ?? 'x')) return form("That's equivalent. Now write it in vertex form, a(x - h)² + k.");
+      if (f === 'exponent-simplified') {
+        const es = isExponentSimplified(n);
+        if (!es.ok) return form(`That's equivalent, but it isn't fully simplified. ${es.reason ?? ''}`.trim());
+      }
       if (f === 'simplified-radical') {
         const sr = isSimplifiedRadical(n);
         if (!sr.ok) return form(`That's equal to the answer, but it can be simplified further. ${sr.reason ?? ''}`.trim());
@@ -1074,6 +1163,12 @@ function equationFormCheck(got: Relation, f: EquationForm): CheckResult | null {
       if (!otherSide) return form('Write it as y = a(x - p)(x - q).');
       return isCompletelyFactored(otherSide) ? null : form("That's equivalent. Now write the right side in factored form.");
     }
+    case 'exponential': {
+      const lhsVar = got.lhs.type === 'var' && !variablesOf(got.rhs).has(got.lhs.name);
+      const side = lhsVar ? got.rhs : got.rhs.type === 'var' ? got.lhs : null;
+      if (!side || !isExponentialForm(side)) return form("That's equivalent. Now write it in the form y = a(b)ˣ.");
+      return null;
+    }
     case 'quadratic-standard': {
       if (!otherSide) return form('Write it as y = ax² + bx + c.');
       return isExpandedForm(otherSide) ? null : form("That's equivalent. Now expand it to y = ax² + bx + c.");
@@ -1082,12 +1177,20 @@ function equationFormCheck(got: Relation, f: EquationForm): CheckResult | null {
   return null;
 }
 
+/** A rounded value with exactly `places` decimals ("561.80"). */
+export function fixedPlaces(v: Rational, places: number): string {
+  const s = v.round(places).toDecimalString(places);
+  if (places === 0) return s;
+  const [i, f = ''] = s.split('.');
+  return `${i}.${f.padEnd(places, '0')}`;
+}
+
 /** Plain-text rendering of the correct answer (for review screens, never shown before help is exhausted). */
 export function answerToText(spec: AnswerSpec): string {
   switch (spec.kind) {
     case 'number': {
       const v = exactValue(spec.value)!.rationalPart();
-      const base = spec.roundTo !== undefined ? v.round(spec.roundTo).toDecimalString(spec.roundTo) : v.isInteger() || v.isTerminatingDecimal() ? v.toDecimalString(8) : v.toString();
+      const base = spec.roundTo !== undefined ? fixedPlaces(v, spec.roundTo) : v.isInteger() || v.isTerminatingDecimal() ? v.toDecimalString(8) : v.toString();
       return spec.unit ? `${base} ${spec.unit}` : base;
     }
     case 'expression':

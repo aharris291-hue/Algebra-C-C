@@ -357,3 +357,36 @@ describe('Unit 4 quadratic answers', () => {
     expect(checkAnswer({ kind: 'solutions', values: ['1.79', '-2.79'], roundTo: 2 }, '1.79, -2.79').status).toBe('correct');
   });
 });
+
+describe('Unit 5 exponent and exponential answers', () => {
+  it('simplified exponent form: one coefficient, each variable once, positive exponents', () => {
+    const spec: AnswerSpec = { kind: 'expression', value: 'x^5/y^5', form: 'exponent-simplified' };
+    expect(st(spec, 'x^5/y^5')).toBe('correct');
+    expect(st(spec, 'x^5 y^-5')).toBe('wrong-form');
+    expect(st(spec, '(x/y)^5')).toBe('wrong-form');
+    expect(st(spec, 'x^2x^3/y^5')).toBe('wrong-form');
+    expect(st(spec, 'x^5/y^4')).toBe('incorrect');
+    const frac: AnswerSpec = { kind: 'expression', value: '3a^2/(4b^3)', form: 'exponent-simplified' };
+    expect(st(frac, '3a^2/(4b^3)')).toBe('correct');
+    expect(st(frac, '(3/4)a^2/b^3')).toBe('correct');
+    expect(st(frac, '6a^2/(8b^3)')).toBe('wrong-form');
+    expect(st(frac, '3a^2b^0/(4b^3)')).toBe('wrong-form');
+    const neg: AnswerSpec = { kind: 'expression', value: '-8x^6y^3', form: 'exponent-simplified' };
+    expect(st(neg, '-8x^6y^3')).toBe('correct');
+    expect(st(neg, '(-2x^2y)^3')).toBe('wrong-form');
+    expect(st({ kind: 'expression', value: '1/(8x^6)', form: 'exponent-simplified' }, '8^-1 x^-6')).toBe('wrong-form');
+  });
+  it('exponential equations in the form y = a(b)^x', () => {
+    const spec: AnswerSpec = { kind: 'equation', value: 'y = 200(1.05)^x', form: 'exponential' };
+    for (const s of ['y=200(1.05)^x', 'y = 200*1.05^x', '200(1.05)^x', 'y = 200(1+0.05)^x', '(1.05)^x*200 = y']) expect(st(spec, s)).toBe('correct');
+    expect(st(spec, 'y = 210(1.05)^(x-1)')).toBe('wrong-form');
+    expect(st(spec, 'y = 200(1.5)^x')).toBe('incorrect');
+    expect(st({ kind: 'equation', value: 'y = 80(1/2)^x', form: 'exponential' }, 'y = 80(0.5)^x')).toBe('correct');
+  });
+  it('money answers with dollar signs and commas', () => {
+    const spec: AnswerSpec = { kind: 'number', value: '8235.0474884514', roundTo: 2, unit: 'dollars' };
+    expect(st(spec, '$8,235.05')).toBe('correct');
+    expect(st(spec, '8235.05 dollars')).toBe('correct');
+    expect(st(spec, '8235')).toBe('incorrect');
+  });
+});
