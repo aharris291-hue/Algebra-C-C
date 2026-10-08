@@ -3,9 +3,9 @@ import { useState } from 'react';
 import { api, errorMessage } from '../api';
 import { AVATAR_EMOJI } from '../labels';
 
-type Step = 'welcome' | 'pin' | 'recovery' | 'student' | 'how';
+type Step = 'welcome' | 'pin' | 'recovery' | 'student' | 'how' | 'diagnostic';
 
-export function FirstRun(props: { onDone: (profileId: number) => void }) {
+export function FirstRun(props: { onDone: (profileId: number, startDiagnostic: boolean) => void }) {
   const [step, setStep] = useState<Step>('welcome');
   const [pin, setPin] = useState('');
   const [pin2, setPin2] = useState('');
@@ -142,9 +142,51 @@ export function FirstRun(props: { onDone: (profileId: number) => void }) {
                 <b>Show What You Know</b> lets you test out of a lesson you already understand.
               </li>
             </ul>
-            <button className="btn btn-primary btn-lg" onClick={() => profileId && props.onDone(profileId)} autoFocus>
-              Start learning
+            <button className="btn btn-primary btn-lg" onClick={() => setStep('diagnostic')} autoFocus>
+              Continue
             </button>
+          </>
+        )}
+        {step === 'diagnostic' && (
+          <>
+            <h1>Find a starting point</h1>
+            <p>
+              The diagnostic is a short, ungraded check (20 to 30 minutes) of the earlier-grade skills algebra builds on, plus a few algebra skills {name.trim() || 'your student'} may already know. It sets
+              starting skill levels, suggests lessons to test out of, and offers warm-up practice where it helps. One wrong answer never decides a skill.
+            </p>
+            <p>It can be taken now or later from the home screen. A parent can skip it.</p>
+            {error && (
+              <div className="error-box" role="alert">
+                {error}
+              </div>
+            )}
+            <button className="btn btn-primary btn-lg" onClick={() => profileId && props.onDone(profileId, true)} autoFocus>
+              Take the diagnostic now
+            </button>
+            <div className="setup-secondary">
+              <button className="btn" onClick={() => profileId && props.onDone(profileId, false)}>
+                Later
+              </button>
+              <button
+                className="btn btn-quiet"
+                disabled={busy}
+                onClick={async () => {
+                  if (!profileId) return;
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    await api.skipDiagnostic(pin, profileId);
+                    props.onDone(profileId, false);
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Skip it (parent)
+              </button>
+            </div>
           </>
         )}
       </div>

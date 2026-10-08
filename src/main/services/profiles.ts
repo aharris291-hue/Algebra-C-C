@@ -25,6 +25,13 @@ function safeJson<T>(s: string, fallback: T): T {
   }
 }
 
+/** Onboarding state without the diagnostic's working state (which names the questions being asked). */
+function publicOnboarding(json: string): OnboardingState {
+  const o = safeJson<OnboardingState & { diagnosticRun?: unknown }>(json, {});
+  delete o.diagnosticRun;
+  return o;
+}
+
 function toSummary(ctx: ServiceContext, r: ProfileRow): ProfileSummary {
   const xp = totalXp(ctx, r.id);
   return {
@@ -36,7 +43,7 @@ function toSummary(ctx: ServiceContext, r: ProfileRow): ProfileSummary {
     archived: !!r.archived,
     xp,
     level: levelForXp(xp).level,
-    onboarding: safeJson<OnboardingState>(r.onboarding_json, {}),
+    onboarding: publicOnboarding(r.onboarding_json),
   };
 }
 
@@ -100,14 +107,16 @@ export function updateSettings(ctx: ServiceContext, id: number, s: Partial<Setti
   return next;
 }
 
+/**
+ * The student UI may only mark the introduction as seen. The diagnostic's status, results and
+ * recommendation are set by the diagnostic service (skipping it needs the Parent PIN).
+ */
 export function setOnboarding(ctx: ServiceContext, id: number, o: Partial<OnboardingState>): OnboardingState {
   const cur = safeJson<OnboardingState>(requireProfile(ctx, id).onboarding_json, {});
   const next: OnboardingState = { ...cur };
   if (typeof o.introSeen === 'boolean') next.introSeen = o.introSeen;
-  if (o.diagnostic && ['offered', 'skipped', 'in_progress', 'completed'].includes(o.diagnostic)) next.diagnostic = o.diagnostic;
-  if (typeof o.recommendedLessonId === 'string') next.recommendedLessonId = o.recommendedLessonId;
   ctx.db.run('UPDATE profiles SET onboarding_json = ? WHERE id = ?', [JSON.stringify(next), id]);
-  return next;
+  return publicOnboarding(JSON.stringify(next));
 }
 
 export function getGoals(ctx: ServiceContext, id: number): { weeklyLessons: number; dailyMinutes: number } {

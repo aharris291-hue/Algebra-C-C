@@ -7,7 +7,7 @@ import type { LessonContent, LessonMeta, ProblemRef } from '../../core/curriculu
 import { LESSON_CONTENT, LESSON_BY_ID, LESSONS, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, generatorsForSkill, GENERATORS, CAPSTONE_CONTENT } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
 import { isStruggling, STAGE_ORDER } from '../../core/engine/mastery';
-import type { LessonView, ResultsView, SectionId, TeachAgainView, CourseUnit, CourseLesson, LessonStatus, SkillChange } from '../../shared/api';
+import type { LessonView, ResultsView, SectionId, TeachAgainView, CourseUnit, CourseLesson, LessonStatus, SkillChange, OnboardingState } from '../../shared/api';
 import { LESSON_SECTIONS } from '../../shared/api';
 import { ServiceContext, UserFacingError, today } from './context';
 import { requireProfile } from './profiles';
@@ -177,8 +177,17 @@ export function isLessonPlayable(l: LessonMeta): boolean {
   return l.skillsAssessed.length > 0 && l.skillsAssessed.every((s) => generatorsForSkill(s).length > 0);
 }
 
+function diagnosticTestOuts(onboardingJson: string): Set<string> {
+  try {
+    const ids = (JSON.parse(onboardingJson) as OnboardingState).diagnosticSummary?.testOutLessonIds;
+    return new Set(Array.isArray(ids) ? ids : []);
+  } catch {
+    return new Set();
+  }
+}
+
 export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] {
-  requireProfile(ctx, profileId);
+  const suggested = diagnosticTestOuts(requireProfile(ctx, profileId).onboarding_json);
   const st = lessonStatuses(ctx, profileId);
   const states = skillStates(ctx, profileId);
   const units = new Map<string, CourseUnit>();
@@ -196,6 +205,7 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
       status: s.status,
       hasContent: isLessonPlayable(l),
       canTestOut: l.kind === 'lesson' && LESSON_CONTENT.has(l.id) && (s.status === 'available' || s.status === 'in_progress' || (s.status === 'locked' && prereqOk)),
+      suggestedTestOut: suggested.has(l.id) && s.status !== 'completed' && s.status !== 'tested_out' ? true : undefined,
       quizBest: s.quizBest,
       standards: l.standards,
     };

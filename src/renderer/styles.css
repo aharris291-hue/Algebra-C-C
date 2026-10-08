@@ -1478,3 +1478,22 @@ figcaption {
   padding: 0.7rem 1rem;
   margin: 1rem 0;
 }
+
+/* diagnostic */
+.diagnostic-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--accent);
+}
+.diagnostic-offer h2 {
+  margin-top: 0;
+}
+.setup-secondary {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}

@@ -253,6 +253,24 @@ function Overview({ d }: { d: ParentDashboard }) {
             </ul>
           )}
         </section>
+        {d.profile.onboarding.diagnosticSummary && (
+          <section className="card wide">
+            <h2>Diagnostic</h2>
+            <p>{d.profile.onboarding.diagnosticSummary.headline}</p>
+            <ul className="compact">
+              {d.profile.onboarding.diagnosticSummary.skills.map((s) => (
+                <li key={s.skillId}>
+                  {s.group === 'prereq' ? 'Earlier grade' : 'Course'}: {s.name}{' '}
+                  <span className={`stage ${s.verdict === 'strong' ? 'stage-PROFICIENT' : 'stage-LEARNING'}`}>{s.verdict === 'strong' ? 'Shown' : s.verdict === 'not-learned' ? 'Not learned yet' : s.group === 'prereq' ? 'Needs a refresh' : 'To learn'}</span>{' '}
+                  <span className="sub">
+                    ({s.correct} of {s.answered} correct)
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="sub">Taken {fmtDate(d.profile.onboarding.diagnosticSummary.completedAt)}. Suggested start: {d.profile.onboarding.diagnosticSummary.recommendedLessonTitle}.</p>
+          </section>
+        )}
         <section className="card wide">
           <h2>Recent activity</h2>
           {d.recentActivity.length === 0 ? (
@@ -539,6 +557,8 @@ function ReportList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+const DIAG_LABEL: Record<string, string> = { offered: 'not taken yet', in_progress: 'in progress', completed: 'done', skipped: 'skipped' };
+
 function Students({ pin, profiles, onChanged }: { pin: string; profiles: ProfileSummary[]; onChanged: () => void }) {
   const [name, setName] = useState('');
   const [avatar, setAvatar] = useState('spark');
@@ -554,6 +574,16 @@ function Students({ pin, profiles, onChanged }: { pin: string; profiles: Profile
     try {
       await api.createProfile(pin, name, avatar);
       setName('');
+      onChanged();
+    } catch (e) {
+      setMsg(errorMessage(e));
+    }
+  };
+  const diag = async (fn: () => Promise<unknown>, done: string) => {
+    setMsg(null);
+    try {
+      await fn();
+      setMsg(done);
       onChanged();
     } catch (e) {
       setMsg(errorMessage(e));
@@ -592,6 +622,20 @@ function Students({ pin, profiles, onChanged }: { pin: string; profiles: Profile
                 Save goals
               </button>
             </>
+          )}
+          {!p.archived && (
+            <p className="sub">
+              Diagnostic: {DIAG_LABEL[p.onboarding.diagnostic ?? 'offered']}{' '}
+              {(p.onboarding.diagnostic ?? 'offered') === 'offered' || p.onboarding.diagnostic === 'in_progress' ? (
+                <button className="btn btn-small" onClick={() => diag(() => api.skipDiagnostic(pin, p.id), 'The diagnostic was skipped.')}>
+                  Skip it
+                </button>
+              ) : (
+                <button className="btn btn-small" onClick={() => diag(() => api.reofferDiagnostic(pin, p.id), 'The diagnostic is offered again on the home screen.')}>
+                  Offer it again
+                </button>
+              )}
+            </p>
           )}
           <div className="row-buttons">
             {editing?.id === p.id ? (

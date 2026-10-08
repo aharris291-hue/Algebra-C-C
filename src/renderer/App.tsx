@@ -10,6 +10,7 @@ import { Home } from './screens/Home';
 import { CourseMap, SkillsView } from './screens/CourseMap';
 import { LessonPlayer } from './screens/LessonPlayer';
 import { DayPlayer } from './screens/DayPlayer';
+import { DiagnosticPlayer } from './screens/DiagnosticPlayer';
 import { ParentMode } from './screens/Parent';
 import { SettingsScreen } from './screens/Settings';
 
@@ -23,6 +24,7 @@ type Screen =
   | { name: 'settings' }
   | { name: 'lesson'; lessonId: string; testOut?: boolean }
   | { name: 'day'; lessonId: string }
+  | { name: 'diagnostic' }
   | { name: 'parent'; back: 'profiles' | 'home' };
 
 const HEARTBEAT_SECONDS = 15;
@@ -87,7 +89,7 @@ export function App() {
   }, [profileId, screen.name]);
 
   useEffect(() => {
-    if (screen.name !== 'lesson' && screen.name !== 'day') activity.current = { lessonId: null, activity: screen.name === 'home' ? 'dashboard' : screen.name };
+    if (screen.name !== 'lesson' && screen.name !== 'day' && screen.name !== 'diagnostic') activity.current = { lessonId: null, activity: screen.name === 'home' ? 'dashboard' : screen.name };
   }, [screen]);
 
   if (fatal)
@@ -122,11 +124,11 @@ export function App() {
       {screen.name === 'loading' && <div className="page loading">Starting…</div>}
       {screen.name === 'first-run' && (
         <FirstRun
-          onDone={(id) => {
+          onDone={(id, diagnostic) => {
             setProfileId(id);
             api.setOnboarding(id, { introSeen: true }).catch(() => undefined);
             api.getStatus().then(setStatus);
-            go({ name: 'home' });
+            go(diagnostic ? { name: 'diagnostic' } : { name: 'home' });
           }}
         />
       )}
@@ -140,7 +142,7 @@ export function App() {
         />
       )}
       {screen.name === 'home' && profileId !== null && (
-        <Home profileId={profileId} onOpenLesson={(id, kind) => openLesson(id, false, kind)} onCourse={() => go({ name: 'course' })} onSkills={() => go({ name: 'skills' })} onSettings={() => go({ name: 'settings' })} onSwitch={() => go({ name: 'profiles' })} />
+        <Home profileId={profileId} onOpenLesson={(id, kind) => openLesson(id, false, kind)} onCourse={() => go({ name: 'course' })} onSkills={() => go({ name: 'skills' })} onSettings={() => go({ name: 'settings' })} onSwitch={() => go({ name: 'profiles' })} onDiagnostic={() => go({ name: 'diagnostic' })} />
       )}
       {screen.name === 'course' && profileId !== null && <CourseMap profileId={profileId} onOpenLesson={openLesson} onBack={() => go({ name: 'home' })} />}
       {screen.name === 'skills' && profileId !== null && <SkillsView profileId={profileId} onBack={() => go({ name: 'home' })} />}
@@ -158,6 +160,9 @@ export function App() {
       )}
       {screen.name === 'day' && profileId !== null && (
         <DayPlayer key={screen.lessonId} profileId={profileId} lessonId={screen.lessonId} onExit={() => go({ name: 'home' })} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} />
+      )}
+      {screen.name === 'diagnostic' && profileId !== null && (
+        <DiagnosticPlayer profileId={profileId} onExit={() => go({ name: 'home' })} onOpenLesson={(id) => openLesson(id)} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} />
       )}
       {screen.name === 'parent' && (
         <ParentMode

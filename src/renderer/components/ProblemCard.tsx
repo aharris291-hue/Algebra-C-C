@@ -14,7 +14,7 @@ export interface ProblemActions {
 
 const DIFF = ['', 'Level 1', 'Level 2', 'Level 3'];
 
-export function ProblemCard({ p, actions, deferred, busy }: { p: ProblemView; actions: ProblemActions; deferred: boolean; busy: boolean }) {
+export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: ProblemView; actions: ProblemActions; deferred: boolean; busy: boolean; submitLabel?: string }) {
   const [value, setValue] = useState(deferred ? p.lastResponse ?? '' : '');
   const shownAt = useRef(Date.now());
   const stepKey = `${p.key}:${p.step?.index ?? 0}`;
@@ -107,7 +107,7 @@ export function ProblemCard({ p, actions, deferred, busy }: { p: ProblemView; ac
           <div className="answer-actions">
             {(kind !== 'choice' || deferred) && (
               <button className="btn btn-primary" disabled={!value.trim() || busy} onClick={() => submit()}>
-                {deferred ? (saved && value === p.lastResponse ? 'Answer saved ✓' : 'Save answer') : 'Check answer'}
+                {submitLabel ?? (deferred ? (saved && value === p.lastResponse ? 'Answer saved ✓' : 'Save answer') : 'Check answer')}
               </button>
             )}
             {p.hintsAllowed && actions.hint && (
