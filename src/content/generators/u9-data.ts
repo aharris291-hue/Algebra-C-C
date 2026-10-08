@@ -167,10 +167,12 @@ const timesOf = (sc: Scenario, ride: Ride) => sc.students.filter((s) => s.ride =
 const listText = (xs: number[]) => xs.join(', ');
 function dotPlots(sc: Scenario): Block[] {
   const all = sc.students.map((s) => s.time);
-  const min = Math.floor(Math.min(...all) / 5) * 5;
-  const max = Math.ceil(Math.max(...all) / 5) * 5;
-  // at most 16 ticks, so every tick is labeled and the labels stay clear of the dots
-  const step = max - min <= 30 ? 2 : 5;
+  const lo = Math.floor(Math.min(...all) / 5) * 5;
+  const hi = Math.ceil(Math.max(...all) / 5) * 5;
+  // at most 16 ticks, so every tick is labeled; with step 2 the ends are even so they are ticks too
+  const step = hi - lo <= 28 ? 2 : 5;
+  const min = step === 2 ? lo - (lo % 2) : lo;
+  const max = step === 2 ? hi + (hi % 2) : hi;
   return (['Bus', 'Car'] as const).map((ride) => ({
     t: 'dataplot',
     spec: { kind: 'dot', min, max, step, axisLabel: `${ride} riders: commute time (minutes)`, values: timesOf(sc, ride), ariaLabel: `Dot plot of the ${ride.toLowerCase()} riders' commute times in minutes: ${listText([...timesOf(sc, ride)].sort((u, v) => u - v))}.` },
