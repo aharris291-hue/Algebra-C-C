@@ -1,6 +1,7 @@
 /**
- * Review and assessment days: an overview of the skills covered, then the problem set,
- * then results with corrections (and a retake for assessments). All logic lives in the
+ * Review, project and assessment days: an overview of the skills covered (for a capstone project,
+ * the situation and its parts), then the problem set, then results with corrections (and a retake
+ * for assessments). All logic lives in the
  * main process; this screen only shows what it returns.
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -8,6 +9,7 @@ import type { DayView } from '../../shared/api';
 import { api, errorMessage } from '../api';
 import { PracticePanel } from '../components/Practice';
 import { Results } from '../components/Results';
+import { Blocks } from '../components/Blocks';
 import { STAGE_LABEL, KIND_LABEL } from '../labels';
 import { playSound } from '../sound';
 
@@ -63,6 +65,7 @@ export function DayPlayer(props: { profileId: number; lessonId: string; onExit: 
   }
 
   const assessment = view.mode === 'assessment';
+  const project = view.project;
   const inTest = assessment && view.phase === 'practice';
   const actions = {
     submit: async (key: string, response: string, elapsed: number) => {
@@ -110,7 +113,42 @@ export function DayPlayer(props: { profileId: number; lessonId: string; onExit: 
           </div>
         )}
 
-        {view.phase === 'overview' && (
+        {view.phase === 'overview' && project && (
+          <section aria-label="Overview">
+            <h2 className="section-title">The project</h2>
+            <p className="lesson-goal">{project.goal}</p>
+            <Blocks blocks={project.intro} />
+            <h3>How you will work</h3>
+            <ol>
+              {project.plan.map((p, i) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ol>
+            <h3>The {project.parts.length} parts</h3>
+            <ol className="project-parts">
+              {project.parts.map((p, i) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ol>
+            <ul>
+              <li>Every part uses the same situation and numbers. Each part repeats the numbers it needs.</li>
+              <li>Hints and full solutions are available. This project is not graded; it shows which skills to brush up on before the semester review.</li>
+            </ul>
+            <h3>Skills</h3>
+            <ul className="skill-chips">
+              {view.skills.map((s) => (
+                <li key={s.skillId}>
+                  <span className="skill-name">{s.name}</span> <span className={`stage stage-${s.stage}`}>{STAGE_LABEL[s.stage]}</span>
+                </li>
+              ))}
+            </ul>
+            <button className="btn btn-primary btn-lg" disabled={busy} onClick={() => run(() => api.startDay(profileId, lessonId))}>
+              Start the project
+            </button>
+          </section>
+        )}
+
+        {view.phase === 'overview' && !project && (
           <section aria-label="Overview">
             <h2 className="section-title">{assessment ? 'Before you start' : 'What this review covers'}</h2>
             {assessment ? (
@@ -148,17 +186,23 @@ export function DayPlayer(props: { profileId: number; lessonId: string; onExit: 
 
         {view.phase === 'practice' && view.practice && (
           <>
-            <h2 className="section-title">{assessment ? `Assessment${view.attempts > 0 ? ` (attempt ${view.attempts + 1})` : ''}` : 'Mixed review'}</h2>
+            <h2 className="section-title">{assessment ? `Assessment${view.attempts > 0 ? ` (attempt ${view.attempts + 1})` : ''}` : project ? 'Project' : 'Mixed review'}</h2>
+            {project && (
+              <details className="project-recap">
+                <summary>Reread the situation</summary>
+                <Blocks blocks={project.intro} />
+              </details>
+            )}
             <PracticePanel
               practice={view.practice}
               busy={busy}
-              intro={assessment ? 'Answer every question. Nothing is graded until you select Finish and grade.' : 'Work each problem. Use hints whenever you need them.'}
+              intro={assessment ? 'Answer every question. Nothing is graded until you select Finish and grade.' : project ? 'Work the parts in order. Use hints whenever you need them.' : 'Work each problem. Use hints whenever you need them.'}
               actions={{ ...actions, finishQuiz: assessment ? finish : undefined }}
             />
             {!assessment && view.practice.complete && (
               <div className="practice-nav">
                 <button className="btn btn-primary btn-lg" disabled={busy} onClick={finish}>
-                  See my review results
+                  {project ? 'Finish the project' : 'See my review results'}
                 </button>
               </div>
             )}
@@ -167,8 +211,14 @@ export function DayPlayer(props: { profileId: number; lessonId: string; onExit: 
 
         {view.phase === 'results' && view.results && (
           <>
-            <h2 className="section-title">{assessment ? 'Results' : 'Review results'}</h2>
+            <h2 className="section-title">{assessment ? 'Results' : project ? 'Project results' : 'Review results'}</h2>
             <Results r={view.results} />
+            {project && (
+              <section className="project-wrapup" aria-label="Looking back">
+                <h3>Looking back</h3>
+                <Blocks blocks={project.wrapUp} />
+              </section>
+            )}
             {view.corrections && (
               <section className="corrections" aria-label="Corrections">
                 <h3>Corrections</h3>

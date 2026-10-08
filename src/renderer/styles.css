@@ -1454,3 +1454,27 @@ figcaption {
 .numberline-arrow {
   fill: var(--text);
 }
+
+/* capstone projects */
+.lesson-goal {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.project-recap {
+  border: 1px solid var(--border, #ccd);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  margin: 0 0 1rem;
+  background: var(--surface-2);
+}
+.project-recap summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.project-wrapup {
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin: 1rem 0;
+}

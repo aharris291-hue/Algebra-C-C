@@ -403,3 +403,113 @@ describe('Unit 8 review and assessment days', () => {
     expect(v.results!.score).toBe(v.results!.maxScore);
   });
 });
+
+describe('Unit 9: capstone projects, semester review and semester assessment', () => {
+  async function ready(day: string) {
+    const ctx = await makeCtx();
+    setupParent(ctx, '2468');
+    const pid = createProfile(ctx, 'Jo', 'owl').id;
+    const first = LESSON_BY_ID.get(day)!;
+    for (const [id, l] of LESSON_BY_ID)
+      if (l.day < first.day) ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at) VALUES (?,?,?,?,?,?,?,?)", [pid, id, 'completed', 'summary', '{"v":1,"quizAttempts":1}', 1, 1, 1]);
+    return { ctx, pid };
+  }
+  function playAll(ctx: ServiceContext, pid: number, id: string) {
+    let v = D.startDay(ctx, pid, id);
+    while (!v.practice!.complete) {
+      const cur = v.practice!.problems[v.practice!.currentIndex];
+      if (cur.state === 'open') v = D.daySubmit(ctx, pid, id, cur.key, key(ctx, pid, id, cur.key), 20_000);
+      else v = D.dayNext(ctx, pid, id);
+    }
+    return D.finishDay(ctx, pid, id);
+  }
+
+  it('each capstone is one situation: its parts come in order from one seed, and finishing it unlocks the next day', async () => {
+    const { ctx, pid } = await ready('U9L01');
+    const next: Record<string, string> = { U9L01: 'U9L02', U9L02: 'U9L03', U9L03: 'U9L04' };
+    for (const id of ['U9L01', 'U9L02', 'U9L03']) {
+      expect(lessonStatuses(ctx, pid).get(id)!.status).toBe('available');
+      let v = D.openDay(ctx, pid, id);
+      expect(v.project).toBeTruthy();
+      expect(v.mode).toBe('review');
+      expect(v.itemCount).toBe(v.project!.parts.length);
+      v = D.startDay(ctx, pid, id);
+      const items = dayState(ctx, pid, id).practice!.items;
+      expect(items.length).toBe(v.project!.parts.length);
+      expect(new Set(items.map((i) => i.seed)).size).toBe(1);
+      expect(items.map((i) => i.generatorId)).toEqual(items.map((_, k) => `${items[0].generatorId.split('.').slice(0, 2).join('.')}.${k + 1}`));
+      // the skills the catalog says this day assesses are all practiced
+      for (const s of LESSON_BY_ID.get(id)!.skillsAssessed) expect(items.some((i) => i.skillId === s)).toBe(true);
+      // a wrong answer and a hint behave like any review problem
+      const first = v.practice!.problems[0];
+      v = D.dayHint(ctx, pid, id, first.key);
+      expect(v.practice!.problems[0].hintsShown.length).toBe(1);
+      expect(() => D.finishDay(ctx, pid, id)).toThrow(/every part/);
+      while (!v.practice!.complete) {
+        const cur = v.practice!.problems[v.practice!.currentIndex];
+        if (cur.state === 'open') v = D.daySubmit(ctx, pid, id, cur.key, key(ctx, pid, id, cur.key), 20_000);
+        else v = D.dayNext(ctx, pid, id);
+      }
+      v = D.finishDay(ctx, pid, id);
+      expect(v.results!.kind).toBe('review');
+      // the hinted part does not count as right on the first try; the rest do
+      expect(v.results!.score).toBe(v.results!.maxScore - 1);
+      expect(v.status).toBe('completed');
+      expect(lessonStatuses(ctx, pid).get(next[id])!.status).toBe('available');
+    }
+    const row = ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM assessments WHERE profile_id = ? AND kind = 'capstone' AND status = 'completed'", [pid])!;
+    expect(row.n).toBe(3);
+  });
+
+  it('the two semester reviews cover their skills', async () => {
+    const { ctx, pid } = await ready('U9L04');
+    for (const id of ['U9L04', 'U9L05']) {
+      D.openDay(ctx, pid, id);
+      const v = playAll(ctx, pid, id);
+      expect(new Set(dayState(ctx, pid, id).practice!.items.map((i) => i.skillId))).toEqual(new Set(LESSON_BY_ID.get(id)!.skillsAssessed));
+      expect(v.results!.score).toBe(v.results!.maxScore);
+    }
+    expect(lessonStatuses(ctx, pid).get('U9L06')!.status).toBe('available');
+  });
+
+  it('the semester assessment covers all 20 skills, counts in its own grade category, and can be corrected and retaken', async () => {
+    const { ctx, pid } = await ready('U9L06');
+    const meta = LESSON_BY_ID.get('U9L06')!;
+    let v = D.openDay(ctx, pid, 'U9L06');
+    expect(v.mode).toBe('assessment');
+    v = D.startDay(ctx, pid, 'U9L06');
+    const skills = dayState(ctx, pid, 'U9L06').practice!.items.map((i) => i.skillId);
+    expect(new Set(skills)).toEqual(new Set(meta.skillsAssessed));
+    for (const s of meta.skillsAssessed) expect(skills.filter((x) => x === s).length).toBe(SKILL_BY_ID.get(s)!.essential ? 2 : 1);
+    expect(v.practice!.problems.every((p) => !p.hintsAllowed)).toBe(true);
+    // first attempt: every answer wrong
+    for (const p of v.practice!.problems) {
+      const right = key(ctx, pid, 'U9L06', p.key);
+      const wrong: Record<string, string> = { choice: '__none__', number: '987654', point: '(987654, 1)', 'region-point': '(-987654, -987654)', 'sequence-terms': '987654, 1, 2', interval: '(987654, 987655)', solutions: 'x = 987654', expression: `(${right}) + 987654` };
+      v = D.daySubmit(ctx, pid, 'U9L06', p.key, wrong[p.answerKind] ?? right.replace(/(=|<=|>=|<|>)/, '$1 987654 +'), 30_000);
+    }
+    expect(v.practice!.problems.every((p) => p.lastResponse !== undefined), v.practice!.problems.filter((p) => p.lastResponse === undefined).map((p) => p.answerKind).join()).toBe(true);
+    v = D.finishDay(ctx, pid, 'U9L06');
+    expect(v.results!.kind).toBe('semester-assessment');
+    expect(v.results!.passed).toBe(false);
+    // (a far-away point can still satisfy a system that is open in that direction, so allow one lucky answer)
+    expect(v.results!.score).toBeLessThanOrEqual(1);
+    expect(v.corrections!.problems.length).toBe(v.results!.maxScore - v.results!.score);
+    expect(v.canRetake).toBe(false);
+    while (!v.corrections!.complete) {
+      const cur = v.corrections!.problems[v.corrections!.currentIndex];
+      if (cur.state === 'open') v = D.daySubmit(ctx, pid, 'U9L06', cur.key, key(ctx, pid, 'U9L06', cur.key), 20_000);
+      else v = D.dayNext(ctx, pid, 'U9L06');
+    }
+    expect(v.canRetake).toBe(true);
+    v = D.retakeDay(ctx, pid, 'U9L06');
+    for (const p of v.practice!.problems) v = D.daySubmit(ctx, pid, 'U9L06', p.key, key(ctx, pid, 'U9L06', p.key), 30_000);
+    v = D.finishDay(ctx, pid, 'U9L06');
+    expect(v.results!.passed).toBe(true);
+    expect(v.results!.attemptNumber).toBe(2);
+    expect(v.status).toBe('completed');
+    const pd = getParentDashboard(ctx, pid);
+    expect(pd.gradeDetail.categories.find((c) => c.category === 'semesterAssessment')?.percent).toBe(100);
+    expect(pd.gradeDetail.categories.find((c) => c.category === 'unitAssessments')?.percent).toBeNull();
+  });
+});
