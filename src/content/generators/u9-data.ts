@@ -701,9 +701,9 @@ function causeLabels(bd: Rational, cd: Rational) {
   const f = (x: Rational) => x.round(1).toDecimalString(1);
   return {
     correct: `The claim is not supported. The bus riders in the survey live farther from school on average (about ${f(bd)} miles vs ${f(cd)} miles), so distance could explain their longer times. A survey shows an association, not cause and effect.`,
-    median: 'The claim is supported, because the bus riders’ median commute time is greater than the car riders’ median commute time.',
-    corr: 'The claim is supported, because the correlation between distance and commute time is strong.',
-    none: 'The claim is not supported, because there is no association between how students get to school and their commute times.',
+    median: 'The claim is supported. The bus riders’ median commute time is greater than the car riders’, so riding the bus must add time to the trip.',
+    corr: 'The claim is supported. The correlation between distance and commute time is strong, so the way a student travels must cause the difference.',
+    none: 'The claim is not supported. There is no association between how students get to school and their commute times, so the two groups do not differ.',
   };
 }
 
@@ -760,7 +760,7 @@ const task8: GeneratorDef = {
 
 function extrapLabels(far: number, lo: string, hi: string, r: string) {
   return {
-    correct: `Not much, because ${far} miles is far outside the distances in the data (${lo} to ${hi} miles), so the pattern may not continue; for example, a long trip may be mostly on a fast highway.`,
+    correct: `Not much, because ${far} miles is far outside the distances in the data (${lo} to ${hi} miles), so the pattern may not continue.`,
     rclose: `A lot, because r = ${r} is close to 1, so the line works for any distance.`,
     weak: 'Not much, because the association between distance and commute time is weak.',
     exact: 'A lot, because a line of best fit gives the exact commute time for any distance.',
