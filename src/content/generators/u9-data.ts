@@ -106,6 +106,8 @@ function scenario(rng: Rng): Scenario {
     if (!fb.median.gt(fc.median) || fb.q3.sub(fb.q1).eq(fc.q3.sub(fc.q1))) continue;
     // bus riders live farther on average (the lurking variable in Part 8); car times stay realistic
     if (!mean(busD).gt(mean(carD)) || carT.some((t) => t.lt(4))) continue;
+    // the new student's distance lies inside the surveyed distances (interpolation)
+    if (!students.some((st) => st.dist.lt(d0)) || !students.some((st) => st.dist.gt(d0))) continue;
     const reg = linearRegression(
       students.map((s) => s.dist),
       rats(students.map((s) => s.time)),
