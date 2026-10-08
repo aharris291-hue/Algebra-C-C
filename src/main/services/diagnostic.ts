@@ -183,7 +183,7 @@ function summarize(ctx: ServiceContext, profileId: number, run: DiagnosticRun): 
       ? 'Your earlier-grade skills look solid. Start at the beginning of the course.'
       : weakPre.length === 0
         ? `Your earlier-grade skills look solid, and you already know some of this course. Try Show What You Know on ${testOut.length === 1 ? 'the marked lesson' : `the ${testOut.length} marked lessons`} when you reach them.`
-        : `A few earlier-grade skills need a refresh (${weakPre.map((s) => s.name).join(', ')}). The warm-up practice below helps, and lessons will review them as they come up.`;
+        : `${weakPre.length === 1 ? 'One earlier-grade skill needs' : `${weakPre.length} earlier-grade skills need`} a refresh: ${weakPre.map((s) => s.name).join(', ')}. The warm-up practice below helps, and lessons review ${weakPre.length === 1 ? 'it' : 'them'} as ${weakPre.length === 1 ? 'it comes' : 'they come'} up.`;
   return { completedAt: ctx.now(), skills, testOutLessonIds: testOut, recommendedLessonId: firstOpen.id, recommendedLessonTitle: firstOpen.title, headline };
 }
 

@@ -12,6 +12,7 @@ All three are computed in the main process from stored records (`src/core/engine
 | Practice completion | 5% | Share of started lessons whose independent practice was completed. Accuracy in practice never lowers the grade. |
 
 - Unit reviews, the checkpoint, cumulative and semester reviews, and the three capstone projects (days 85-87) are not graded: they give practice with hints and show which skills to review. Their answers still count toward skill mastery, like any practice.
+- The diagnostic (placement check) is not graded. Its answers count toward skill mastery as diagnostic evidence (×1.5), and it can suggest Show What You Know lessons and warm-up practice; see below.
 - Categories with no work yet are left out and the remaining weights are rescaled (e.g. quizzes only = 100% quizzes).
 - Practice completion alone never produces a grade.
 - Letters: A ≥ 90, B ≥ 80, C ≥ 70, below 70 F. Percentages are rounded to one decimal.
@@ -32,6 +33,15 @@ Each skill's state is replayed from all counted answers in time order (determini
 - **Mastered:** score ≥ 0.88, ≥ 6 answers, ≥ 4 independent correct answers, a correct quiz/assessment answer, **and independent correct work spanning at least 20 hours** (a later study day), so mastery means retained, not just done once.
 - A mastered skill drops only if its score falls below 0.7 (one missed review does not remove it).
 - Spaced review: Proficient/Mastered skills come back after 2, 4, 7, 14, 30 days; review items are mixed into later practice.
+
+## Diagnostic / placement check (`diagnostic.ts`)
+
+Offered after the first profile is created and on the home screen until it is taken; a parent can skip it (or offer it again) with the Parent PIN.
+
+- Part 1 checks the 12 earlier-grade prerequisite skills; Part 2 probes 8 key course skills (S1.02, S1.05, S1.07, S1.09, S1.12, S2.01, S3.03, S5.01).
+- One question at a time, no hints, no right/wrong feedback. "I haven't learned this yet" marks the skill not learned and records no wrong answer.
+- Evidence rule (one slip never decides a skill): a prerequisite is shown by a first correct answer; after a miss, two misses mean it needs a refresh, and a miss then a correct answer goes to a third question. A course skill needs two correct answers; two misses mean it is still to learn; a split goes to a third question. At most 3 questions per skill.
+- Results: each skill's verdict, a starting lesson (the first open lesson), Show What You Know suggestions for lessons whose course skill was shown (marked on the course map), and optional warm-up practice (hints, worked solutions) on prerequisites that need a refresh.
 
 ## XP (`xp.ts`)
 

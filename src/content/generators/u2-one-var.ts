@@ -144,7 +144,7 @@ export const genSolveIneq: GeneratorDef = {
           },
           {
             prompt: [p(`Now solve $${collectedTex}$ for $x$.`)],
-            answer: { kind: 'inequality', value: answer },
+            answer: { kind: 'inequality', value: answer, form: 'solved' },
             hints: [
               `Divide both sides by $${s.coef.toTex()}$.`,
               flips ? 'You are dividing by a negative number. What happens to the symbol?' : 'You are dividing by a positive number, so the symbol stays the same.',
@@ -160,7 +160,7 @@ export const genSolveIneq: GeneratorDef = {
       skillId: 'S2.01',
       tags: difficulty === 3 ? ['multi-step'] : [],
       prompt: [p(`Solve the inequality $${orig}$.`)],
-      answer: { kind: 'inequality', value: answer },
+      answer: { kind: 'inequality', value: answer, form: 'solved' },
       inputHint: 'Type an inequality like x >= -3 (or x ≥ -3).',
       hints: [
         'Solve it like an equation, with one extra rule about the symbol.',
@@ -252,7 +252,7 @@ export const genIneqNumberLine: GeneratorDef = {
         skillId: 'S2.01',
         tags: ['graph'],
         prompt: [p('Write the inequality in $x$ shown by this number line.'), numberLineBlock(k, op)],
-        answer: { kind: 'inequality', value: answer },
+        answer: { kind: 'inequality', value: answer, form: 'solved' },
         inputHint: 'Type an inequality like x < 4 or x >= -2.',
         hints: [
           'The circle marks the boundary number. The shaded part shows every solution.',

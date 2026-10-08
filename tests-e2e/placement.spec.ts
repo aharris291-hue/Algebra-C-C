@@ -147,8 +147,8 @@ test('Diagnostic: from the home screen offer to a starting point and warm-up pra
   await act(page, () => page.getByRole('button', { name: 'Warm-up practice on earlier skills' }).click());
   await expect(page.getByRole('heading', { name: 'Warm-up practice' })).toBeVisible();
   await expect(page.locator('article.problem .tag').first()).toBeVisible();
-  await solveSet(page, { wrongFirst: true });
-  await act(page, () => page.getByRole('button', { name: /back to my results/ }).click());
+  await solveSet(page, { wrongFirst: true, scope: 'section.practice' });
+  await act(page, () => page.getByRole('button', { name: 'Done: back to my results' }).click());
   await expect(page.getByRole('heading', { name: 'What we found' })).toBeVisible();
 
   // the course map marks lessons to try Show What You Know on
