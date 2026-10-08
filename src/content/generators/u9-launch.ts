@@ -320,7 +320,7 @@ const genLanding: GeneratorDef = {
         { text: 'Keep the solution that makes sense.', tex: `t \\approx ${T1}`, why: 'The negative solution is a time before the launch, so the rocket lands after the positive time.' },
       ],
       misconceptions: numberMisconceptions(Rational.parse(T1), [
-        mis(Rational.parse(s.neg.toFixed(1)), 'other', 'That solves the equation, but it is a negative time, before the rocket was launched. Choose the solution that fits the situation.'),
+        mis(Rational.parse(s.neg.toFixed(2)), 'other', 'That solves the equation, but it is a negative time, before the rocket was launched. Choose the solution that fits the situation.'),
         mis(Q(s.v0, 16), 'other', 'At that time the rocket is back at the height of the platform, not on the ground. It still has a little farther to fall.'),
         mis(s.tv, 'other', 'That is when the rocket is highest. It lands later, when the height is $0$.'),
       ]),
@@ -514,7 +514,7 @@ const genEvalFish: GeneratorDef = {
       misconceptions: numberMisconceptions(round, [
         mis(s.a.mul(Q(1).add(s.r.mul(s.te))).round(0), 'percent-rate', `That adds ${pct(s.r)}% of the starting fish every year, which is linear growth. Each year the ${pct(s.r)}% is of a larger population.`),
         mis(s.a.mul(s.b).mul(s.te).round(0), 'order-of-operations', 'Raise the growth factor to the power; do not multiply by the number of years.'),
-        mis(s.a.mul(s.b).pow(s.te).round(0), 'order-of-operations', 'Only the growth factor is raised to the power. Multiply by the starting number after the power.'),
+        mis(s.a.mul(s.b).pow(s.te).lt(100000) ? s.a.mul(s.b).pow(s.te).round(0) : null, 'order-of-operations', 'Only the growth factor is raised to the power. Multiply by the starting number after the power.'),
       ]),
     });
   },
