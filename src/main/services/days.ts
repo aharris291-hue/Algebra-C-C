@@ -3,11 +3,13 @@
  * are mixed practice with hints and immediate feedback; unit and semester assessments are
  * graded at the end with no hints, then corrected and (if needed) retaken.
  * Items are assembled from the skills the day assesses, so every Unit's review and test
- * work as soon as that unit's generators exist. State autosaves after every action.
+ * work as soon as that unit's generators exist. Capstone projects (Unit 9) are played the same way
+ * as a review: one situation, a fixed sequence of tasks realized from one shared seed, with hints.
+ * State autosaves after every action.
  */
 import crypto from 'node:crypto';
 import type { Difficulty, LessonKind, LessonMeta, ProblemRef } from '../../core/curriculum/types';
-import { LESSON_BY_ID, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, generatorsForSkill } from '../../content';
+import { LESSON_BY_ID, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, GENERATORS, CAPSTONE_CONTENT, generatorsForSkill } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
 import { createRng } from '../../core/engine/rng';
 import { answerToText } from '../../core/math/answers';
@@ -47,11 +49,15 @@ export function isReviewKind(k: LessonKind): boolean {
 export function isAssessmentKind(k: LessonKind): boolean {
   return ASSESSMENT_KINDS.includes(k);
 }
+/** Capstone projects play like a review (hints, immediate feedback) but follow their own task list. */
+export function isCapstoneKind(k: LessonKind): boolean {
+  return k === 'capstone';
+}
 
 function dayMeta(id: string): LessonMeta {
   const m = LESSON_BY_ID.get(id);
   if (!m) throw new UserFacingError('Unknown lesson.');
-  if (!isReviewKind(m.kind) && !isAssessmentKind(m.kind)) throw new UserFacingError('This day is not a review or an assessment.');
+  if (!isReviewKind(m.kind) && !isAssessmentKind(m.kind) && !isCapstoneKind(m.kind)) throw new UserFacingError('This day is not a review, a project or an assessment.');
   return m;
 }
 
@@ -86,8 +92,10 @@ function markCompleted(ctx: ServiceContext, profileId: number, meta: LessonMeta)
   ctx.db.run("UPDATE lesson_progress SET status = 'completed', completed_at = COALESCE(completed_at, ?) WHERE profile_id = ? AND lesson_id = ? AND status != 'completed'", [ctx.now(), profileId, meta.id]);
 }
 
-/** Skills a day covers that have problem generators. */
+/** Skills a day covers that have problem generators (for a capstone: the skills its tasks practice). */
 function coveredSkills(meta: LessonMeta): string[] {
+  const cap = CAPSTONE_CONTENT.get(meta.id);
+  if (isCapstoneKind(meta.kind)) return cap ? [...new Set(cap.tasks.map((t) => GENERATORS.get(t.generator)?.skillId).filter((s): s is string => !!s))] : [];
   return meta.skillsAssessed.filter((s) => generatorsForSkill(s).length > 0);
 }
 
@@ -130,6 +138,21 @@ function buildReview(ctx: ServiceContext, profileId: number, meta: LessonMeta, s
   for (const s of weak) if (plan.length < REVIEW_MAX_ITEMS) plan.push({ skill: s, d: Math.min(3, stageDifficulty(states.get(s)?.stage ?? 'NOT_STARTED') + 1) as Difficulty, pref: rng.int(0, 7) + 1 });
   // interleave: mixed practice helps students pick the right method, not just repeat one
   for (const p of rng.shuffle(plan)) ps.items.push(realizeForSkill(ctx, ps, p.skill, p.d, p.pref, true));
+  ps.current = 0;
+  return ps;
+}
+
+function buildCapstone(ctx: ServiceContext, meta: LessonMeta, st: DayState): PracticeState {
+  const cap = CAPSTONE_CONTENT.get(meta.id);
+  if (!cap) throw new UserFacingError('This project is not available in this version yet.');
+  const ps = newPractice('review', { seedBase: nextSeed(st), hintsAllowed: true });
+  // one situation for the whole project: every task is realized from the same seed
+  const seed = ps.seedBase;
+  for (const t of cap.tasks) {
+    const item = realize(ctx, ps, { generator: t.generator, difficulty: meta.difficulty, seed });
+    if (item.seed !== seed) ctx.log.warn('days', `${t.generator} needed a different seed in ${meta.id}; its numbers may not match the other parts`);
+    ps.items.push(item);
+  }
   ps.current = 0;
   return ps;
 }
@@ -185,7 +208,7 @@ export function startDay(ctx: ServiceContext, profileId: number, id: string): Da
   return withDay(ctx, profileId, id, (st, meta) => {
     if (st.phase !== 'overview') return;
     if (coveredSkills(meta).length === 0) throw new UserFacingError('This day has no problems available yet.');
-    st.practice = isAssessmentKind(meta.kind) ? buildAssessment(ctx, meta, st) : buildReview(ctx, profileId, meta, st);
+    st.practice = isAssessmentKind(meta.kind) ? buildAssessment(ctx, meta, st) : isCapstoneKind(meta.kind) ? buildCapstone(ctx, meta, st) : buildReview(ctx, profileId, meta, st);
     st.startedAt = ctx.now();
     st.phase = 'practice';
   });
@@ -262,7 +285,7 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     if (st.phase !== 'practice' || !ps) throw new UserFacingError('There is nothing to finish right now.');
     const assessment = isAssessmentKind(meta.kind);
     if (assessment && !allAnswered(ps)) throw new UserFacingError(`Answer every question first (${ps.items.filter((i) => i.state === 'open').length} left).`);
-    if (!assessment && !(ps.complete || allResolved(ps))) throw new UserFacingError('Finish every review problem first.');
+    if (!assessment && !(ps.complete || allResolved(ps))) throw new UserFacingError(isCapstoneKind(meta.kind) ? 'Finish every part of the project first.' : 'Finish every review problem first.');
     const skills = [...new Set(ps.items.map((i) => i.skillId))];
     const before = new Map(skills.map((s) => [s, storedStage(ctx, profileId, s)]));
     const attemptNumber = assessment ? st.quizAttempts + 1 : 1 + Number(ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM assessments WHERE profile_id = ? AND ref_id = ? AND status = ?', [profileId, id, 'completed'])!.n);
@@ -330,7 +353,7 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     } else {
       markCompleted(ctx, profileId, meta);
       xp += awardXpOnce(ctx, profileId, XP_POLICY.lessonComplete, 'lesson-complete', id);
-      logActivity(ctx, profileId, 'review', { lessonId: id, title: meta.title, percent });
+      logActivity(ctx, profileId, isCapstoneKind(meta.kind) ? 'project' : 'review', { lessonId: id, title: meta.title, percent });
     }
     bumpDay(ctx, profileId, { sections: 1 });
     st.xp += xp;
@@ -354,9 +377,13 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
             ? `Nice work. Fix the questions you missed in the corrections below, then move on.`
             : 'Outstanding. Move on to the next unit.'
           : `Not yet. Focus on ${needsPractice.join(', ')}. ${retakeHelp}`
-        : missed.length
-          ? `Before the assessment, go back over ${needsPractice.join(', ')}. The lesson for each skill has Teach Me Again and more practice.`
-          : 'You are ready for the assessment.',
+        : isCapstoneKind(meta.kind)
+          ? missed.length
+            ? `Project complete. Before the semester review, go back over ${needsPractice.join(', ')}. The lesson for each skill has Teach Me Again and more practice.`
+            : 'Project complete, and every part right on the first try. On to the next day.'
+          : missed.length
+            ? `Before the assessment, go back over ${needsPractice.join(', ')}. The lesson for each skill has Teach Me Again and more practice.`
+            : 'You are ready for the assessment.',
       skillChanges: changes,
       xpEarned: xp,
       canRetake: assessment,
@@ -392,6 +419,7 @@ export function buildDayView(ctx: ServiceContext, profileId: number, id: string,
   const skills = coveredSkills(meta).map((s) => ({ skillId: s, name: skillName(s), stage: states.get(s)?.stage ?? 'NOT_STARTED', essential: !!SKILL_BY_ID.get(s)?.essential }));
   const ps = currentSet(st);
   const correctionsOpen = !!st.corrections && !allResolved(st.corrections);
+  const cap = isCapstoneKind(meta.kind) ? CAPSTONE_CONTENT.get(id) : undefined;
   return {
     lessonId: id,
     title: meta.title,
@@ -406,7 +434,8 @@ export function buildDayView(ctx: ServiceContext, profileId: number, id: string,
     status: status as DayView['status'],
     phase: st.phase,
     skills,
-    itemCount: st.practice?.items.length ?? (assessment ? skills.reduce((a, s) => a + (s.essential ? 2 : 1), 0) : null),
+    itemCount: st.practice?.items.length ?? (assessment ? skills.reduce((a, s) => a + (s.essential ? 2 : 1), 0) : cap ? cap.tasks.length : null),
+    project: cap ? { goal: cap.goal, intro: cap.intro, plan: cap.plan, parts: cap.tasks.map((t) => t.part), wrapUp: cap.wrapUp } : undefined,
     passPercent: assessment ? Math.round(ASSESSMENT_PASS * 100) : null,
     practice: st.phase === 'practice' && ps ? practiceView(ps) : null,
     results: st.results,

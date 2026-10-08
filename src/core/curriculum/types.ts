@@ -246,6 +246,25 @@ export interface LessonContent {
   vocabulary?: Array<{ term: string; meaning: string }>;
 }
 
+/**
+ * A capstone project day (Unit 9): one real situation worked through the modeling cycle in a
+ * sequence of tasks. Every task is its own verified generator, and all of a project's tasks are
+ * realized from ONE shared seed, so they describe the same seeded situation (each generator builds
+ * the scenario from the rng first, in the same way, before building its task).
+ */
+export interface CapstoneContent {
+  lessonId: string;
+  goal: string;
+  /** the situation and the question to answer; the seeded numbers appear in the tasks themselves */
+  intro: Block[];
+  /** the steps of the modeling cycle this project walks through, shown before starting */
+  plan: string[];
+  /** tasks in order */
+  tasks: Array<{ part: string; generator: string }>;
+  /** closing reflection shown with the results */
+  wrapUp: Block[];
+}
+
 /** Assessments (unit tests, semester exam, diagnostic, test-out) are assembled from blueprints. */
 export interface AssessmentBlueprint {
   id: string;

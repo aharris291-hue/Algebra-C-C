@@ -204,6 +204,8 @@ export interface DayView {
   retakeBlockedReason?: string;
   startedAt: number | null;
   xpThisDay: number;
+  /** capstone projects: the situation, the modeling plan, the parts in order and the closing reflection */
+  project?: { goal: string; intro: Block[]; plan: string[]; parts: string[]; wrapUp: Block[] };
 }
 
 export interface TeachAgainView {

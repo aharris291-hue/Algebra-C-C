@@ -4,7 +4,7 @@
  */
 import crypto from 'node:crypto';
 import type { LessonContent, LessonMeta, ProblemRef } from '../../core/curriculum/types';
-import { LESSON_CONTENT, LESSON_BY_ID, LESSONS, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, generatorsForSkill } from '../../content';
+import { LESSON_CONTENT, LESSON_BY_ID, LESSONS, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, generatorsForSkill, GENERATORS, CAPSTONE_CONTENT } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
 import { isStruggling, STAGE_ORDER } from '../../core/engine/mastery';
 import type { LessonView, ResultsView, SectionId, TeachAgainView, CourseUnit, CourseLesson, LessonStatus, SkillChange } from '../../shared/api';
@@ -168,8 +168,11 @@ export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<stri
 
 export function isLessonPlayable(l: LessonMeta): boolean {
   if (l.kind === 'lesson') return LESSON_CONTENT.has(l.id);
-  // capstone projects need their own content (not built yet)
-  if (l.kind === 'capstone') return false;
+  // a capstone project is playable when its task list exists and every task's generator is in this version
+  if (l.kind === 'capstone') {
+    const cap = CAPSTONE_CONTENT.get(l.id);
+    return !!cap && cap.tasks.length > 0 && cap.tasks.every((t) => GENERATORS.has(t.generator));
+  }
   // review/assessment days are assembled from the skills they cover
   return l.skillsAssessed.length > 0 && l.skillsAssessed.every((s) => generatorsForSkill(s).length > 0);
 }

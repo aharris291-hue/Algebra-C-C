@@ -1,5 +1,5 @@
 /** Content registry: lesson content and problem generators by id. */
-import type { GeneratorDef, LessonContent } from '../core/curriculum/types';
+import type { CapstoneContent, GeneratorDef, LessonContent } from '../core/curriculum/types';
 import { U1_FUNCTION_GENERATORS } from './generators/u1-functions';
 import { U1_NOTATION_GENERATORS } from './generators/u1-notation';
 import { U1_SLOPE_GENERATORS } from './generators/u1-slope';
@@ -25,6 +25,9 @@ import { U6_SEQUENCE_GENERATORS } from './generators/u6-sequences';
 import { U7_DATA_GENERATORS } from './generators/u7-data';
 import { U7_BIVARIATE_GENERATORS } from './generators/u7-bivariate';
 import { U8_GENERATORS } from './generators/u8-geometry';
+import { CAP_BUDGET_GENERATORS, CAP_BUDGET } from './generators/u9-budget';
+import { CAP_LAUNCH_GENERATORS, CAP_LAUNCH } from './generators/u9-launch';
+import { CAP_DATA_GENERATORS, CAP_DATA } from './generators/u9-data';
 import { U1L01 } from './lessons/U1/U1L01';
 import { U1L02 } from './lessons/U1/U1L02';
 import { U1L03 } from './lessons/U1/U1L03';
@@ -118,6 +121,9 @@ export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U7_DATA_GENERATORS,
   ...U7_BIVARIATE_GENERATORS,
   ...U8_GENERATORS,
+  ...CAP_BUDGET_GENERATORS,
+  ...CAP_LAUNCH_GENERATORS,
+  ...CAP_DATA_GENERATORS,
 ];
 
 export const GENERATORS: ReadonlyMap<string, GeneratorDef> = new Map(ALL_GENERATORS.map((g) => [g.id, g]));
@@ -131,3 +137,8 @@ export function generatorsForSkill(skillId: string): GeneratorDef[] {
 
 export { LESSONS, UNITS, SKILLS, PREREQ_SKILLS, LESSON_BY_ID, SKILL_BY_ID, UNIT_BY_ID } from './catalog';
 export { STANDARDS, STANDARD_BY_CODE, EXPECTATIONS } from './standards';
+
+/** Capstone project days (Unit 9), keyed by lesson id. */
+export const CAPSTONE_CONTENT: ReadonlyMap<string, CapstoneContent> = new Map(
+  [CAP_BUDGET, CAP_LAUNCH, CAP_DATA].filter((c): c is CapstoneContent => c !== null).map((c) => [c.lessonId, c]),
+);

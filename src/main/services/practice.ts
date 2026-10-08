@@ -89,8 +89,10 @@ export function newPractice(activity: ActivityKind, opts: { seedBase: number; de
 }
 
 /** Realize one problem from a ref. Rejected generators never crash a lesson: the next valid seed is used. */
-export function realize(ctx: ServiceContext, ps: PracticeState, ref: ProblemRef & { review?: boolean }): ProblemState {
-  const seed = deriveSeed(ps.seedBase, ps.seedCounter++);
+export function realize(ctx: ServiceContext, ps: PracticeState, ref: ProblemRef & { review?: boolean; seed?: number }): ProblemState {
+  const derived = deriveSeed(ps.seedBase, ps.seedCounter++);
+  // a capstone realizes all of its tasks from one shared seed so they describe the same situation
+  const seed = ref.seed !== undefined ? ref.seed >>> 0 : derived;
   const difficulty = clampDifficulty(ref.difficulty + (ps.adapt[ref.generator] ?? 0));
   const gen = GENERATORS.get(ref.generator);
   if (!gen) throw new UserFacingError(`Problem type ${ref.generator} is missing from this version of the app.`);

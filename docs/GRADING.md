@@ -11,6 +11,7 @@ All three are computed in the main process from stored records (`src/core/engine
 | Semester assessment | 20% | Best attempt. |
 | Practice completion | 5% | Share of started lessons whose independent practice was completed. Accuracy in practice never lowers the grade. |
 
+- Unit reviews, the checkpoint, cumulative and semester reviews, and the three capstone projects (days 85-87) are not graded: they give practice with hints and show which skills to review. Their answers still count toward skill mastery, like any practice.
 - Categories with no work yet are left out and the remaining weights are rescaled (e.g. quizzes only = 100% quizzes).
 - Practice completion alone never produces a grade.
 - Letters: A ≥ 90, B ≥ 80, C ≥ 70, below 70 F. Percentages are rounded to one decimal.

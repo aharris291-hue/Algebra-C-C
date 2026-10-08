@@ -402,6 +402,8 @@ export function describeActivity(type: string, d: Record<string, unknown>): stri
       return `${d.passed ? 'Passed' : 'Took'} "${title}" (${d.percent}%, attempt ${d.attempt})`;
     case 'review':
       return `Finished "${title}" (${d.percent}% right on the first try)`;
+    case 'project':
+      return `Finished the project "${title}" (${d.percent}% of parts right on the first try)`;
     case 'achievement':
       return `Earned the "${d.title}" achievement`;
     case 'restore':
