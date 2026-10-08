@@ -139,9 +139,9 @@ test('Diagnostic: from the home screen offer to a starting point and warm-up pra
   await expect(page.getByRole('heading', { name: 'What we found' })).toBeVisible();
   await shot(page, 'diag-2-results');
   await expect(page.locator('.lesson-goal')).toContainText('Integer operations');
-  await expect(page.getByText('Needs a refresh')).toHaveCount(1);
-  await expect(page.getByText('Not learned yet')).toHaveCount(1);
-  await expect(page.getByText('Already know it')).toHaveCount(7);
+  await expect(page.getByText('Needs a refresh', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('Not learned yet', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('Already know it', { exact: true })).toHaveCount(7);
 
   // warm-up practice on the weak earlier-grade skill, with hints
   await act(page, () => page.getByRole('button', { name: 'Warm-up practice on earlier skills' }).click());

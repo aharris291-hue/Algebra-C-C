@@ -3067,7 +3067,7 @@ const expHard: Shape = (rng) => {
         prompt: evalPrompt(`\\frac{${b}^{${m}}}{${b}^{${n}}}`),
         answer: numAns(v),
         inputHint: INT_INPUT,
-        hints: ['Write the top and bottom as repeated factors.', `There are ${m} factors of ${b} on top and ${n} on the bottom.`, 'Each factor on the bottom cancels one factor on top.', `${plural(m - n, 'factor')} of ${b} ${m - n === 1 ? 'is' : 'are'} left.`],
+        hints: ['Write the top and bottom as repeated factors.', `There are ${m} factors of ${b} on top and ${n} on the bottom.`, 'Each factor on the bottom cancels one factor on top.', `Subtract to find how many factors of ${b} are left on top, then multiply them out.`],
         solution: [
           { text: 'Same base: subtract the exponents.', tex: `\\frac{${b}^{${m}}}{${b}^{${n}}} = ${b}^{${m} - ${n}} = ${b}^{${m - n}}`, why: `${n} factors of ${b} on the bottom cancel ${n} of the ${m} factors on top.` },
           { text: 'Evaluate.', tex: `${b}^{${m - n}} = ${v.toString()}` },
