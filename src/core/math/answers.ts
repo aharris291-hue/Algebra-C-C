@@ -791,6 +791,10 @@ function stripUnit(input: string, unit?: string): string {
   // strip trailing common unit words/symbols the student might add
   s = s.replace(/\s*(?:per|\/)\s*(?:hours?|hrs?|h|minutes?|min|seconds?|sec|s|days?|weeks?|wk|months?|mo|years?|yr|miles?|mi|cars?|tickets?|items?|gallons?|gal)\.?$/i, '');
   s = s.replace(/\s*(%|dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?|milligrams?|mg|grams?|hrs|yrs|people|persons|followers|views|bacteria|cells|customers|fish)\.?$/i, '');
+  // a plain number followed only by words names what was counted ("54 shirts", "12 tote bags"): keep the number
+  const counted = /^([-+]?\d[\d,]*(?:\.\d+)?)\s+[a-z][a-z' -]*\.?$/i.exec(s);
+  // (but not words that change the value: "2 pi", "5 thousand")
+  if (counted && !/\b(pi|hundred|thousand|million|billion|trillion|percent|half|halves|thirds?|quarters?|squared|cubed|root)\b/i.test(s)) s = counted[1];
   return s;
 }
 

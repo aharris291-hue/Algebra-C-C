@@ -69,8 +69,8 @@ const tieGap = (x: number, places: number): number => {
 
 function scenario(rng: Rng): Scenario {
   for (;;) {
-    const v0 = rng.pick([48, 64, 80, 96, 112, 128]);
-    const h0 = rng.int(4, 12);
+    const v0 = rng.pick([48, 64, 80, 96]);
+    const h0 = rng.int(4, 24);
     const species = rng.pick(['bluegill', 'koi', 'goldfish', 'minnows', 'sunfish']);
     const a = Q(rng.pick([40, 50, 60, 80, 100, 120, 150, 200]));
     const r = Q(rng.pick([8, 10, 12, 15, 20, 25]), 100);
@@ -82,6 +82,8 @@ function scenario(rng: Rng): Scenario {
     const land = v0 / 32 + sq / 4;
     const neg = v0 / 32 - sq / 4;
     if (tieGap(land, 1) < 0.08 || tieGap(neg, 2) < 0.08) continue;
+    // the 'back at platform height' time v0/16 must round to a clearly different tenth than the landing
+    if (Math.abs(Number(land.toFixed(1)) - Number((v0 / 16).toFixed(1))) < 0.2) continue;
     if (!a.mul(r).isInteger()) continue; // the linear plan adds a whole number of fish
     const b = Q(1).add(r);
     const ve = a.mul(b.pow(te));
@@ -92,6 +94,16 @@ function scenario(rng: Rng): Scenario {
     const step = hi > 1500 ? 100 : hi > 400 ? 50 : 25;
     const thr = Math.ceil((lo + 1) / step) * step;
     if (!(thr < hi - 1)) continue;
+    // neighbouring years at least 3% of the limit away from it
+    if (thr - lo < 0.03 * thr || hi - thr < 0.03 * thr) continue;
+    // a table that rounds to whole fish every year must give the same first year
+    let yr = a;
+    let tr = 0;
+    while (!yr.gt(thr) && tr < 100) {
+      yr = yr.mul(b).round(0);
+      tr++;
+    }
+    if (tr !== n) continue;
     const tc = 10;
     const tl = 50;
     if (tieGap(a.mul(b.pow(tc)).toNumber(), 0) < 0.02 || tieGap(a.mul(b.pow(tl)).toNumber(), 0) < 0.02) continue;
@@ -196,9 +208,9 @@ const genWriteH: GeneratorDef = {
       inputHint: 'Type an expression in t, like -16t^2 + 20t + 5.',
       hints: [
         '$v_0$ is the launch speed (upward) and $h_0$ is the height where the rocket starts.',
-        `Here the launch speed is $v_0 = ${s.v0}$ feet per second.`,
-        `The rocket starts on the platform, so $h_0 = ${s.h0}$ feet.`,
-        'Substitute both values into $-16t^{2} + v_0 t + h_0$.',
+        'Which number in the story is the launch speed? That is $v_0$.',
+        'Where does the rocket start, and how high above the ground is that? That height is $h_0$.',
+        'Put $v_0$ as the coefficient of $t$ and $h_0$ as the constant term after $-16t^{2}$.',
       ],
       solution: [
         { text: 'Identify the quantities from the story.', why: `The launch speed is $v_0 = ${s.v0}$ ft/s and the starting height is $h_0 = ${s.h0}$ ft.` },
@@ -551,7 +563,7 @@ const genThreshold: GeneratorDef = {
       inputHint: 'Type a whole number of years.',
       hints: [
         `You need the first whole-number $t$ where $y > ${s.thr}$.`,
-        'Make a table of $y$ for whole-number values of $t$, or use a graph of the model.',
+        'Make a table of $y$ for whole-number values of $t$, or use a graph of the model. Do not round until the end: compute each year from the model, not from a rounded value.',
         `Start with a year you can estimate and move up or down until $y$ crosses ${thrT}.`,
         'Check both neighbouring years: one must be at or below the limit and the next one above it.',
       ],
@@ -674,7 +686,7 @@ const genLimits: GeneratorDef = {
         'What happens to real growth when space and food run short?',
       ],
       solution: [
-        { text: 'Look at the prediction.', why: `About ${commas(far)} fish is far more than a small club pond could hold.` },
+        { text: 'Look at the prediction.', why: `About ${commas(far)} fish is far more than a small club pond could hold. The filter can only handle ${commas(s.thr)} fish, and the model already passes that after ${s.n} years.` },
         { text: 'Find the assumption that breaks.', why: `The model assumes ${pct(s.r)}% growth every year forever. A real pond has limited space, food and oxygen, so growth slows as the pond fills up.` },
         { text: 'Conclusion.', why: 'The exponential model is reasonable for the first several years. For long-term predictions the club would need a model in which growth levels off.' },
       ],

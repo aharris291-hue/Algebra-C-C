@@ -489,3 +489,14 @@ describe('Unit 8 coordinate geometry answers', () => {
     expect(st(line, 'y = 2/3x + 4')).toBe('incorrect');
   });
 });
+
+describe('number answers followed by what was counted', () => {
+  const spec = { kind: 'number' as const, value: '54' };
+  it('accepts a plain count with a noun', () => {
+    for (const s of ['54 shirts', '54 tshirts', '54 T-shirts', '54 tote bags', '54 students.']) expect(checkAnswer(spec, s).status, s).toBe('correct');
+  });
+  it('does not drop words that change the value', () => {
+    for (const s of ['54 pi', '54 thousand', '54 percent', '54 squared']) expect(checkAnswer(spec, s).status, s).not.toBe('correct');
+    expect(checkAnswer(spec, '53 shirts').status).toBe('incorrect');
+  });
+});

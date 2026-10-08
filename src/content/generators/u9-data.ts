@@ -20,7 +20,7 @@
  */
 import type { Block, CapstoneContent, GeneratorDef, GraphSpec, Problem, Rng } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
-import { parseRelation } from '../../core/math/answers';
+import { fixedPlaces, parseRelation } from '../../core/math/answers';
 import { evalNumeric } from '../../core/math/evaluate';
 import { fiveNumber, linearRegression, mean, outliers, rats } from '../../core/math/stats';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions, stringMisconceptions } from './util';
@@ -103,11 +103,12 @@ function scenario(rng: Rng): Scenario {
     const fb = fiveNumber(busT);
     const fc = fiveNumber(carT);
     if (fb.q1.eq(fb.median) || fb.median.eq(fb.q3) || fc.q1.eq(fc.median) || fc.median.eq(fc.q3)) continue;
-    if (!fb.median.gt(fc.median) || fb.q3.sub(fb.q1).eq(fc.q3.sub(fc.q1))) continue;
+    // a clear difference in spread (at least 2 minutes between the IQRs) so the comparison is worth making
+    if (!fb.median.gt(fc.median) || fb.q3.sub(fb.q1).sub(fc.q3.sub(fc.q1)).abs().lt(2)) continue;
     // bus riders live farther on average (the lurking variable in Part 8); car times stay realistic
     if (!mean(busD).gt(mean(carD)) || carT.some((t) => t.lt(4))) continue;
     // the new student's distance lies inside the surveyed distances (interpolation)
-    if (!students.some((st) => st.dist.lt(d0)) || !students.some((st) => st.dist.gt(d0))) continue;
+    if (!students.some((st) => st.dist.lt(d0)) || !students.some((st) => st.dist.gt(d0)) || students.some((st) => st.dist.eq(d0))) continue;
     const reg = linearRegression(
       students.map((s) => s.dist),
       rats(students.map((s) => s.time)),
@@ -117,7 +118,14 @@ function scenario(rng: Rng): Scenario {
     if (Math.abs(((reg.r * 100) % 1) - 0.5) < 1e-6) continue;
     const a = reg.a.round(2);
     const b = reg.b.round(2);
-    if (!a.gt(0) || !b.gt(0)) continue;
+    // slope and intercept clearly different, so the intercept distractor in Parts 5-7 is plainly wrong
+    if (!a.gt(0) || !b.gt(0) || a.sub(b).abs().lt(1)) continue;
+    // the long bus trip is an outlier among bus times but still follows the line: it sits close to the fit,
+    // and the other 11 students alone still show a strong association
+    const farS = students[6];
+    if (reg.a.mul(farS.dist).add(reg.b).sub(farS.time).abs().gt(3)) continue;
+    const rest = students.filter((st) => st !== farS);
+    if (linearRegression(rest.map((st) => st.dist), rats(rest.map((st) => st.time))).r < 0.8) continue;
     // a student who runs the regression on the table gets the same prediction to the tenth
     if (!reg.a.mul(d0).add(reg.b).round(1).eq(a.mul(d0).add(b).round(1))) continue;
     const pred = a.mul(d0).add(b);
@@ -147,7 +155,8 @@ function scenario(rng: Rng): Scenario {
 // ---------------------------------------------------------------------------
 
 const survey = (sc: Scenario) => `At ${sc.school}, Jordan surveyed 12 students about their trip to school this morning: how they got there (bus or car), how far they live from school, and how many minutes the trip took.`;
-const dist1 = (d: Rational) => d.toDecimalString(1).includes('.') ? d.toDecimalString(1) : `${d.toDecimalString(1)}.0`;
+/** a value rounded to the tenth, always with one decimal place ("2.0", "18.0") */
+const dist1 = (d: Rational) => fixedPlaces(d.round(1), 1);
 const tableBlock = (sc: Scenario): Block => ({
   t: 'table',
   headers: ['Student', 'Ride', 'Distance (miles)', 'Time (minutes)'],
@@ -158,11 +167,13 @@ const timesOf = (sc: Scenario, ride: Ride) => sc.students.filter((s) => s.ride =
 const listText = (xs: number[]) => xs.join(', ');
 function dotPlots(sc: Scenario): Block[] {
   const all = sc.students.map((s) => s.time);
-  const min = Math.floor(Math.min(...all) / 5) * 5 - 5;
-  const max = Math.ceil(Math.max(...all) / 5) * 5 + 5;
+  const min = Math.floor(Math.min(...all) / 5) * 5;
+  const max = Math.ceil(Math.max(...all) / 5) * 5;
+  // at most 16 ticks, so every tick is labeled and the labels stay clear of the dots
+  const step = max - min <= 30 ? 2 : 5;
   return (['Bus', 'Car'] as const).map((ride) => ({
     t: 'dataplot',
-    spec: { kind: 'dot', min: Math.max(0, min), max, step: 1, axisLabel: `${ride} riders: commute time (minutes)`, values: timesOf(sc, ride), ariaLabel: `Dot plot of the ${ride.toLowerCase()} riders' commute times in minutes: ${listText([...timesOf(sc, ride)].sort((u, v) => u - v))}.` },
+    spec: { kind: 'dot', min, max, step, axisLabel: `${ride} riders: commute time (minutes)`, values: timesOf(sc, ride), ariaLabel: `Dot plot of the ${ride.toLowerCase()} riders' commute times in minutes: ${listText([...timesOf(sc, ride)].sort((u, v) => u - v))}.` },
   }));
 }
 function scatterGraph(sc: Scenario, withLine: boolean): GraphSpec {
@@ -262,7 +273,7 @@ const DEF_OK = 'x = distance from home to school (miles); y = commute time (minu
 const DEF_WRONG = [
   'x = commute time (minutes); y = distance from home to school (miles); groups: bus riders and car riders',
   'x = distance from home to school (miles); y = commute time (minutes); groups: students who live near school and students who live far away',
-  'x = number of students surveyed; y = commute time (minutes); groups: bus riders and car riders',
+  'x = distance from home to school (miles); y = how the student got to school (bus or car); groups: bus riders and car riders',
 ];
 
 const task1: GeneratorDef = {
@@ -338,6 +349,7 @@ function mapGraph(sc: Scenario): GraphSpec {
     yMax,
     xStep: 1,
     yStep: 1,
+    xLabel: '1 grid unit = 0.5 mile',
     points: [
       { x: sc.S.x, y: sc.S.y, label: 'S' },
       { x: sc.H.x, y: sc.H.y, label: 'H' },
@@ -466,9 +478,9 @@ function compareLabels(bus: Rational[], car: Rational[]) {
   const ci = cq3.sub(cq1);
   const wider = bi.gt(ci) ? 'bus' : 'car';
   const other = wider === 'bus' ? 'car' : 'bus';
-  const center = `Bus riders typically took longer (median ${numStr(bm)} vs ${numStr(cm)} minutes)`;
-  const spread = (w: string) => `the ${w} riders' times varied more in the middle half (IQR ${numStr(bi)} vs ${numStr(ci)} minutes)`;
-  const fmt1 = (x: Rational) => x.round(1).toDecimalString(1);
+  const center = `Bus riders typically took longer (median: bus ${numStr(bm)} min, car ${numStr(cm)} min)`;
+  const spread = (w: string) => `the ${w} riders' times varied more in the middle half (IQR: bus ${numStr(bi)} min, car ${numStr(ci)} min)`;
+  const fmt1 = dist1;
   return {
     correct: `Use medians and IQRs, because the bus times have an outlier. ${center}, and ${spread(wider)}.`,
     wrongSpread: `Use medians and IQRs, because the bus times have an outlier. ${center}, and ${spread(other)}.`,
@@ -614,7 +626,7 @@ const task6: GeneratorDef = {
       ],
       solution: [
         { text: 'Substitute the distance.', tex: `\\hat{t} = ${numStr(sc.a)}(${dist1(sc.d0)}) ${signed(sc.b)}`, why: 'The model turns a distance into a predicted time.' },
-        { text: 'Simplify and round.', tex: `${numStr(sc.a.mul(sc.d0))} ${signed(sc.b)} = ${numStr(y)} \\approx ${y.round(1).toDecimalString(1)}\\text{ minutes}`, why: `This is a prediction: real students who live ${dist1(sc.d0)} miles away scatter around it.` },
+        { text: 'Simplify and round.', tex: `${numStr(sc.a.mul(sc.d0))} ${signed(sc.b)} = ${numStr(y)} \\approx ${dist1(y)}\\text{ minutes}`, why: `This is a prediction: real students who live ${dist1(sc.d0)} miles away scatter around it.` },
       ],
       misconceptions: numberMisconceptions(y.round(1), [
         { value: sc.a.mul(sc.d0).round(1), tag: 'statistics-concept', feedback: 'Remember to add the intercept after multiplying.' },
@@ -698,7 +710,7 @@ const task7: GeneratorDef = {
 // ---------------------------------------------------------------------------
 
 function causeLabels(bd: Rational, cd: Rational) {
-  const f = (x: Rational) => x.round(1).toDecimalString(1);
+  const f = dist1;
   return {
     correct: `The claim is not supported. The bus riders in the survey live farther from school on average (about ${f(bd)} miles vs ${f(cd)} miles), so distance could explain their longer times. A survey shows an association, not cause and effect.`,
     median: 'The claim is supported. The bus riders’ median commute time is greater than the car riders’, so riding the bus must add time to the trip.',
@@ -732,7 +744,7 @@ const task8: GeneratorDef = {
         'If one group lives farther away, distance could be a lurking variable for the difference in times.',
       ],
       solution: [
-        { text: 'Compare the groups’ average distances.', tex: `\\bar{d}_{\\text{bus}} \\approx ${bd.round(2).toDecimalString(2)},\\quad \\bar{d}_{\\text{car}} \\approx ${cd.round(2).toDecimalString(2)}`, why: 'The bus riders tend to live farther away, and farther trips take longer for anyone.' },
+        { text: 'Compare the groups’ average distances.', tex: `\\bar{d}_{\\text{bus}} \\approx ${fixedPlaces(bd.round(2), 2)},\\quad \\bar{d}_{\\text{car}} \\approx ${fixedPlaces(cd.round(2), 2)}`, why: 'The bus riders tend to live farther away, and farther trips take longer for anyone.' },
         { text: 'Distance is a lurking variable.', why: 'It is related both to how students get to school and to how long the trip takes, so it could explain the difference in medians.' },
         { text: L.correct, why: 'Only a randomized experiment can show cause and effect; a survey can only show an association.' },
       ],
@@ -787,7 +799,7 @@ const task9: GeneratorDef = {
         tableBlock(sc),
         { t: 'graph', spec: scatterGraph(sc, true) },
         { t: 'math', tex: modelTex(sc) },
-        p(`${sc.teacher}, a teacher, lives ${sc.far} miles from school. The line predicts $\\hat{t} = ${numStr(sc.a)}(${sc.far}) ${signed(sc.b)} \\approx ${pred.round(1).toDecimalString(1)}$ minutes. How much should Jordan trust this prediction?`),
+        p(`${sc.teacher}, a teacher, lives ${sc.far} miles from school. The line predicts $\\hat{t} = ${numStr(sc.a)}(${sc.far}) ${signed(sc.b)} \\approx ${dist1(pred)}$ minutes. How much should Jordan trust this prediction?`),
       ],
       answer: makeChoice(rng, L.correct, [L.rclose, L.weak, L.exact]),
       hints: [
@@ -797,7 +809,7 @@ const task9: GeneratorDef = {
         'r describes how well the line fits the data you have, not what happens beyond them.',
       ],
       solution: [
-        { text: `The distances in the data run from ${lo} to ${hi} miles, and r = ${r}.`, why: 'Within that range the line fits well.' },
+        { text: `The distances in the data run from ${lo} to ${hi} miles, and r = ${r}.`, why: 'Within that range the line fits well. The longest bus trip is an outlier among the bus times, but it still lies close to the line, so it follows the same distance-time pattern as the other students.' },
         { text: `${sc.far} miles is far beyond the largest distance, so this prediction is an extrapolation.`, why: 'Nothing in the data shows how commute time behaves for such long trips; highways, traffic or a different route could change the pattern.' },
         { text: L.correct },
       ],
@@ -848,6 +860,6 @@ export const CAP_DATA: CapstoneContent = {
   wrapUp: [
     p('The data answered Jordan’s question in two ways. Students who live farther away tend to have longer commutes: the line of best fit has a positive slope, and r close to 1 shows the points stay close to the line. Bus riders typically took longer than car riders, but they also tend to live farther away.'),
     p('The limits matter as much as the answers. A survey shows associations, not causes: distance is a lurking variable for the bus-versus-car difference, and only a randomized experiment could show that one way of getting to school causes longer trips. The line is trustworthy only for distances like those in the data; far outside them, the pattern may change.'),
-    { t: 'callout', variant: 'why', title: 'Choose measures that fit the data', text: 'One unusually long bus trip pulled the bus riders’ mean upward but barely moved the median or the IQR. That is why the resistant measures (median and IQR) were the fair way to compare the groups.' },
+    { t: 'callout', variant: 'why', title: 'Choose measures that fit the data', text: 'One unusually long bus trip pulled the bus riders’ mean upward but barely moved the median or the IQR. That is why the resistant measures (median and IQR) were the fair way to compare the groups. The same trip is not unusual on the scatter plot: it lies close to the line, because a long trip goes with a long distance.' },
   ],
 };

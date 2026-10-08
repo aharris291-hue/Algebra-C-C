@@ -327,6 +327,10 @@ const task2: GeneratorDef = {
         { text: 'Subtract the setup fee.', tex: `${s.a}x \\le ${s.B - s.F}`, why: `After the fee, ${money(s.B - s.F)} is left for shirts.` },
         { text: 'Divide by the cost per shirt.', tex: `x \\le \\dfrac{${s.B - s.F}}{${s.a}} ${dec(exact).startsWith('\\approx') ? dec(exact) : '= ' + dec(exact)}`, why: 'Dividing by a positive number keeps the direction of the inequality.' },
         { text: `Round down to $${n}$ T-shirts.`, tex: `C(${n}) = ${cost(s, n, 0)} \\le ${s.B},\\quad C(${n + 1}) = ${cost(s, n + 1, 0)} > ${s.B}`, why: 'Only whole shirts can be printed, and rounding up would go over the budget.' },
+        {
+          text: 'This answer looks only at the money.',
+          why: `It ignores the printing time: ${n} T-shirts would take ${s.t1 * n} minutes, and the press is available for ${s.H} hours, which is ${s.T} minutes. ${s.t1 * n > s.T ? 'So time, not money, would really limit a T-shirts-only plan.' : 'Here that fits, but time can still limit plans that include tote bags.'} The later parts bring in the time limit.`,
+        },
       ],
       misconceptions: numberMisconceptions(Q(n), [
         { value: Q(n + 1), tag: 'other', feedback: 'Check the cost of that many shirts. Rounding up puts the club over its budget.' },
@@ -633,12 +637,17 @@ const task8: GeneratorDef = {
     const bad = s.plans.find((q) => !feasible(q))!;
     const answer = makeChoice(rng, planLabel(bestOk), s.plans.filter((q) => q !== bestOk).map(planLabel));
     const badId = answer.options.find((o) => o.label === planLabel(bad))!.id;
+    // a plan exactly on a boundary line still fits, because the constraints use \le
+    const exactNote = (c: number, t: number) => {
+      const used = [c === s.B ? `exactly the whole budget (${money(c)})` : '', t === s.T ? `exactly all ${t} minutes of printing time` : ''].filter(Boolean);
+      return used.length ? `. It uses ${used.join(' and ')}, which is allowed because each limit is "at most" ($\\le$)` : '';
+    };
     const lineFor = (q: Plan) => {
       const c = cost(s, q.x, q.y);
       const t = time(s, q.x, q.y);
       const issues = [c > s.B ? `cost ${money(c)} is over the budget` : '', t > s.T ? `time ${t} min is over the limit` : ''].filter(Boolean);
       return {
-        text: `Plan ${q.name}: profit ${money(profit(s, q.x, q.y))}. ${issues.length ? `Not possible: ${issues.join(' and ')}.` : 'Possible: it fits both limits.'}`,
+        text: `Plan ${q.name}: profit ${money(profit(s, q.x, q.y))}. ${issues.length ? `Not possible: ${issues.join(' and ')}.` : `Possible: it fits both limits${exactNote(c, t)}.`}`,
         tex: `P = ${u1}(${q.x}) + ${u2}(${q.y}) - ${s.F} = ${profit(s, q.x, q.y)};\\quad \\text{cost } ${c},\\ \\text{time } ${t}`,
         why: issues.length ? 'A plan outside the solution region cannot be carried out, however much it would earn.' : 'This plan is in the solution region.',
       };
@@ -790,6 +799,7 @@ export const CAP_BUDGET: CapstoneContent = {
   wrapUp: [
     p('A linear model turned a price list into a rule: the slope is the cost of one more item and the intercept is the cost paid once. Two limits, money and time, became a system of inequalities, and every possible plan is a point where both shaded regions overlap.'),
     p('The most profitable plan on paper is not always possible: a plan has to satisfy **every** constraint. And not every point in the region is a real plan, because the club can only make whole, non-negative numbers of items.'),
+    p('Each limit alone tells only part of the story. The budget-only count of T-shirts in part 2 ignored printing time, and in some cases the press time allows fewer T-shirts than the money does. The system of inequalities checks both limits at once.'),
     p('The model also leaves things out: it assumes every item sells, that prices and costs stay fixed, and that the press never breaks down. A real plan would leave some room for these.'),
   ],
 };
