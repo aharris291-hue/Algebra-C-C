@@ -47,8 +47,49 @@ export interface ProfileSummary {
 
 export interface OnboardingState {
   introSeen?: boolean;
+  /** set only by the diagnostic service (a parent skips it with the PIN) */
   diagnostic?: 'offered' | 'skipped' | 'in_progress' | 'completed';
   recommendedLessonId?: string;
+  /** what the diagnostic found (kept for the student, the parent and the course map) */
+  diagnosticSummary?: DiagnosticSummary;
+}
+
+export type DiagnosticVerdict = 'strong' | 'needs-work' | 'not-learned';
+
+export interface DiagnosticSkillResult {
+  skillId: string;
+  name: string;
+  /** 'prereq': earlier-grade skill; 'course': a skill this course teaches */
+  group: 'prereq' | 'course';
+  verdict: DiagnosticVerdict;
+  correct: number;
+  answered: number;
+  /** for course skills: the lesson that teaches it */
+  lessonId?: string;
+  lessonTitle?: string;
+}
+
+export interface DiagnosticSummary {
+  completedAt: number;
+  skills: DiagnosticSkillResult[];
+  /** lessons whose Show What You Know is worth trying */
+  testOutLessonIds: string[];
+  recommendedLessonId: string;
+  recommendedLessonTitle: string;
+  headline: string;
+}
+
+export interface DiagnosticView {
+  status: 'offered' | 'skipped' | 'in_progress' | 'completed';
+  phase: 'intro' | 'questions' | 'results' | 'review';
+  /** while answering: which part and how far along */
+  part: 'prereq' | 'course' | null;
+  progress: { skillsDone: number; skillsTotal: number; answered: number };
+  problem: ProblemView | null;
+  summary: DiagnosticSummary | null;
+  /** optional warm-up practice on prerequisite skills that need work (hints, immediate feedback) */
+  review: PracticeView | null;
+  canReview: boolean;
 }
 
 export interface AppStatus {
@@ -230,6 +271,8 @@ export interface CourseLesson {
   status: LessonStatus;
   hasContent: boolean;
   canTestOut: boolean;
+  /** the diagnostic suggests trying Show What You Know here */
+  suggestedTestOut?: boolean;
   quizBest: number | null;
   standards: string[];
 }
@@ -356,6 +399,21 @@ export interface AcademyApi {
   updateSettings(profileId: number, s: Partial<Settings>): Promise<Settings>;
   setOnboarding(profileId: number, o: Partial<OnboardingState>): Promise<OnboardingState>;
   setGoals(parentPin: string, profileId: number, g: { weeklyLessons: number; dailyMinutes: number }): Promise<void>;
+  // diagnostic (placement) assessment
+  getDiagnostic(profileId: number): Promise<DiagnosticView>;
+  startDiagnostic(profileId: number): Promise<DiagnosticView>;
+  diagnosticSubmit(profileId: number, problemKey: string, response: string, elapsedMs: number): Promise<DiagnosticView>;
+  /** "I haven't learned this yet": no answer is recorded, the skill is marked not learned */
+  diagnosticNotLearned(profileId: number, problemKey: string): Promise<DiagnosticView>;
+  startDiagnosticReview(profileId: number): Promise<DiagnosticView>;
+  diagnosticReviewSubmit(profileId: number, problemKey: string, response: string, elapsedMs: number): Promise<DiagnosticView>;
+  diagnosticReviewHint(profileId: number, problemKey: string): Promise<DiagnosticView>;
+  diagnosticReviewReveal(profileId: number, problemKey: string): Promise<DiagnosticView>;
+  diagnosticReviewNext(profileId: number): Promise<DiagnosticView>;
+  closeDiagnosticReview(profileId: number): Promise<DiagnosticView>;
+  skipDiagnostic(parentPin: string, profileId: number): Promise<DiagnosticView>;
+  /** let the student take the diagnostic again (after a skip or to re-place) */
+  reofferDiagnostic(parentPin: string, profileId: number): Promise<DiagnosticView>;
   // learning
   getCourse(profileId: number): Promise<CourseUnit[]>;
   openLesson(profileId: number, lessonId: string): Promise<LessonView>;
@@ -398,6 +456,7 @@ export interface AcademyApi {
 export const API_METHODS: Array<keyof AcademyApi> = [
   'getStatus', 'setupParent', 'verifyParentPin', 'changeParentPin', 'resetParentPin',
   'listProfiles', 'createProfile', 'updateProfile', 'getSettings', 'updateSettings', 'setOnboarding', 'setGoals',
+  'getDiagnostic', 'startDiagnostic', 'diagnosticSubmit', 'diagnosticNotLearned', 'startDiagnosticReview', 'diagnosticReviewSubmit', 'diagnosticReviewHint', 'diagnosticReviewReveal', 'diagnosticReviewNext', 'closeDiagnosticReview', 'skipDiagnostic', 'reofferDiagnostic',
   'getCourse', 'openLesson', 'goToSection', 'advanceSection', 'selectProblem', 'submitAnswer', 'requestHint', 'revealSolution', 'nextProblem',
   'finishQuiz', 'startRemediation', 'retakeQuiz', 'startTestOut', 'teachMeAgain', 'openDay', 'startDay', 'daySubmit', 'dayHint', 'dayReveal', 'dayNext', 'daySelect', 'finishDay', 'retakeDay', 'heartbeat', 'previewAnswer',
   'getStudentDashboard', 'getParentDashboard', 'getWeeklyReport', 'getSkillMastery', 'getStandards', 'getAssessmentDetail',

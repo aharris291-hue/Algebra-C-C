@@ -404,6 +404,12 @@ export function describeActivity(type: string, d: Record<string, unknown>): stri
       return `Finished "${title}" (${d.percent}% right on the first try)`;
     case 'project':
       return `Finished the project "${title}" (${d.percent}% of parts right on the first try)`;
+    case 'diagnostic-start':
+      return 'Started the diagnostic';
+    case 'diagnostic':
+      return `Finished the diagnostic (${d.strong} of ${d.total} skills shown${d.testOut ? `, ${d.testOut} lesson${d.testOut === 1 ? '' : 's'} suggested for Show What You Know` : ''})`;
+    case 'diagnostic-skip':
+      return 'The diagnostic was skipped by a parent';
     case 'achievement':
       return `Earned the "${d.title}" achievement`;
     case 'restore':

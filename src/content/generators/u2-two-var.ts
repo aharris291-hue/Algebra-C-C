@@ -409,7 +409,7 @@ export const genGraphIneqFeatures: GeneratorDef = {
         ? [
             {
               prompt: [p(`Solve $${promptTex}$ for $y$.`)],
-              answer: { kind: 'inequality', value: stepAnswer },
+              answer: { kind: 'inequality', value: stepAnswer, form: 'solved', variable: 'y' },
               hints: ['Get the $y$ term alone first, then divide by its coefficient.', 'Subtracting a term from both sides keeps the symbol.', 'Dividing by a negative number flips the symbol.', `Divide every term by the coefficient of $y$.`],
               misconceptions: isStrict(op) === isStrict(solved) && solved !== op ? [{ answer: `y ${op} ${linearPlain(m, b)}`, tag: 'inequality-direction', feedback: 'You divided by a negative number, so the symbol must flip.' }] : [],
               explanation: `$y ${OP_TEX[solved]} ${linearTex(m, b)}$.`,

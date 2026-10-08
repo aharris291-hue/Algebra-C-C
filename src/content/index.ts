@@ -25,6 +25,7 @@ import { U6_SEQUENCE_GENERATORS } from './generators/u6-sequences';
 import { U7_DATA_GENERATORS } from './generators/u7-data';
 import { U7_BIVARIATE_GENERATORS } from './generators/u7-bivariate';
 import { U8_GENERATORS } from './generators/u8-geometry';
+import { PREREQ_GENERATORS } from './generators/u0-prereq';
 import { CAP_BUDGET_GENERATORS, CAP_BUDGET } from './generators/u9-budget';
 import { CAP_LAUNCH_GENERATORS, CAP_LAUNCH } from './generators/u9-launch';
 import { CAP_DATA_GENERATORS, CAP_DATA } from './generators/u9-data';
@@ -122,6 +123,7 @@ export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U7_BIVARIATE_GENERATORS,
   ...U8_GENERATORS,
   ...CAP_BUDGET_GENERATORS,
+  ...PREREQ_GENERATORS,
   ...CAP_LAUNCH_GENERATORS,
   ...CAP_DATA_GENERATORS,
 ];

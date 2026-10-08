@@ -74,8 +74,9 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                         Review
                       </button>
                     )}
+                    {l.suggestedTestOut && l.status !== 'in_progress' && <span className="tag tag-ok" title="Your diagnostic showed you may already know this. Try Show What You Know when you get here.">Suggested: Show What You Know</span>}
                     {l.canTestOut && l.status !== 'in_progress' && (
-                      <button className="btn btn-small" onClick={() => props.onOpenLesson(l.id, true)} title="Take a short quiz. Score 85% or more to skip this lesson.">
+                      <button className={`btn btn-small ${l.suggestedTestOut ? 'btn-primary' : ''}`} onClick={() => props.onOpenLesson(l.id, true)} title="Take a short quiz. Score 85% or more to skip this lesson.">
                         Show What You Know
                       </button>
                     )}

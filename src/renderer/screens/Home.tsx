@@ -4,7 +4,7 @@ import type { StudentDashboard } from '../../shared/api';
 import { api, errorMessage } from '../api';
 import { AVATAR_EMOJI, KIND_LABEL, STAGE_LABEL, fmtDate } from '../labels';
 
-export function Home(props: { profileId: number; onOpenLesson: (id: string, kind?: string) => void; onCourse: () => void; onSkills: () => void; onSettings: () => void; onSwitch: () => void }) {
+export function Home(props: { profileId: number; onOpenLesson: (id: string, kind?: string) => void; onCourse: () => void; onSkills: () => void; onSettings: () => void; onSwitch: () => void; onDiagnostic: () => void }) {
   const [d, setD] = useState<StudentDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -51,6 +51,18 @@ export function Home(props: { profileId: number; onOpenLesson: (id: string, kind
         </nav>
       </header>
 
+      {(d.profile.onboarding.diagnostic ?? 'offered') === 'offered' || d.profile.onboarding.diagnostic === 'in_progress' ? (
+        <section className="card diagnostic-offer" aria-label="Find your starting point">
+          <div>
+            <h2>Find your starting point</h2>
+            <p>A short check of the skills algebra builds on, and of algebra you may already know. No hints and no grade, and it shows where to start.</p>
+          </div>
+          <button className="btn btn-primary" onClick={props.onDiagnostic}>
+            {d.profile.onboarding.diagnostic === 'in_progress' ? 'Continue the diagnostic' : 'Take the diagnostic'}
+          </button>
+        </section>
+      ) : null}
+
       <section className="hero">
         {d.continueLesson ? (
           <>
@@ -70,6 +82,11 @@ export function Home(props: { profileId: number; onOpenLesson: (id: string, kind
           </div>
         )}
         <p className="today-goal">{d.todayGoal}</p>
+        {d.profile.onboarding.diagnostic === 'completed' && (
+          <button className="btn btn-quiet" onClick={props.onDiagnostic}>
+            My diagnostic results
+          </button>
+        )}
       </section>
 
       <div className="cards">

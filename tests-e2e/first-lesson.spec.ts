@@ -111,7 +111,9 @@ test('first lesson, start to finish, in the real UI', async ({ page }) => {
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('First name or nickname').fill('Jordan');
   await page.getByRole('button', { name: 'Create profile' }).click();
-  await page.getByRole('button', { name: 'Start learning' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByRole('heading', { name: 'Find a starting point' })).toBeVisible();
+  await page.getByRole('button', { name: 'Later' }).click();
 
   // dashboard -> lesson
   await page.getByRole('button', { name: 'START LEARNING' }).click();

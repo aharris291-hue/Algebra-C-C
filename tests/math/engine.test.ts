@@ -242,6 +242,25 @@ describe('checkAnswer: equations and inequalities', () => {
     expect(st(two, '60 >= 5y + 3x')).toBe('correct');
     expect(st(two, '3a + 5b <= 60')).toBe('invalid'); // wrong variable names get a message, not a wrong mark
   });
+  it('inequalities: a "solve" answer must actually be solved', () => {
+    const one: AnswerSpec = { kind: 'inequality', value: 'x >= -6', form: 'solved' };
+    expect(st(one, 'x >= -6')).toBe('correct');
+    expect(st(one, '-6 <= x')).toBe('correct');
+    expect(st(one, 'x ≥ -6')).toBe('correct');
+    expect(st(one, 'x >= -12/2')).toBe('correct');
+    // retyping the problem or stopping halfway is equivalent, but not solved
+    expect(st(one, '3x + 8 >= -10')).toBe('wrong-form');
+    expect(st(one, '3x >= -18')).toBe('wrong-form');
+    expect(st(one, 'x + 0 >= -6')).toBe('wrong-form');
+    expect(checkAnswer(one, 'x <= -6').misconception).toBe('inequality-direction');
+    const rides: AnswerSpec = { kind: 'inequality', value: 'n <= 12', form: 'solved' };
+    expect(st(rides, 'n <= 12')).toBe('correct');
+    expect(st(rides, '7 + 3n <= 43')).toBe('wrong-form');
+    const forY: AnswerSpec = { kind: 'inequality', value: 'y <= -3/5x + 12', form: 'solved', variable: 'y' };
+    expect(st(forY, 'y <= 12 - 0.6x')).toBe('correct');
+    expect(st(forY, '3x + 5y <= 60')).toBe('wrong-form');
+    expect(st(forY, 'x <= 20 - 5/3y')).toBe('wrong-form');
+  });
   it('region points: any point satisfying every constraint is correct', () => {
     const spec: AnswerSpec = { kind: 'region-point', constraints: ['y <= 2x + 1', 'y > -x + 3'], example: { x: '3', y: '2' } };
     expect(st(spec, '(3, 2)')).toBe('correct');

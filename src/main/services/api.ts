@@ -9,6 +9,7 @@ import * as profiles from './profiles';
 import * as lessons from './lessons';
 import * as days from './days';
 import * as dashboard from './dashboard';
+import * as diagnostic from './diagnostic';
 import * as backup from './backup';
 import { previewAnswer } from './preview';
 import { addStudyTime } from './records';
@@ -62,6 +63,45 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async setGoals(pin, id, g) {
       guard(pin);
       profiles.setGoals(ctx, id, g);
+    },
+
+    async getDiagnostic(id) {
+      return diagnostic.getDiagnostic(ctx, id);
+    },
+    async startDiagnostic(id) {
+      return diagnostic.startDiagnostic(ctx, id);
+    },
+    async diagnosticSubmit(id, key, response, elapsed) {
+      return diagnostic.diagnosticSubmit(ctx, id, key, response, elapsed);
+    },
+    async diagnosticNotLearned(id, key) {
+      return diagnostic.diagnosticNotLearned(ctx, id, key);
+    },
+    async startDiagnosticReview(id) {
+      return diagnostic.startDiagnosticReview(ctx, id);
+    },
+    async diagnosticReviewSubmit(id, key, response, elapsed) {
+      return diagnostic.diagnosticReviewSubmit(ctx, id, key, response, elapsed);
+    },
+    async diagnosticReviewHint(id, key) {
+      return diagnostic.diagnosticReviewHint(ctx, id, key);
+    },
+    async diagnosticReviewReveal(id, key) {
+      return diagnostic.diagnosticReviewReveal(ctx, id, key);
+    },
+    async diagnosticReviewNext(id) {
+      return diagnostic.diagnosticReviewNext(ctx, id);
+    },
+    async closeDiagnosticReview(id) {
+      return diagnostic.closeDiagnosticReview(ctx, id);
+    },
+    async skipDiagnostic(pin, id) {
+      guard(pin);
+      return diagnostic.skipDiagnostic(ctx, id);
+    },
+    async reofferDiagnostic(pin, id) {
+      guard(pin);
+      return diagnostic.reofferDiagnostic(ctx, id);
     },
 
     async getCourse(id) {

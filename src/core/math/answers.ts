@@ -73,7 +73,11 @@ export type AnswerSpec =
     }
   | { kind: 'expression'; value: string; form?: ExpressionForm; variables?: string[] }
   | { kind: 'equation'; value: string; form?: EquationForm }
-  | { kind: 'inequality'; value: string }
+  /**
+   * `form: 'solved'`: the answer must be solved, with the variable (`variable`, or the only one in
+   * `value`) alone on one side and no copy of it on the other. Without it any equivalent inequality counts.
+   */
+  | { kind: 'inequality'; value: string; form?: 'any' | 'solved'; variable?: string }
   | { kind: 'point'; x: string; y: string }
   /** Any point that satisfies every constraint (inequalities in x and y) is correct; `example` is one such point. */
   | { kind: 'region-point'; constraints: string[]; example: { x: string; y: string }; wholeNumbers?: boolean }
@@ -1010,7 +1014,18 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
         const extra = [...variablesOf(got.lhs), ...variablesOf(got.rhs)].filter((v) => !tVars.has(v));
         if (extra.length && !quiet) return invalid(`Use the variable${tVars.size === 1 ? '' : 's'} ${[...tVars].sort().join(' and ')}. I see ${[...new Set(extra)].join(', ')}.`);
       }
-      if (inequalitiesEquivalent(got, target)) return ok();
+      if (inequalitiesEquivalent(got, target)) {
+        if (spec.form === 'solved') {
+          const tv = [...new Set([...variablesOf(target.lhs), ...variablesOf(target.rhs)])];
+          const v = spec.variable ?? (tv.length === 1 ? tv[0] : 'x');
+          const alone = (n: Node) => n.type === 'var' && n.name === v;
+          const other = alone(got.lhs) ? got.rhs : alone(got.rhs) ? got.lhs : null;
+          const op = other ? tryPoly(other) : null;
+          if (!other || !op || op.degreeIn(v) !== 0) return form(`That's equivalent, but not solved yet. Finish solving, so ${v} is by itself on one side, like ${v} ≥ 3.`);
+          if (op.variables().length > 0 && !isExpandedForm(other)) return form(`That's equivalent. Now simplify the side without ${v}.`);
+        }
+        return ok();
+      }
       // same boundary, wrong symbol: give a targeted nudge
       const la = tryPoly(got.lhs)?.sub(tryPoly(got.rhs)!);
       const lb = tryPoly(target.lhs)?.sub(tryPoly(target.rhs)!);

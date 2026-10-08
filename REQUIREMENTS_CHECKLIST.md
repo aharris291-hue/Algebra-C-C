@@ -5,9 +5,9 @@ Built from the master specification "Algebra_CC_Claude_Master_Prompt.pdf" (secti
 Statuses: **NOT STARTED**, **IN PROGRESS**, **IMPLEMENTED** (works, not yet verified by tests), **TESTED** (verified by automated or recorded manual tests), **BLOCKED**.
 A UI placeholder never counts as IMPLEMENTED. TESTED is only used when the underlying behavior was actually tested.
 
-Last updated: 2026-10-08 (v0.12.0, development session 11: Unit 9 and the Windows build).
+Last updated: 2026-10-08 (v0.13.0, development session 11: Unit 9, the Windows build and the diagnostic).
 
-E2E = `tests-e2e/first-lesson.spec.ts`, `tests-e2e/unit-days.spec.ts` and `tests-e2e/unit2.spec.ts` (Playwright, real UI in Chromium + real services via the harness). Service tests = `tests/main/*.test.ts`.
+E2E = `tests-e2e/*.spec.ts` (18 tests) (Playwright, real UI in Chromium + real services via the harness). Service tests = `tests/main/*.test.ts`.
 
 ## A. Curriculum and standards [§4, §5, §6, §56]
 
@@ -83,7 +83,7 @@ E2E = `tests-e2e/first-lesson.spec.ts`, `tests-e2e/unit-days.spec.ts` and `tests
 | F2 | Store date/time, score, duration, attempts, skills/standards, missed questions, hints, mastery changes | TESTED | assessments table: times, duration, score, attempts, skills, standards, items with responses and misconceptions, mastery before/after; parent can review every answer (api test + E2E) |
 | F3 | Results show What You Did Well, Needs More Practice, Recommended Next Step | TESTED | Results show did well / keep practicing / next step / skill changes / item review (E2E) |
 | F4 | Transparent, documented grading system; categories separated; reproducible from stored data | TESTED | docs/GRADING.md; computeGrade tests; grade recomputed from stored assessments |
-| F5 | Diagnostic assessment with sufficient evidence; parent may skip | NOT STARTED | Diagnostic/placement assessment |
+| F5 | Diagnostic assessment with sufficient evidence; parent may skip | TESTED | src/main/services/diagnostic.ts: 12 prerequisite skills + 8 course probes; no single answer decides a skill (prerequisite: miss needs a second miss, a split goes to a third; course: two right or two wrong, split goes to a third); "I haven't learned this yet"; answers recorded as diagnostic mastery evidence; results, starting lesson, Show What You Know suggestions, warm-up practice; skip and re-offer need the Parent PIN. tests/main/diagnostic.test.ts (10), tests-e2e/placement.spec.ts (2) |
 
 ## G. Motivation [§21, §32, §47]
 
@@ -123,7 +123,7 @@ E2E = `tests-e2e/first-lesson.spec.ts`, `tests-e2e/unit-days.spec.ts` and `tests
 
 | ID | Requirement | Status | Evidence / notes |
 |---|---|---|---|
-| J1 | First launch: welcome, create Parent PIN, first profile, explain mastery/XP, offer diagnostic, recommend start | IN PROGRESS | Welcome, Parent PIN, recovery code, first profile, mastery/XP explanation (E2E). Diagnostic offer NOT STARTED |
+| J1 | First launch: welcome, create Parent PIN, first profile, explain mastery/XP, offer diagnostic, recommend start | TESTED | Welcome, Parent PIN, recovery code, first profile, mastery/XP explanation, then the diagnostic offer (take now, later, or parent skip); the diagnostic recommends the starting lesson (first-lesson and placement E2E) |
 | J2 | Modern, clean, teen-friendly UI | IMPLEMENTED | Reviewed from screenshots of every main screen |
 | J3 | Accessibility: keyboard nav, contrast, readable fonts, accessible forms, focus indicators, non-color-only correctness, text size, reduced motion, sound optional | IN PROGRESS | Keyboard-operable controls, focus rings, aria labels/live regions, symbols plus color for correctness, text size, reduced motion, optional sound. No formal accessibility audit yet |
 | J4 | Settings per profile: sound, reduced animation, text size, daily goal, theme | IMPLEMENTED | Theme, text size, reduced motion, sound per profile; daily goal set by parent |
@@ -132,9 +132,9 @@ E2E = `tests-e2e/first-lesson.spec.ts`, `tests-e2e/unit-days.spec.ts` and `tests
 
 | ID | Requirement | Status | Evidence / notes |
 |---|---|---|---|
-| K1 | Automated unit tests (math, engines, services) | TESTED | 87 automated tests passing |
+| K1 | Automated unit tests (math, engines, services) | TESTED | 884 automated tests passing (`npm test`), also on Windows CI |
 | K2 | Mathematics verification tests across many generated variations | TESTED | Generator stress tests + independent verify for every U1 generator |
-| K3 | End-to-end tests of the full student and parent flows | IN PROGRESS | E2E passing: first lesson + parent reports; Unit 1 Review and Assessment; Unit 2 lessons (number line, systems); Unit 3 Lesson 3 start to finish with typed radical answers; Unit 4 Lesson 6 start to finish with factored forms and solution lists; Unit 4 Lesson 13 start to finish with points, axis equations and interval answers; Unit 5 Lessons 1 and 6 start to finish with simplified exponent answers, y = a(b)^x equations and money; Unit 6 Lessons 3 and 7 start to finish with interval answers, sequence terms and formulas in n; Unit 7 Lessons 2 and 8 start to finish with box plots, five-number summaries, scatter plots and rounded predictions; Unit 8 Lessons 1 and 5 start to finish with simplest radical distances and classifying graphed polygons; a Unit 9 capstone project from overview to reflection; the semester assessment with corrections. Backup/restore and multi-profile E2E NOT STARTED |
+| K3 | End-to-end tests of the full student and parent flows | IN PROGRESS | E2E passing: first lesson + parent reports; Unit 1 Review and Assessment; Unit 2 lessons (number line, systems); Unit 3 Lesson 3 start to finish with typed radical answers; Unit 4 Lesson 6 start to finish with factored forms and solution lists; Unit 4 Lesson 13 start to finish with points, axis equations and interval answers; Unit 5 Lessons 1 and 6 start to finish with simplified exponent answers, y = a(b)^x equations and money; Unit 6 Lessons 3 and 7 start to finish with interval answers, sequence terms and formulas in n; Unit 7 Lessons 2 and 8 start to finish with box plots, five-number summaries, scatter plots and rounded predictions; Unit 8 Lessons 1 and 5 start to finish with simplest radical distances and classifying graphed polygons; a Unit 9 capstone project from overview to reflection; the semester assessment with corrections; the diagnostic from the home-screen offer to results, warm-up practice and the parent skip. Backup/restore and multi-profile E2E NOT STARTED |
 | K4 | Test list in §43 (fresh install … update/migration) | IN PROGRESS | Covered: fresh start, setup, lesson, quiz fail/retake, resume, reports, backup/restore (service level). Not covered: Windows install, update, migration on real data |
 | K5 | Production build | TESTED | npm run build succeeds; bundled main process smoke-tested |
 | K6 | Windows Setup.exe | TESTED | GitHub Actions (windows-latest) runs npm test, the build and the full E2E suite on Windows, then electron-builder produces Setup.exe as the artifact "AlgebraCC-Academy-Setup" (first build: run 37788713712, passed). Not code-signed |
