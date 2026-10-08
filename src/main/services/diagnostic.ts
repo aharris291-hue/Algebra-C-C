@@ -189,7 +189,7 @@ function summarize(ctx: ServiceContext, profileId: number, run: DiagnosticRun): 
 
 function finishRun(ctx: ServiceContext, profileId: number, o: StoredOnboarding, run: DiagnosticRun): void {
   // starting mastery: every answer is diagnostic evidence (milestone XP is awarded inside)
-  for (const s of new Set(run.ps.items.map((i) => i.skillId))) recomputeSkill(ctx, profileId, s);
+  for (const s of new Set(run.ps.items.filter((i) => i.state === 'correct' || i.state === 'incorrect-final').map((i) => i.skillId))) recomputeSkill(ctx, profileId, s);
   const summary = summarize(ctx, profileId, run);
   run.phase = 'results';
   o.diagnostic = 'completed';

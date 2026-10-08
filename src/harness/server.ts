@@ -25,9 +25,17 @@ async function main() {
   // Test-only answer oracle for end-to-end tests. Enabled only with HARNESS_TEST_ANSWERS=1;
   // it exists only in the harness, which is never part of the installed app.
   const answers = (profileId: number, lessonId: string): Record<string, string> => {
-    const row = ctx.db.get<{ state_json: string }>('SELECT state_json FROM lesson_progress WHERE profile_id = ? AND lesson_id = ?', [profileId, lessonId]);
-    if (!row) return {};
-    const st = JSON.parse(row.state_json);
+    let st;
+    if (lessonId === 'DIAGNOSTIC') {
+      const prof = ctx.db.get<{ onboarding_json: string }>('SELECT onboarding_json FROM profiles WHERE id = ?', [profileId]);
+      const run = prof ? JSON.parse(prof.onboarding_json).diagnosticRun : null;
+      if (!run) return {};
+      st = { practice: run.ps, corrections: run.review };
+    } else {
+      const row = ctx.db.get<{ state_json: string }>('SELECT state_json FROM lesson_progress WHERE profile_id = ? AND lesson_id = ?', [profileId, lessonId]);
+      if (!row) return {};
+      st = JSON.parse(row.state_json);
+    }
     const out: Record<string, string> = {};
     for (const ps of [st.guided, st.independent, st.quiz, st.corrections, st.remediation?.practice, st.practice]) {
       if (!ps) continue;
