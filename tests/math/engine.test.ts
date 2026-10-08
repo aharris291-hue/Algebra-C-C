@@ -463,3 +463,29 @@ describe('Unit 7 data answers', () => {
     expect(st(within, '[54, 86]')).toBe('incorrect');
   });
 });
+
+describe('Unit 8 coordinate geometry answers', () => {
+  it('exact distances must be in simplest radical form', () => {
+    const spec: AnswerSpec = { kind: 'expression', value: '2sqrt(10)', form: 'simplified-radical' };
+    expect(st(spec, '2sqrt(10)')).toBe('correct');
+    expect(st(spec, 'sqrt(40)')).toBe('wrong-form');
+    expect(st(spec, 'sqrt(10)')).toBe('incorrect');
+    const per: AnswerSpec = { kind: 'expression', value: '7+2sqrt(5)', form: 'simplified-radical' };
+    expect(st(per, '7 + 2sqrt(5)')).toBe('correct');
+    expect(st(per, '2sqrt(5) + 7')).toBe('correct');
+    expect(st(per, '9sqrt(5)')).toBe('incorrect');
+  });
+  it('midpoints with halves, missing coordinates and perpendicular lines', () => {
+    const mid: AnswerSpec = { kind: 'point', x: '-1.5', y: '0.5' };
+    expect(st(mid, '(-1.5, 0.5)')).toBe('correct');
+    expect(st(mid, '(-3/2, 1/2)')).toBe('correct');
+    expect(st(mid, '(0.5, -1.5)')).toBe('incorrect');
+    const xs: AnswerSpec = { kind: 'solutions', values: ['-6', '10'], variable: 'x' };
+    expect(st(xs, '10, -6')).toBe('correct');
+    expect(st(xs, 'x = -6 or x = 10')).toBe('correct');
+    expect(st(xs, '10')).not.toBe('correct');
+    const line: AnswerSpec = { kind: 'equation', value: 'y = -3/2x + 4', form: 'slope-intercept' };
+    expect(st(line, 'y = -1.5x + 4')).toBe('correct');
+    expect(st(line, 'y = 2/3x + 4')).toBe('incorrect');
+  });
+});
