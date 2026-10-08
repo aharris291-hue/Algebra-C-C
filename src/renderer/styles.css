@@ -1497,3 +1497,40 @@ figcaption {
   gap: 0.6rem;
   margin-top: 0.8rem;
 }
+
+/* Parent Mode standards view */
+.standards-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 0;
+}
+.standard-row {
+  border-top: 1px solid var(--border, #e3e6ef);
+  padding: 0.5rem 0;
+}
+.standard-row summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  align-items: baseline;
+}
+.standard-text {
+  flex: 1 1 24rem;
+}
+.standard-progress {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.standard-detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem 0.8rem;
+  margin: 0.5rem 0 0.2rem 1rem;
+}
+.standard-detail dt {
+  font-weight: 600;
+}
+.standard-detail dd {
+  margin: 0;
+}

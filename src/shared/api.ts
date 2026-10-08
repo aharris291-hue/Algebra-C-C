@@ -350,6 +350,19 @@ export interface ParentDashboard {
   goals: { weeklyLessons: number; dailyMinutes: number };
 }
 
+export interface StandardProgress {
+  code: string;
+  text: string;
+  bigIdea: string;
+  units: number[];
+  skills: Array<{ skillId: string; name: string; stage: MasteryStage }>;
+  taught: Array<{ id: string; title: string; status: LessonStatus }>;
+  reviewed: Array<{ id: string; title: string; status: LessonStatus }>;
+  assessed: Array<{ id: string; title: string; status: LessonStatus }>;
+  /** share of this expectation's skills at Proficient or Mastered */
+  percentProficient: number;
+}
+
 export interface WeeklyReport {
   profileId: number;
   studentName: string;
@@ -445,6 +458,8 @@ export interface AcademyApi {
   getParentDashboard(parentPin: string, profileId: number): Promise<ParentDashboard>;
   getWeeklyReport(parentPin: string, profileId: number, weekStart?: string): Promise<WeeklyReport>;
   getSkillMastery(profileId: number): Promise<SkillMasteryView[]>;
+  /** every expectation with where it is taught, reviewed and assessed, and this student's progress on it */
+  getStandardsProgress(parentPin: string, profileId: number): Promise<StandardProgress[]>;
   getStandards(): Promise<Array<{ code: string; text: string; parent?: string; lessons: string[] }>>;
   getAssessmentDetail(parentPin: string, profileId: number, assessmentId: number): Promise<ResultsView>;
   // data
@@ -459,6 +474,6 @@ export const API_METHODS: Array<keyof AcademyApi> = [
   'getDiagnostic', 'startDiagnostic', 'diagnosticSubmit', 'diagnosticNotLearned', 'startDiagnosticReview', 'diagnosticReviewSubmit', 'diagnosticReviewHint', 'diagnosticReviewReveal', 'diagnosticReviewNext', 'closeDiagnosticReview', 'skipDiagnostic', 'reofferDiagnostic',
   'getCourse', 'openLesson', 'goToSection', 'advanceSection', 'selectProblem', 'submitAnswer', 'requestHint', 'revealSolution', 'nextProblem',
   'finishQuiz', 'startRemediation', 'retakeQuiz', 'startTestOut', 'teachMeAgain', 'openDay', 'startDay', 'daySubmit', 'dayHint', 'dayReveal', 'dayNext', 'daySelect', 'finishDay', 'retakeDay', 'heartbeat', 'previewAnswer',
-  'getStudentDashboard', 'getParentDashboard', 'getWeeklyReport', 'getSkillMastery', 'getStandards', 'getAssessmentDetail',
+  'getStudentDashboard', 'getParentDashboard', 'getWeeklyReport', 'getSkillMastery', 'getStandards', 'getStandardsProgress', 'getAssessmentDetail',
   'exportBackup', 'inspectBackup', 'restoreBackup',
 ];

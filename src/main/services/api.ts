@@ -202,6 +202,10 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async getStandards() {
       return dashboard.getStandards();
     },
+    async getStandardsProgress(pin, id) {
+      guard(pin);
+      return dashboard.getStandardsProgress(ctx, id);
+    },
     async getAssessmentDetail(pin, id, assessmentId) {
       guard(pin);
       return dashboard.getAssessmentDetail(ctx, id, assessmentId);

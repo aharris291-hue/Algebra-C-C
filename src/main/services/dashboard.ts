@@ -3,7 +3,8 @@
  * Every number shown anywhere is computed here from the same records, so the student view,
  * the parent view and the report always agree.
  */
-import type { StudentDashboard, ParentDashboard, WeeklyReport, SkillMasteryView, CourseLesson, ResultsView } from '../../shared/api';
+import type { StudentDashboard, ParentDashboard, WeeklyReport, SkillMasteryView, CourseLesson, ResultsView, StandardProgress } from '../../shared/api';
+import { standardsCoverage } from '../../content/coverage';
 import { LESSONS, LESSON_BY_ID, SKILLS, SKILL_BY_ID, UNITS, UNIT_BY_ID, STANDARDS } from '../../content';
 import { computeGrade, GradeResult, ScoredItem } from '../../core/engine/grading';
 import { levelForXp, levelTitle } from '../../core/engine/xp';
@@ -486,6 +487,18 @@ export function getWeeklyReport(ctx: ServiceContext, profileId: number, week?: s
 
 export function getStandards(): Array<{ code: string; text: string; parent?: string; lessons: string[] }> {
   return STANDARDS.map((s) => ({ code: s.code, text: s.text, parent: s.parent, lessons: LESSONS.filter((l) => l.standards.includes(s.code) || (s.parent === undefined && l.standards.some((c) => c.startsWith(s.code + '.')))).map((l) => l.id) }));
+}
+
+export function getStandardsProgress(ctx: ServiceContext, profileId: number): StandardProgress[] {
+  getProfile(ctx, profileId);
+  const states = skillStates(ctx, profileId);
+  const statuses = new Map(getCourse(ctx, profileId).flatMap((u) => u.lessons).map((l) => [l.id, l.status]));
+  const lessons = (ids: string[]) => ids.map((id) => ({ id, title: LESSON_BY_ID.get(id)!.title, status: statuses.get(id) ?? 'locked' }));
+  return standardsCoverage().map((c) => {
+    const skills = c.skills.map((s) => ({ skillId: s, name: SKILL_BY_ID.get(s)!.name, stage: states.get(s)?.stage ?? ('NOT_STARTED' as MasteryStage) }));
+    const prof = skills.filter((s) => STAGE_ORDER.indexOf(s.stage) >= STAGE_ORDER.indexOf('PROFICIENT')).length;
+    return { code: c.code, text: c.text, bigIdea: c.bigIdea, units: c.units, skills, taught: lessons(c.taught), reviewed: lessons(c.reviewed), assessed: lessons(c.assessed), percentProficient: skills.length ? Math.round((100 * prof) / skills.length) : 0 };
+  });
 }
 
 export function getAssessmentDetail(ctx: ServiceContext, profileId: number, assessmentId: number): ResultsView {
