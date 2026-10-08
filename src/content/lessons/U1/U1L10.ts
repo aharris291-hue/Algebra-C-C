@@ -7,7 +7,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U1L10: LessonContent = {
   lessonId: 'U1L10',
-  goal: 'Recognize the six parent functions $f(x) = x$, $|x|$, $x^2$, $x^3$, $\\sqrt{x}$ and $2^x$ by their equations and graphs, and decide whether a function is linear or nonlinear from a table, an equation, or a graph.',
+  goal: 'Recognize the six parent functions $f(x) = x$, $|x|$, $x^2$, $\\sqrt{x}$, $\\sqrt[3]{x}$ and $2^x$ by name, equation and graph, compare their key features, and decide whether a function is linear or nonlinear from a table, an equation, or a graph.',
   needToKnow: [
     { t: 'p', text: 'You will use these skills from earlier lessons:' },
     {
@@ -15,7 +15,7 @@ export const U1L10: LessonContent = {
       items: [
         '**Domain and range.** The domain is every input a function can use; the range is every output it can give. For $y = 2x + 1$, both are all real numbers.',
         '**Increasing and decreasing.** A graph is increasing where it goes up as you move to the right, and decreasing where it goes down.',
-        '**Powers and roots.** $(-2)^2 = 4$, $(-2)^3 = -8$, $\\sqrt{9} = 3$, and $|-5| = 5$.',
+        '**Powers and roots.** $(-2)^2 = 4$, $(-2)^3 = -8$, $\\sqrt{9} = 3$, $\\sqrt[3]{8} = 2$, and $|-5| = 5$.',
       ],
     },
     { t: 'callout', variant: 'tip', title: 'Quick check', text: 'What is $(-3)^2$? What is $(-3)^3$? (You should get $9$ and $-27$.) If that felt shaky, open **Teach Me Again** and choose the refresher.' },
@@ -38,8 +38,8 @@ export const U1L10: LessonContent = {
         ['Linear', '$f(x) = x$', 'straight line through $(0, 0)$', 'all real numbers', 'all real numbers', '$(-1, -1), (0, 0), (1, 1)$'],
         ['Absolute value', '$f(x) = |x|$', 'V with its vertex at $(0, 0)$', 'all real numbers', '$y \\ge 0$', '$(-1, 1), (0, 0), (1, 1)$'],
         ['Quadratic', '$f(x) = x^2$', 'U (a parabola) with its vertex at $(0, 0)$', 'all real numbers', '$y \\ge 0$', '$(-2, 4), (-1, 1), (0, 0), (1, 1), (2, 4)$'],
-        ['Cubic', '$f(x) = x^3$', 'S-shaped curve through $(0, 0)$', 'all real numbers', 'all real numbers', '$(-2, -8), (-1, -1), (0, 0), (1, 1), (2, 8)$'],
         ['Square root', '$f(x) = \\sqrt{x}$', 'half arch that starts at $(0, 0)$', '$x \\ge 0$', '$y \\ge 0$', '$(0, 0), (1, 1), (4, 2), (9, 3)$'],
+        ['Cube root', '$f(x) = \\sqrt[3]{x}$', 'S lying on its side, through $(0, 0)$', 'all real numbers', 'all real numbers', '$(-8, -2), (-1, -1), (0, 0), (1, 1), (8, 2)$'],
         ['Exponential', '$f(x) = 2^x$', 'flat on the left, then shoots up', 'all real numbers', '$y > 0$', '$(-1, \\tfrac{1}{2}), (0, 1), (1, 2), (2, 4), (3, 8)$'],
       ],
     },
@@ -65,26 +65,28 @@ export const U1L10: LessonContent = {
     },
     {
       t: 'graph',
-      caption: 'Quadratic f(x) = x² (a U) and cubic f(x) = x³ (an S).',
+      caption: 'Quadratic f(x) = x² (a U) and cube root f(x) = ∛x (an S lying on its side).',
       spec: {
-        xMin: -4,
-        xMax: 4,
-        yMin: -8,
-        yMax: 8,
+        xMin: -10,
+        xMax: 10,
+        yMin: -4,
+        yMax: 12,
+        xStep: 2,
         yStep: 2,
         functions: [
           { expr: 'x^2', label: 'f(x) = x²' },
-          { expr: 'x^3', label: 'f(x) = x³' },
+          { expr: 'cbrt(x)', label: 'f(x) = ∛x' },
         ],
         points: [
           { x: 2, y: 4, label: '(2, 4)' },
           { x: -2, y: 4, label: '(-2, 4)' },
-          { x: 2, y: 8, label: '(2, 8)' },
-          { x: -2, y: -8, label: '(-2, -8)' },
+          { x: 8, y: 2, label: '(8, 2)' },
+          { x: -8, y: -2, label: '(-8, -2)' },
         ],
-        ariaLabel: 'A U-shaped parabola y = x squared through (-2, 4), (0, 0) and (2, 4), and an S-shaped cubic y = x cubed through (-2, -8), (0, 0) and (2, 8).',
+        ariaLabel: 'A U-shaped parabola y = x squared through (-2, 4), (0, 0) and (2, 4), and the cube root curve, an S lying on its side, through (-8, -2), (0, 0) and (8, 2).',
       },
     },
+    { t: 'callout', variant: 'why', title: 'Why can a cube root take negative inputs?', text: 'A square root asks "what number times itself gives this?" No real number squared is negative, so $\\sqrt{-8}$ is not real. A cube root asks "what number times itself **three** times gives this?" Since $(-2)(-2)(-2) = -8$, $\\sqrt[3]{-8} = -2$. Every real number has exactly one real cube root, so the domain **and** the range of $\\sqrt[3]{x}$ are all real numbers.' },
     {
       t: 'graph',
       caption: 'Square root f(x) = √x starts at (0, 0). Exponential f(x) = 2ˣ crosses the y-axis at (0, 1) and doubles every step to the right.',
@@ -109,6 +111,21 @@ export const U1L10: LessonContent = {
     },
     { t: 'callout', variant: 'why', title: 'Why does 2ˣ never touch the x-axis?', text: 'Moving left, each output is half of the one before: $2^0 = 1$, $2^{-1} = \\frac{1}{2}$, $2^{-2} = \\frac{1}{4}$, $2^{-3} = \\frac{1}{8}$. Halving a positive number always leaves a positive number, so the outputs get close to $0$ but never reach it. That is why the range is $y > 0$, not $y \\ge 0$.' },
     { t: 'p', text: '### Linear means a constant rate of change' },
+    { t: 'p', text: '### Comparing key features' },
+    { t: 'p', text: 'To tell parents apart, compare the same features you used for lines: where the graph **increases or decreases**, its **intercepts**, its **domain and range**, its **end behavior** (what happens far to the left and right), and whether it **curves** or turns at a sharp point.' },
+    {
+      t: 'table',
+      caption: 'Key features of the six parent functions.',
+      headers: ['Parent', 'Increasing / decreasing', 'x-intercept', 'End behavior', 'Curve'],
+      rows: [
+        ['$x$', 'increasing everywhere', '$(0, 0)$', 'down on the left, up on the right', 'straight, constant rate'],
+        ['$|x|$', 'decreasing for $x < 0$, increasing for $x > 0$', '$(0, 0)$', 'up on both sides', 'sharp corner at the vertex'],
+        ['$x^2$', 'decreasing for $x < 0$, increasing for $x > 0$', '$(0, 0)$', 'up on both sides', 'smooth U'],
+        ['$\\sqrt{x}$', 'increasing (only $x \\ge 0$)', '$(0, 0)$', 'starts at the origin, rises slowly on the right', 'flattens as it goes'],
+        ['$\\sqrt[3]{x}$', 'increasing everywhere', '$(0, 0)$', 'down on the left, up on the right', 'flattens as it goes, both ways'],
+        ['$2^x$', 'increasing everywhere', 'none', 'approaches $0$ on the left, shoots up on the right', 'gets steeper and steeper'],
+      ],
+    },
     { t: 'p', text: 'Only one parent, $f(x) = x$, is **linear**. A function is linear when its rate of change is constant, so its graph is one straight line. In a table where $x$ goes up by the **same step** each time, a linear function has **equal first differences** in $y$.' },
     {
       t: 'table',
@@ -146,6 +163,20 @@ export const U1L10: LessonContent = {
         { text: 'State the domain and range.', tex: '\\text{Domain: all real numbers} \\quad \\text{Range: } y \\ge 0', why: 'The V goes forever left and right, but its lowest point is $y = 0$.' },
       ],
       answer: 'Absolute value $f(x) = |x|$; nonlinear; domain all real numbers, range $y \\ge 0$.',
+    },
+    {
+      title: 'An S lying on its side',
+      kind: 'introductory',
+      problem: [
+        { t: 'p', text: 'Which parent function is graphed? Use the marked points to check, and give its domain and range.' },
+        { t: 'graph', spec: { xMin: -10, xMax: 10, yMin: -6, yMax: 6, xStep: 2, functions: [{ expr: 'cbrt(x)' }], points: [{ x: -8, y: -2, label: '(-8, -2)' }, { x: 0, y: 0, label: '(0, 0)' }, { x: 8, y: 2, label: '(8, 2)' }], ariaLabel: 'An S-shaped curve lying on its side, rising slowly through (-8, -2), (0, 0) and (8, 2), and continuing to the left and right.' } },
+      ],
+      steps: [
+        { text: 'Describe the shape.', why: 'The curve rises everywhere, is steepest at the origin and flattens out on both sides, like an S lying on its side. It keeps going to the left, so it is not the square root (which starts at the origin).' },
+        { text: 'Check the points with $f(x) = \\sqrt[3]{x}$.', tex: '\\sqrt[3]{-8} = -2, \\quad \\sqrt[3]{0} = 0, \\quad \\sqrt[3]{8} = 2', why: '$(-2)^3 = -8$ and $2^3 = 8$, so all three points fit the cube root rule.' },
+        { text: 'State the domain and range.', tex: '\\text{Domain: all real numbers} \\quad \\text{Range: all real numbers}', why: 'Every real number, positive or negative, has a cube root, and every real number is the cube root of something.' },
+      ],
+      answer: 'Cube root $f(x) = \\sqrt[3]{x}$; domain and range are all real numbers.',
     },
     {
       title: 'Linear or nonlinear from a table',
@@ -236,7 +267,7 @@ export const U1L10: LessonContent = {
       kind: 'challenging',
       problem: [{ t: 'p', text: 'Which of the six parent functions never have a negative output? Give the range of each one you choose, and explain.' }],
       steps: [
-        { text: 'Rule out $x$ and $x^3$.', tex: 'f(-2) = -2, \\qquad (-2)^3 = -8', why: 'Both give negative outputs for negative inputs, so their range is all real numbers.' },
+        { text: 'Rule out $x$ and $\\sqrt[3]{x}$.', tex: 'f(-2) = -2, \\qquad \\sqrt[3]{-8} = -2', why: 'Both give negative outputs for negative inputs, so their range is all real numbers.' },
         { text: 'Absolute value and squaring.', tex: '|-2| = 2, \\qquad (-2)^2 = 4', why: 'Absolute value is a distance, and a negative times a negative is positive. Both can equal $0$ at $x = 0$, so their range is $y \\ge 0$.' },
         { text: 'Square root.', tex: '\\sqrt{0} = 0, \\quad \\sqrt{4} = 2, \\quad \\sqrt{9} = 3', why: 'The square root symbol means the non-negative root, and only $x \\ge 0$ can go in. Its range is $y \\ge 0$.' },
         { text: 'Exponential.', tex: '2^{-3} = \\tfrac{1}{8}, \\quad 2^0 = 1, \\quad 2^3 = 8', why: 'Every power of $2$ is positive, and it never equals $0$. Its range is $y > 0$.' },
@@ -307,7 +338,7 @@ export const U1L10: LessonContent = {
           t: 'list',
           items: [
             'Squaring a negative gives a positive: $(-3)^2 = (-3)(-3) = 9$.',
-            'Cubing a negative stays negative: $(-2)^3 = (-2)(-2)(-2) = -8$.',
+            'Cubing a negative stays negative: $(-2)^3 = (-2)(-2)(-2) = -8$. That is why the cube root of a negative number is real: $\\sqrt[3]{-8} = -2$.',
             '$\\sqrt{25} = 5$ because $5^2 = 25$. There is no real $\\sqrt{-4}$, because no real number squared is negative.',
             'Absolute value is distance from $0$: $|-6| = 6$ and $|6| = 6$.',
             'Powers of $2$: $2^0 = 1$, $2^1 = 2$, $2^3 = 8$, and $2^{-1} = \\frac{1}{2}$.',
@@ -338,7 +369,7 @@ export const U1L10: LessonContent = {
       title: 'Read the equation instead',
       blocks: [
         { t: 'p', text: 'You can often tell without a table or graph. Look at where $x$ sits in the equation:' },
-        { t: 'list', items: ['$x$ alone, maybe times a number, plus a number ($y = -4x + 7$): **linear**.', '$x$ with a power like $x^2$ or $x^3$: **nonlinear**.', '$x$ inside $|\\;\\;|$ or under $\\sqrt{\\;\\;}$: **nonlinear**.', '$x$ in an exponent ($2^x$) or a denominator ($\\frac{1}{x}$): **nonlinear**.'] },
+        { t: 'list', items: ['$x$ alone, maybe times a number, plus a number ($y = -4x + 7$): **linear**.', '$x$ with a power like $x^2$ or $x^3$: **nonlinear**.', '$x$ inside $|\\;\\;|$ or under $\\sqrt{\\;\\;}$ or $\\sqrt[3]{\\;\\;}$: **nonlinear**.', '$x$ in an exponent ($2^x$) or a denominator ($\\frac{1}{x}$): **nonlinear**.'] },
         { t: 'callout', variant: 'tip', text: 'Solve for $y$ first if you need to: $4x + 2y = 8$ becomes $y = -2x + 4$, which is linear.' },
       ],
     },
@@ -374,8 +405,9 @@ export const U1L10: LessonContent = {
     ],
   },
   summary: [
-    'The six parent functions are $x$ (line), $|x|$ (V), $x^2$ (U), $x^3$ (S), $\\sqrt{x}$ (half arch from $(0, 0)$) and $2^x$ (flat, then shooting up through $(0, 1)$).',
-    'Domains: all real numbers except $\\sqrt{x}$, which needs $x \\ge 0$. Ranges: $|x|$, $x^2$ and $\\sqrt{x}$ have $y \\ge 0$; $2^x$ has $y > 0$; $x$ and $x^3$ have all real numbers.',
+    'The six parent functions are linear $x$ (line), absolute value $|x|$ (V), quadratic $x^2$ (U), square root $\\sqrt{x}$ (half arch from $(0, 0)$), cube root $\\sqrt[3]{x}$ (S lying on its side through $(-8, -2)$, $(0, 0)$, $(8, 2)$) and exponential $2^x$ (flat, then shooting up through $(0, 1)$).',
+    'Domains: all real numbers except $\\sqrt{x}$, which needs $x \\ge 0$. Ranges: $|x|$, $x^2$ and $\\sqrt{x}$ have $y \\ge 0$; $2^x$ has $y > 0$; $x$ and $\\sqrt[3]{x}$ have all real numbers.',
+    'Compare parents by their features: $|x|$ and $x^2$ both decrease then increase (sharp V vs smooth U); $2^x$ is the only one with no $x$-intercept; $\\sqrt{x}$ is the only one whose domain is limited.',
     'A function is **linear** when its rate of change is constant: equal first differences for equal $x$ steps, and a straight-line graph.',
     'An equation is linear when it can be written $y = mx + b$, with $x$ only to the first power.',
   ],

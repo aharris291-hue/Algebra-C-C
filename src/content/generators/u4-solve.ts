@@ -10,9 +10,9 @@ import { isVertexForm } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
-import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, texToExpr } from './util';
+import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, texToExpr, numberMisconceptions } from './util';
 import { radPlain, radTex, splitPower, SQUAREFREE } from './u3-common';
-import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, texEquation, mathOf, quadRoots, checkSolutions, roundedRootOk, gcdAll, gcd } from './u4-common';
+import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, texEquation, mathOf, quadRoots, checkSolutions, roundedRootOk, gcdAll, gcd, subTex, promptText } from './u4-common';
 
 const SOL_HINT = 'Like x = 3, -5 or 2 ± sqrt(5), or none';
 const nz = (rng: Rng, lo: number, hi: number) => rng.nonzeroInt(lo, hi);
@@ -582,43 +582,269 @@ function positiveRoot(h: Poly, target = 0): number {
   return (lo + hi) / 2;
 }
 
+// Method labels for "which method is most efficient" (the order of the U4L10 table).
+const METHOD = {
+  sqrt: 'Square roots: isolate the square, then take the square root of both sides',
+  factor: 'Factoring: the quadratic factors over the integers',
+  cts: 'Completing the square: $a = 1$ and $b$ is even, but it does not factor',
+  formula: 'The quadratic formula: it does not factor, and $a \\ne 1$ or $b$ is odd',
+} as const;
+type MethodKey = keyof typeof METHOD;
+
+const isSquare = (n: number) => n >= 0 && Number.isInteger(Math.sqrt(n));
+
+// "Is this data point possible?" labels (A.PAR.6.4): exactly one describes each point.
+const POINT = {
+  yes: 'Possible: the point is on the graph of the model, at a time while the ball is in the air.',
+  otherTime: 'Not possible: the ball does reach that height, but at a different time.',
+  tooHigh: 'Not possible: the ball never gets that high, because that height is above its maximum height.',
+  domain: 'Not possible: the point fits the equation, but that time is outside the domain (the ball is not in the air then).',
+} as const;
+type PointKey = keyof typeof POINT;
+
+/** Landing time of h(t) = -16t^2 + vt + h0 (h0 >= 0), as a decimal. */
+const landing = (v: number, h0: number) => (v + Math.sqrt(v * v + 64 * h0)) / 32;
+const hAt = (v: number, h0: number, t: Rational) => t.mul(t).mul(-16).add(t.mul(v)).add(h0);
+const tStr = (t: Rational) => numStr(t);
+const ptTex = (t: Rational, y: Rational) => `(${t.toTex()}, ${y.toTex()})`;
+
 export const genQuadraticContext: GeneratorDef = {
   id: 'u4.quadratic-context',
   skillId: 'S4.13',
-  description: 'Solve quadratic models in context and keep only the solutions that make sense.',
+  description: 'Choose a method, create and solve quadratic models in context, and keep only the solutions and data points that make sense.',
   generate(rng, difficulty) {
-    const kind = difficulty === 2 ? 'area' : 'ball';
+    const roll = rng.int(0, 9);
+    const kind =
+      difficulty === 1 ? (roll < 5 ? 'ball' : 'method') : difficulty === 2 ? (roll < 4 ? 'area' : roll < 7 ? 'twice' : 'point') : roll < 4 ? 'ball' : roll < 7 ? 'twice' : 'point';
+    if (kind === 'method') {
+      const key = rng.pick<MethodKey>(['sqrt', 'factor', 'cts', 'formula']);
+      let tex = '';
+      let a = 1;
+      let b = 0;
+      let c = 0;
+      let shape: 'plain' | 'square' = 'plain';
+      let hh = 0;
+      let mm = 0;
+      if (key === 'sqrt') {
+        mm = rng.pick([2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 18, 20]);
+        if (rng.bool()) {
+          a = rng.pick([1, 2, 3, 4, 5]);
+          [b, c] = [0, -a * mm];
+          tex = `${a === 1 ? '' : a}x^{2} - ${a * mm} = 0`;
+        } else {
+          shape = 'square';
+          hh = nz(rng, -6, 6);
+          [a, b, c] = [1, -2 * hh, hh * hh - mm];
+          tex = `\\left(${linTex(1, -hh)}\\right)^{2} = ${mm}`;
+        }
+      } else if (key === 'factor') {
+        let r = 0;
+        let s2 = 0;
+        do {
+          r = nz(rng, -9, 9);
+          s2 = nz(rng, -9, 9);
+        } while (r === s2 || r + s2 === 0);
+        [a, b, c] = [1, -(r + s2), r * s2];
+        tex = `${pTex(X([c, b, a]))} = 0`;
+      } else if (key === 'cts') {
+        do {
+          b = 2 * nz(rng, -6, 6);
+          c = nz(rng, -12, 12);
+        } while (b * b - 4 * c <= 0 || isSquare(b * b - 4 * c));
+        a = 1;
+        tex = `${pTex(X([c, b, a]))} = 0`;
+      } else {
+        do {
+          a = rng.pick([2, 3, 4, 5]);
+          b = nz(rng, -9, 9);
+          c = nz(rng, -9, 9);
+        } while (b * b - 4 * a * c <= 0 || isSquare(b * b - 4 * a * c) || gcdAll([a, b, c]) !== 1);
+        tex = `${pTex(X([c, b, a]))} = 0`;
+      }
+      const roots = quadRoots(a, b, c);
+      const D = b * b - 4 * a * c;
+      const why: Record<MethodKey, string> = {
+        sqrt: shape === 'square' ? 'The left side is already a perfect square, so undo the square with a square root.' : 'There is no $x$-term, so $x^{2}$ can be isolated directly.',
+        factor: `The discriminant $b^{2} - 4ac = ${D}$ is a perfect square, so the trinomial factors over the integers.`,
+        cts: `$b^{2} - 4ac = ${D}$ is not a perfect square, so it does not factor, but $a = 1$ and $b = ${b}$ is even, so half of $b$ is a whole number.`,
+        formula: `$b^{2} - 4ac = ${D}$ is not a perfect square, so it does not factor, and $a = ${a}$ would make completing the square use fractions.`,
+      };
+      const solveStep =
+        key === 'sqrt'
+          ? shape === 'square'
+            ? { text: 'Take the square root of both sides.', tex: `${linTex(1, -hh)} = \\pm \\sqrt{${mm}} \\Rightarrow ${roots.tex}`, why: 'Both the positive and the negative root square to the right side.' }
+            : { text: 'Isolate $x^{2}$ and take square roots.', tex: `x^{2} = ${mm} \\Rightarrow ${roots.tex}`, why: `Add $${a * mm}$${a === 1 ? '' : ` and divide by $${a}$`}; a positive number has two square roots.` }
+          : key === 'factor'
+            ? { text: 'Factor and use the zero product property.', tex: `${roots.tex}`, why: `Two numbers that multiply to $${c}$ and add to $${b}$ give the factors.` }
+            : key === 'cts'
+              ? { text: 'Complete the square.', tex: `\\left(${linTex(1, b / 2)}\\right)^{2} = ${b * b / 4 - c} \\Rightarrow ${roots.tex}`, why: `Add $\\left(\\frac{${b}}{2}\\right)^{2} = ${b * b / 4}$ to both sides after moving the constant.` }
+              : { text: 'Use the quadratic formula.', tex: `x = \\frac{${-b} \\pm \\sqrt{${D}}}{${2 * a}} \\Rightarrow ${roots.tex}`, why: `$a = ${a}$, $b = ${b}$, $c = ${c}$.` };
+      const opts = (['sqrt', 'factor', 'cts', 'formula'] as MethodKey[]).map((k) => METHOD[k]);
+      const answer = makeChoice(rng, METHOD[key], opts.filter((o) => o !== METHOD[key]));
+      return makeProblem({
+        skillId: 'S4.13',
+        tags: [],
+        prompt: [p('Which method is the most efficient way to solve this equation?'), { t: 'math', tex }],
+        answer,
+        hints: [
+          'Look at the equation before you start: is there an $x$-term? Is it already a square?',
+          'If there is no $x$-term (or the left side is a perfect square), square roots is quickest.',
+          'Otherwise compute $b^{2} - 4ac$: a perfect square means the quadratic factors over the integers.',
+          'If it does not factor, completing the square is neat when $a = 1$ and $b$ is even; otherwise use the formula.',
+        ],
+        solution: [
+          { text: 'Look at the form of the equation.', why: why[key] },
+          { text: `So the most efficient method is ${METHOD[key].split(':')[0].replace(/^The q/, 'the q').toLowerCase()}.`, why: 'Every method gives the same solutions; this one takes the fewest steps here.' },
+          solveStep,
+        ],
+        misconceptions: [],
+        steps: [
+          { prompt: [p(`Which method is the most efficient way to solve $${tex}$?`)], answer: makeChoice(rng, METHOD[key], opts.filter((o) => o !== METHOD[key])), hints: ['Is there an $x$-term?', 'Is $b^{2} - 4ac$ a perfect square?', 'Is $a = 1$ with an even $b$?', 'Match the equation to a row of the method table.'], explanation: why[key] },
+          { prompt: [p(`Now solve $${tex}$.`)], answer: solSpec(roots.values), inputHint: SOL_HINT, hints: ['Use the method you chose.', 'Keep both signs of a square root.', 'Simplify any radical.', 'Check by substituting.'], explanation: `$${roots.tex}$.` },
+        ],
+      });
+    }
     if (kind === 'area') {
-      const w = rng.int(3, 14);
+      const m = rng.pick([1, 1, 2]);
+      const w = rng.int(3, m === 2 ? 10 : 14);
       const k = rng.int(2, 9);
-      const A = w * (w + k);
+      const L = m * w + k;
+      const A = w * L;
       const askWidth = rng.bool();
-      const ans = askWidth ? w : w + k;
+      const ans = askWidth ? w : L;
       const thing = rng.pick(['phone screen protector', 'garden bed', 'poster', 'rug', 'patio']);
       const unit = thing === 'phone screen protector' ? 'centimeters' : 'feet';
       const sq = `square ${unit}`;
-      const negRoot = -(w + k);
+      const negRoot = Q(-A).div(m * w); // product of the roots is -A/m
+      const relation = m === 1 ? `$${k}$ ${unit} longer than it is wide` : `$${k}$ ${unit} more than twice its width`;
+      const lenTex = m === 1 ? `w + ${k}` : `2w + ${k}`;
+      const eqPlain = `w(${lenTex}) = ${A}`;
+      const stdTex = `${m === 1 ? '' : '2'}w^{2} + ${k}w - ${A} = 0`;
+      const factored = m === 1 ? `(w - ${w})(w + ${w + k})` : `(w - ${w})(2w + ${L})`;
+      return makeProblem({
+        skillId: 'S4.13',
+        tags: ['real-world', 'multi-step'],
+        prompt: [p(`The length of a rectangular ${thing} is ${relation}. Its area is $${A}$ ${sq}.`), p(`Write and solve an equation to find the **${askWidth ? 'width' : 'length'}** of the ${thing}, in ${unit}.`)],
+        answer: { kind: 'number', value: String(ans), unit },
+        hints: [
+          'Let $w$ be the width. Write the length in terms of $w$.',
+          `Area is width times length, so the equation is $w(${lenTex}) = ${A}$.`,
+          'Multiply out, move everything to one side and solve by factoring or the formula.',
+          askWidth ? 'A width cannot be negative, so keep the positive solution.' : 'Keep the positive width, then use it to find the length.',
+        ],
+        solution: [
+          { text: 'Let $w$ be the width and write the length.', tex: `\\text{length} = ${lenTex}`, why: m === 1 ? `The length is $${k}$ more than the width.` : `"Twice the width" is $2w$, and the length is $${k}$ more than that.` },
+          { text: 'Write the area equation and put it in standard form.', tex: `w(${lenTex}) = ${A} \\Rightarrow ${stdTex}`, why: 'Area of a rectangle is width times length.' },
+          { text: 'Factor and solve.', tex: `${factored} = 0 \\Rightarrow w = ${w} \\text{ or } w = ${negRoot.toTex()}`, why: `Check: $${w}(${L}) = ${A}$.` },
+          { text: 'Keep only the solution that makes sense.', why: `A width cannot be negative, so $w = ${w}$ ${unit}.` },
+          ...(askWidth ? [] : [{ text: 'Find the length.', tex: `${m === 1 ? '' : `2(${w}) + `}${m === 1 ? `${w} + ` : ''}${k} = ${L}`, why: m === 1 ? `The length is $${k}$ more than the width.` : `The length is $${k}$ more than twice the width.` }]),
+        ],
+        misconceptions: numberMisconceptions(Q(ans), [
+          { value: askWidth ? negRoot : negRoot.mul(m).add(k), tag: 'statistics-concept', feedback: 'That solves the equation, but a length cannot be negative. Choose the solution that makes sense.' },
+          { value: askWidth ? Q(L) : Q(w), tag: 'other', feedback: askWidth ? 'That is the length. The question asks for the width.' : 'That is the width. The question asks for the length.' },
+        ]),
+        steps: [
+          { prompt: [p(`Let $w$ be the width. Write an equation for the area of the ${thing}.`)], answer: { kind: 'equation', value: eqPlain }, inputHint: `Type an equation in w, like w(w + 3) = 40.`, hints: ['Write the length in terms of $w$.', m === 1 ? `The length is $w + ${k}$.` : `The length is $2w + ${k}$.`, 'Area is width times length.', `Set the product equal to $${A}$.`], explanation: `$${eqPlain}$.` },
+          { prompt: [p(`Solve the equation. What is the ${askWidth ? 'width' : 'length'}, in ${unit}?`)], answer: { kind: 'number', value: String(ans), unit }, hints: ['Write the equation in standard form.', 'Factor or use the quadratic formula.', 'Reject the negative solution.', askWidth ? 'The width is the positive solution.' : 'Substitute the width into the length expression.'], explanation: `The width is $${w}$ and the length is $${L}$.` },
+        ],
+      });
+    }
+    if (kind === 'twice') {
+      const [t1, t2] = difficulty === 2 ? rng.pick([[1, 2], [1, 3], [1, 4], [2, 3], [1, 5], [2, 4]] as const).map((x) => Q(x)) : rng.pick([['1/2', '3/2'], ['1/2', '5/2'], ['3/2', '5/2'], ['1/2', '7/2'], ['3/2', '3'], ['1', '5/2'], ['1/2', '2']] as const).map((x) => Q(x));
+      const h0 = rng.int(2, 15);
+      const v = Q(16).mul(t1.add(t2)).toInt();
+      const H = Q(16).mul(t1).mul(t2).add(h0).toInt();
+      const thing = rng.pick(['ball', 'water balloon', 'beanbag', 'softball']);
+      const hPoly = Poly.fromCoeffs('t', [Q(h0), Q(v), Q(-16)]);
+      const tex = `h(t) = ${pTex(hPoly, 't')}`;
+      const T = landing(v, h0);
+      const stdTex = `-16t^{2} + ${v}t - ${H - h0} = 0`;
+      const divTex = pTex(Poly.fromCoeffs('t', [t1.mul(t2), t1.add(t2).neg(), Q(1)]), 't');
       return makeProblem({
         skillId: 'S4.13',
         tags: ['real-world', 'multi-step'],
         prompt: [
-          p(`A rectangular ${thing} is $${k}$ ${unit} longer than it is wide. Its area is $${A}$ ${sq}. If $w$ is the width, then $w(w + ${k}) = ${A}$.`),
-          { t: 'math', tex: `w^{2} + ${k}w - ${A} = 0` },
-          p(`What is the **${askWidth ? 'width' : 'length'}** of the ${thing}, in ${unit}?`),
+          p(`A ${thing} is thrown upward from a height of $${h0}$ feet. Its height, in feet, after $t$ seconds is`),
+          { t: 'math', tex },
+          p(`At what times is the ${thing} exactly $${H}$ feet above the ground? Give every time that makes sense, in seconds.`),
         ],
-        answer: { kind: 'number', value: String(ans), unit },
+        answer: { kind: 'solutions', values: [tStr(t2), tStr(t1)], variable: 't' },
+        inputHint: 'Type every time, separated by a comma, like 1, 3.',
         hints: [
-          'Solve the equation for $w$, by factoring or with the quadratic formula.',
-          `Look for two numbers that multiply to $-${A}$ and add to $${k}$.`,
-          'A width cannot be negative, so throw out the negative solution.',
-          askWidth ? 'The width is the positive solution.' : `The length is the width plus $${k}$.`,
+          `Set the height equal to $${H}$: solve $h(t) = ${H}$.`,
+          `Subtract $${H}$ so one side is $0$, then divide every term by $-16$.`,
+          'Factor (or use the formula). You will get two times.',
+          `Check each time against the situation: is it after the throw and before the ${thing} lands?`,
         ],
         solution: [
-          { text: 'Factor and solve.', tex: `(w - ${w})(w + ${w + k}) = 0 \\Rightarrow w = ${w} \\text{ or } w = ${negRoot}`, why: `$(-${w})(${w + k}) = -${A}$ and $-${w} + ${w + k} = ${k}$.` },
-          { text: 'Keep only the solution that makes sense.', why: `A length cannot be negative, so $w = ${w}$ ${unit}.` },
-          ...(askWidth ? [] : [{ text: 'Find the length.', tex: `${w} + ${k} = ${w + k}`, why: `The length is $${k}$ more than the width.` }]),
+          { text: 'Set the height equal to the target and write standard form.', tex: `-16t^{2} + ${v}t + ${h0} = ${H} \\Rightarrow ${stdTex}`, why: `Subtract $${H}$ from both sides.` },
+          { text: 'Divide by $-16$ and solve.', tex: `${divTex} = 0 \\Rightarrow t = ${t1.toTex()} \\text{ or } t = ${t2.toTex()}`, why: `The two times multiply to $${t1.mul(t2).toTex()}$ and add to $${t1.add(t2).toTex()}$.` },
+          { text: 'Check each time against the situation.', why: `The ${thing} is in the air from $t = 0$ until it lands at about $t \\approx ${T.toFixed(2)}$, so both times fit: it passes $${H}$ feet once on the way up and once on the way down. Neither solution is rejected.` },
         ],
-        misconceptions: [{ answer: String(askWidth ? negRoot : negRoot + k), tag: 'statistics-concept', feedback: 'That solves the equation, but a length cannot be negative. Choose the solution that makes sense.' }],
+        misconceptions: [
+          { answer: tStr(t1), tag: 'missing-solution', feedback: 'That time works, but the ball passes that height twice: once going up and once coming down. Check the other solution before rejecting it.' },
+          { answer: `${tStr(t1.neg())}, ${tStr(t2.neg())}`, tag: 'sign-error', feedback: 'Negative times are before the throw. Check the signs when you factor.' },
+        ],
+      });
+    }
+    if (kind === 'point') {
+      const v = difficulty === 2 ? rng.pick([32, 48, 64]) : rng.pick([24, 40, 56]);
+      const h0 = rng.int(difficulty === 2 ? 2 : 3, 12);
+      const T = landing(v, h0);
+      const tv = Q(v, 32);
+      const K = hAt(v, h0, tv);
+      const inAir: Rational[] = [];
+      for (let t = 1; t < T - 1e-9; t++) inAir.push(Q(t));
+      if (difficulty === 3) for (let t = 1; t < T - 1e-9; t++) if (t - 0.5 > 0 && !tv.eq(Q(2 * t - 1, 2))) inAir.push(Q(2 * t - 1, 2));
+      const which = rng.pick<PointKey>(['yes', 'otherTime', 'tooHigh', 'domain']);
+      let t = rng.pick(inAir);
+      let y: Rational;
+      if (which === 'yes') y = hAt(v, h0, t);
+      else if (which === 'otherTime') {
+        const others = inAir.map((u) => hAt(v, h0, u)).filter((z) => !z.eq(hAt(v, h0, t)) && z.ge(0));
+        if (!t.eq(tv)) others.push(K);
+        y = rng.pick(others);
+      } else if (which === 'tooHigh') y = K.add(rng.pick([4, 6, 10, 15, 20]));
+      else {
+        t = rng.bool() ? Q(-1) : Q(Math.ceil(T + 1e-9) + rng.int(0, 1));
+        y = hAt(v, h0, t);
+      }
+      const hPoly = Poly.fromCoeffs('t', [Q(h0), Q(v), Q(-16)]);
+      const tex = `h(t) = ${pTex(hPoly, 't')}`;
+      const thing = 'ball';
+      const answer = makeChoice(rng, POINT[which], (Object.keys(POINT) as PointKey[]).filter((k) => k !== which).map((k) => POINT[k]));
+      const ht = hAt(v, h0, t);
+      return makeProblem({
+        skillId: 'S4.13',
+        tags: ['real-world'],
+        prompt: [
+          p(`A ${thing} is thrown upward from a height of $${h0}$ feet. Its height, in feet, after $t$ seconds is modeled by the function below, from the throw until it lands.`),
+          { t: 'math', tex },
+          p(`A student lists the data point $${ptTex(t, y)}$, meaning a height of $${y.toTex()}$ feet at $t = ${t.toTex()}$ seconds. Is this data point possible according to the model?`),
+        ],
+        answer,
+        hints: [
+          'A data point is possible only if it is a solution of the model **and** it fits the situation.',
+          `Substitute $t = ${t.toTex()}$ into $h(t)$ and compare with $${y.toTex()}$.`,
+          `The ${thing} is in the air from $t = 0$ until it lands, when $h(t) = 0$. Find that landing time.`,
+          'The highest the ball gets is the vertex: $t = -\\frac{b}{2a}$, then substitute.',
+        ],
+        solution: [
+          { text: 'Find the domain and the maximum height.', tex: `t = -\\frac{${v}}{2(-16)} = ${tv.toTex()},\\quad h(${tv.toTex()}) = ${K.toTex()},\\quad h(t) = 0 \\text{ at } t \\approx ${T.toFixed(2)}`, why: `So the ${thing} is in the air for $0 \\le t \\le ${T.toFixed(2)}$, and every height it reaches is between $0$ and $${K.toTex()}$ feet.` },
+          { text: `Substitute $t = ${t.toTex()}$.`, tex: `h(${t.toTex()}) = -16\\left(${t.toTex()}\\right)^{2} + ${v}\\left(${t.toTex()}\\right) + ${h0} = ${ht.toTex()}` },
+          {
+            text: POINT[which],
+            why:
+              which === 'yes'
+                ? `$h(${t.toTex()}) = ${y.toTex()}$ and $t = ${t.toTex()}$ is during the flight, so the point is a solution that makes sense.`
+                : which === 'otherTime'
+                  ? `$h(${t.toTex()}) = ${ht.toTex()}$, not $${y.toTex()}$. A height of $${y.toTex()}$ feet does happen during the flight, just at another time.`
+                  : which === 'tooHigh'
+                    ? `$${y.toTex()}$ is more than the maximum height, $${K.toTex()}$ feet, so no time gives that height.`
+                    : `$h(${t.toTex()}) = ${ht.toTex()}$, so the point is a solution of the equation, but $t = ${t.toTex()}$ is ${t.isNegative() ? 'before the throw' : 'after the ball has landed'}. A negative height is not possible here.`,
+          },
+        ],
+        misconceptions: [],
       });
     }
     // a ball thrown upward: h(t) = -16t^2 + v t + h0
@@ -674,10 +900,67 @@ export const genQuadraticContext: GeneratorDef = {
     });
   },
   verify(pr) {
+    const text = promptText(pr);
+    const tex = mathOf(pr);
+    if (/most efficient way/.test(text)) {
+      if (pr.answer.kind !== 'choice' || !tex) return ['unexpected kind'];
+      const poly = texEquation(tex);
+      const [c, b, a] = poly.coeffsIn('x').map((r) => r.toNumber());
+      const D = b * b - 4 * a * c;
+      if (!(D > 0)) return ['needs two real solutions'];
+      // the U4L10 method table, applied in order to the printed equation
+      let want: MethodKey;
+      if (/^\\left\(x/.test(tex) || b === 0) {
+        if (isSquare(D)) return ['square-root equation also factors: ambiguous'];
+        want = 'sqrt';
+      } else if (isSquare(D)) want = 'factor';
+      else if (a === 1 && b % 2 === 0) want = 'cts';
+      else want = 'formula';
+      if (new Set(pr.answer.options.map((o) => o.label)).size !== 4) return ['options'];
+      return choiceLabel(pr.answer) === METHOD[want] ? [] : [`expected ${want}`];
+    }
+    if (/data point/.test(text)) {
+      if (pr.answer.kind !== 'choice' || !tex) return ['unexpected kind'];
+      const h = toPoly(parseExpression(texToExpr(tex.split('=')[1])));
+      const m = /data point \$\((-?[\d\\{}frac]+), (-?[\d\\{}frac]+)\)\$/.exec(text);
+      if (!m) return ['cannot read point'];
+      const rd = (s: string) => toPoly(parseExpression(texToExpr(s))).constantValue();
+      const t = rd(m[1]);
+      const y = rd(m[2]);
+      const T = positiveRoot(h);
+      // greatest height on [0, T] by a fine scan (a different route from the vertex formula)
+      const hn = h.coeffsIn('t').map((r) => r.toNumber());
+      let top = -Infinity;
+      for (let i = 0; i <= 20000; i++) {
+        const u = (i * T) / 20000;
+        top = Math.max(top, hn[0] + hn[1] * u + hn[2] * u * u);
+      }
+      const onCurve = h.evaluate({ t }).eq(y);
+      const inDomain = t.toNumber() >= 0 && t.toNumber() <= T;
+      const truths: PointKey[] = [];
+      if (onCurve && inDomain) truths.push('yes');
+      if (inDomain && !onCurve && y.toNumber() >= 0 && y.toNumber() <= top + 0.5) truths.push('otherTime');
+      if (y.toNumber() > top + 0.5) truths.push('tooHigh');
+      if (onCurve && !inDomain) truths.push('domain');
+      if (truths.length !== 1) return [`${truths.length} labels describe the point`];
+      if (truths[0] === 'domain' && y.toNumber() >= 0) return ['outside-domain point should have an impossible height'];
+      return choiceLabel(pr.answer) === POINT[truths[0]] ? [] : [`expected ${truths[0]}`];
+    }
+    if (/exactly \$(\d+)\$ feet above/.test(text)) {
+      if (pr.answer.kind !== 'solutions' || !tex) return ['unexpected kind'];
+      const H = Number(/exactly \$(\d+)\$ feet above/.exec(text)![1]);
+      const h = toPoly(parseExpression(texToExpr(tex.split('=')[1])));
+      const cs = h.coeffsIn('t').map((r) => r.toInt());
+      const T = positiveRoot(h);
+      const roots = quadRoots(cs[2], cs[1], cs[0] - H).values.map((v) => Q(v));
+      const keep = roots.filter((r) => r.toNumber() >= 0 && r.toNumber() <= T);
+      const got = pr.answer.values.map((v) => Q(v));
+      if (keep.length !== 2) return ['expected two times in the air'];
+      if (got.length !== keep.length || !keep.every((r) => got.some((g) => g.eq(r)))) return ['wrong times'];
+      return [];
+    }
     if (pr.answer.kind !== 'number') return ['unexpected kind'];
-    const texts = pr.prompt.filter((b) => b.t === 'p').map((b) => (b as { text: string }).text);
-    const tex = mathOf(pr)!;
-    if (tex.startsWith('h(t)')) {
+    if (tex && tex.startsWith('h(t)')) {
       const h = toPoly(parseExpression(texToExpr(tex.split('=')[1])));
       const root = positiveRoot(h);
       if (pr.answer.roundTo === undefined) {
@@ -687,17 +970,16 @@ export const genQuadraticContext: GeneratorDef = {
       }
       return Math.abs(Number(pr.answer.value) - Math.round(root * 100) / 100) < 1e-9 ? [] : [`expected ${root.toFixed(4)}`];
     }
-    const m = /is \$(\d+)\$ \w+ longer than it is wide\. Its area is \$(\d+)\$/.exec(texts[0]);
+    const m = /is \$(\d+)\$ \w+ (longer than it is wide|more than twice its width)\. Its area is \$(\d+)\$/.exec(text);
     if (!m) return ['cannot parse'];
     const k = Number(m[1]);
-    const A = Number(m[2]);
-    const eq = texEquation(tex.replace(/w/g, 'x'));
-    if (!eq.equals(X([-A, k, 1]))) return ['equation does not match the story'];
+    const mult = m[2].startsWith('more') ? 2 : 1;
+    const A = Number(m[3]);
     // positive width by search
-    let w = 0;
-    for (let x = 1; x <= 100; x++) if (x * (x + k) === A) w = x;
-    if (!w) return ['no whole-number width'];
-    const want = texts[1].includes('width') ? w : w + k;
+    const ws: number[] = [];
+    for (let x = 1; x <= 200; x++) if (x * (mult * x + k) === A) ws.push(x);
+    if (ws.length !== 1) return ['no unique whole-number width'];
+    const want = /\*\*width\*\*/.test(text) ? ws[0] : mult * ws[0] + k;
     return Number(pr.answer.value) === want ? [] : ['wrong key'];
   },
 };

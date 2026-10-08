@@ -13,10 +13,22 @@ import { buildContext, type LinearContext } from './u1-contexts';
 // S1.15: build a model from two data points and use it
 // ---------------------------------------------------------------------------
 
-function dataPoints(rng: Rng, ctx: LinearContext): [Rational, Rational] {
-  const max = Math.max(5, ctx.maxInput);
-  const [a, b] = pickDistinct(rng, 2, 1, max).sort((u, w) => u - w);
+/**
+ * Two data inputs in 1..top. Every input used in a problem (data, prediction, solved-for input)
+ * stays within the context's sensible domain 1..maxInput, so a draining battery, tank or candle
+ * never shows a negative level. `room` leaves space above the second point for a prediction.
+ */
+function dataPoints(rng: Rng, ctx: LinearContext, room = 0): [Rational, Rational] {
+  const top = Math.max(2, ctx.maxInput - room);
+  const [a, b] = pickDistinct(rng, 2, 1, top).sort((u, w) => u - w);
   return [Q(a), Q(b)];
+}
+
+/** An input beyond the second data point, at most `span` further and never past maxInput. */
+function laterInput(rng: Rng, ctx: LinearContext, x2: Rational, span: number): Rational {
+  const lo = x2.toNumber() + 1;
+  const hi = Math.max(lo, Math.min(ctx.maxInput, x2.toNumber() + span));
+  return Q(rng.int(lo, hi));
 }
 
 function tableBlock(ctx: LinearContext, xs: Rational[], ys: Rational[]) {
@@ -30,7 +42,7 @@ export const genLinearModel: GeneratorDef = {
   generate(rng, difficulty) {
     const ctx = buildContext(rng);
     const { f, v, m, b } = ctx;
-    const [x1, x2] = dataPoints(rng, ctx);
+    const [x1, x2] = dataPoints(rng, ctx, difficulty === 1 ? 0 : 1);
     const [y1, y2] = [m.mul(x1).add(b), m.mul(x2).add(b)];
     const slopeTex = `\\dfrac{${decTex(y2)} - ${decTex(y1)}}{${decTex(x2)} - ${decTex(x1)}}`;
     const modelTex = linearTex(m, b, v, true);
@@ -60,7 +72,7 @@ export const genLinearModel: GeneratorDef = {
       });
     }
     if (difficulty === 2) {
-      const xp = Q(x2.toNumber() + rng.int(2, 10));
+      const xp = laterInput(rng, ctx, x2, 10);
       const yp = m.mul(xp).add(b);
       return makeProblem({
         skillId: 'S1.15',
@@ -77,7 +89,7 @@ export const genLinearModel: GeneratorDef = {
       });
     }
     // predict the input that gives a target output
-    const xt = Q(x2.toNumber() + rng.int(1, 8));
+    const xt = laterInput(rng, ctx, x2, 8);
     const yt = m.mul(xt).add(b);
     return makeProblem({
       skillId: 'S1.15',
