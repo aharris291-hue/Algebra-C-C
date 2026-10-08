@@ -88,6 +88,10 @@ export const U6L07: LessonContent = {
     { t: 'p', text: 'Read $a_{n-1}$ as "the term before." So: start at $3$, then keep multiplying by $2$. Recursive formulas are handy for listing the next few terms. Explicit formulas are better for jumping straight to the 30th term.' },
     { t: 'callout', variant: 'why', title: 'Converting recursive to explicit', text: 'The recursive form already shows you $a_1$ (the starting term) and $r$ (the number you multiply by). Put them into $a_n = a_1(r)^{n-1}$. For $a_1 = 3$, $a_n = 2 \\cdot a_{n-1}$, you get $a_n = 3(2)^{n-1}$.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'The heights of a bouncing ball, a rumor or a viral post passing from person to person, a tournament where half the teams are knocked out each round, and the number of cells after each division all follow geometric sequences.' },
+
+    { t: 'callout', variant: 'warning', title: 'Dropped from a height is not a bounce', text: 'If a ball is dropped from $81$ feet and each bounce reaches $\\frac{2}{3}$ of the height it fell from, the first bounce is already $\\frac{2}{3}(81) = 54$ feet. So $a_1 = 54$ and $a_n = 54\\left(\\frac{2}{3}\\right)^{n-1}$, not $81\\left(\\frac{2}{3}\\right)^{n-1}$.' },
+    { t: 'p', text: '### From an explicit formula back to a recursive one' },
+    { t: 'p', text: 'In $a_n = 5(3)^{n-1}$, put $n = 1$: the exponent is $0$, so $a_1 = 5$. The base $3$ is the ratio, so each term is $3$ times the one before: $a_1 = 5$ and $a_n = 3a_{n-1}$. Check: $5, 15, 45, \\dots$ from both formulas.' },
   ],
   examples: [
     {

@@ -583,6 +583,202 @@ export const genParallelPerp: GeneratorDef = {
 // S8.04: perimeter and area
 // ---------------------------------------------------------------------------
 
+
+// ---------- areas of special parallelograms from vertices (A.GSR.3.1) ----------
+function quadArea(rng: Rng) {
+  for (let t = 0; t < 200; t++) {
+    const kind = rng.pick(['parallelogram', 'parallelogram', 'rhombus', 'square'] as const);
+    let u: { x: number; y: number };
+    let v: { x: number; y: number };
+    if (kind === 'parallelogram') {
+      u = { x: rng.int(3, 8), y: 0 };
+      v = { x: rng.nonzeroInt(-4, 4), y: rng.int(2, 6) };
+      if (u.x * u.x === v.x * v.x + v.y * v.y) continue;
+    } else if (kind === 'rhombus') {
+      const [p1, q1, h] = rng.pick([[3, 4, 5], [4, 3, 5]] as const);
+      u = { x: h, y: 0 };
+      v = { x: p1 * (rng.bool() ? 1 : -1), y: q1 };
+    } else {
+      const a = rng.int(1, 4);
+      const b = rng.int(1, 3);
+      u = { x: a, y: b };
+      v = { x: -b, y: a };
+    }
+    const A = pt('A', rng.int(-7, 1), rng.int(-7, 0));
+    const ps = [A, pt('B', A.x + u.x, A.y + u.y), pt('C', A.x + u.x + v.x, A.y + u.y + v.y), pt('D', A.x + v.x, A.y + v.y)];
+    if (!fitsGrid(ps, 10)) continue;
+    const square = kind === 'square';
+    const s2 = u.x * u.x + u.y * u.y;
+    const key = square ? s2 : u.x * v.y;
+    const side = Math.sqrt(v.x * v.x + v.y * v.y);
+    return makeProblem({
+      skillId: 'S8.04',
+      tags: ['graph', 'multi-step'],
+      prompt: [p(`Find the area of ${kind} $ABCD$ with vertices $${ps.map(ptTex).join('$, $')}$.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
+      answer: { kind: 'number', value: String(key), unit: 'square units' },
+      hints: square
+        ? ['A square has four equal sides, so its area is side × side.', 'The sides are slanted, so use the distance formula for AB.', '$AB^2 = (\\text{change in } x)^2 + (\\text{change in } y)^2$.', 'The area is $AB^2$, so you do not even need the square root.']
+        : ['The area of a parallelogram (a rhombus is one too) is base × height.', 'Side AB is horizontal, so use it as the base.', 'The height is the vertical distance between the two horizontal sides, not the length of a slanted side.', 'Multiply the base by the height.'],
+      solution: square
+        ? [
+            { text: 'Find the side length.', tex: `AB = \\sqrt{${u.x}^2 + ${u.y}^2} = \\sqrt{${s2}}`, why: 'AB is slanted, so use the distance formula.' },
+            { text: 'Square it.', tex: `A = \\left(\\sqrt{${s2}}\\right)^2 = ${s2}`, why: 'All four sides of a square are equal, so the area is side squared.' },
+          ]
+        : [
+            { text: 'Find the base.', tex: `b = AB = ${ps[1].x} - ${neg(A.x)} = ${u.x}`, why: 'A and B have the same y-coordinate.' },
+            { text: 'Find the height.', tex: `h = ${ps[3].y} - ${neg(A.y)} = ${v.y}`, why: `The height is measured straight up from the base to the opposite side DC${kind === 'rhombus' ? '' : `, not along the slanted side AD (which is $\\sqrt{${v.x * v.x + v.y * v.y}}$ long)`}.` },
+            { text: 'Multiply.', tex: `A = ${u.x} \\cdot ${v.y} = ${key}`, why: 'Cutting a triangle off one end and moving it to the other end turns the parallelogram into a rectangle with the same base and height.' },
+          ],
+      misconceptions: numberMisconceptions(Q(key), [
+        { value: square ? Q(Math.abs(u.x) * Math.abs(v.y)) : Number.isInteger(side) ? Q(u.x * side) : null, tag: 'formula-error', feedback: square ? 'The sides are slanted. Find a side length with the distance formula.' : 'Use the height (the vertical distance), not the length of the slanted side.' },
+        { value: square ? null : Q(u.x * v.y, 2), tag: 'formula-error', feedback: 'A parallelogram is not a triangle: do not take half.' },
+        { value: square ? Q(4 * s2) : Q((u.x + Math.abs(v.x)) * v.y), tag: 'formula-error', feedback: square ? 'Square the side length; do not multiply the squared side by 4.' : 'That is the area of the box around the figure. Use base × height.' },
+      ]),
+    });
+  }
+  throw new Error('quadArea');
+}
+
+// ---------- perimeter and area with unknown side lengths (A.GSR.3.1) ----------
+interface Lin { a: number; c: number }
+const linTex = (l: Lin) => `${l.a === 1 ? '' : l.a}x${l.c === 0 ? '' : ` ${l.c < 0 ? '-' : '+'} ${Math.abs(l.c)}`}`;
+const linAt = (l: Lin, x: number) => l.a * x + l.c;
+
+function algebraSides(rng: Rng) {
+  for (let t = 0; t < 200; t++) {
+    const kind = rng.pick(['rectangle', 'rectangle', 'rhombus', 'isosceles', 'parallelogram', 'triangle-area'] as const);
+    const x = rng.int(2, 9);
+    const lin = (aMax: number): Lin => ({ a: rng.int(1, aMax), c: rng.int(-5, 8) });
+    if (kind === 'triangle-area') {
+      const B = lin(3);
+      const h = rng.pick([4, 6, 8, 10]);
+      const base = linAt(B, x);
+      if (base <= 0 || B.c === 0) continue;
+      const area = (base * h) / 2;
+      return makeProblem({
+        skillId: 'S8.04',
+        tags: ['multi-step'],
+        prompt: [p(`A triangle has a base of length $${linTex(B)}$ units and a height of $${h}$ units. Its area is $${area}$ square units. Find $x$.`)],
+        answer: { kind: 'number', value: String(x) },
+        inputHint: 'Type a number.',
+        hints: ['Area of a triangle $= \\frac{1}{2} \\cdot$ base $\\cdot$ height.', 'Substitute the base expression, the height and the area.', `Simplify $\\frac{1}{2} \\cdot ${h}$ first.`, 'Solve the linear equation for $x$.'],
+        solution: [
+          { text: 'Write the area equation.', tex: `\\frac{1}{2}(${linTex(B)})(${h}) = ${area}`, why: 'The area formula connects the base, height and area.' },
+          { text: 'Simplify.', tex: `${h / 2}(${linTex(B)}) = ${area} \\Rightarrow ${linTex(B)} = ${base}`, why: `Half of ${h} is ${h / 2}; then divide both sides by ${h / 2}.` },
+          { text: 'Solve.', tex: `x = ${x}`, why: `Check: the base is $${base}$ and $\\frac{1}{2}(${base})(${h}) = ${area}$.` },
+        ],
+        misconceptions: numberMisconceptions(Q(x), [
+          { value: Q(area - B.c * h, B.a * h), tag: 'formula-error', feedback: 'Remember the $\\frac{1}{2}$ in the triangle area formula.' },
+          { value: Q(base), tag: 'other', feedback: 'That is the length of the base. The question asks for $x$.' },
+        ]),
+      });
+    }
+    let sides: Array<{ l: Lin; k: number; name: string }>;
+    let shape: string;
+    let desc: string;
+    if (kind === 'rectangle') {
+      const L = { a: rng.int(1, 3), c: rng.int(1, 8) };
+      const W = rng.bool() ? { a: 1, c: 0 } : { a: 1, c: rng.int(-3, 0) };
+      if (L.a === W.a && L.c === W.c) continue;
+      sides = [{ l: L, k: 2, name: 'length' }, { l: W, k: 2, name: 'width' }];
+      shape = 'rectangle';
+      desc = `A rectangle has length $${linTex(L)}$ and width $${linTex(W)}$, in units.`;
+    } else if (kind === 'rhombus') {
+      const S = { a: rng.int(2, 4), c: rng.nonzeroInt(-5, 5) };
+      sides = [{ l: S, k: 4, name: 'side' }];
+      shape = 'rhombus';
+      desc = `Each side of a rhombus is $${linTex(S)}$ units long.`;
+    } else if (kind === 'isosceles') {
+      const S = lin(2);
+      const Bs = { a: rng.int(1, 3), c: rng.int(-4, 4) };
+      if (S.a === Bs.a && S.c === Bs.c) continue;
+      sides = [{ l: S, k: 2, name: 'leg' }, { l: Bs, k: 1, name: 'base' }];
+      shape = 'triangle';
+      desc = `An isosceles triangle has two equal sides of length $${linTex(S)}$ and a base of length $${linTex(Bs)}$, in units.`;
+    } else {
+      const S1 = { a: 1, c: rng.int(1, 6) };
+      const S2 = { a: rng.int(2, 3), c: rng.int(-5, 2) };
+      sides = [{ l: S1, k: 2, name: 'side' }, { l: S2, k: 2, name: 'side' }];
+      shape = 'parallelogram';
+      desc = `A parallelogram has sides of length $${linTex(S1)}$ and $${linTex(S2)}$, in units.`;
+    }
+    if (sides.some((sd) => linAt(sd.l, x) <= 0)) continue;
+    // a real triangle (two legs longer than the base), and two different side lengths for the other shapes
+    if (kind === 'isosceles' && 2 * linAt(sides[0].l, x) <= linAt(sides[1].l, x)) continue;
+    if (sides.length === 2 && linAt(sides[0].l, x) === linAt(sides[1].l, x)) continue;
+    const P = sides.reduce((sum, sd) => sum + sd.k * linAt(sd.l, x), 0);
+    const A1 = sides.reduce((sum, sd) => sum + sd.k * sd.l.a, 0);
+    const C1 = sides.reduce((sum, sd) => sum + sd.k * sd.l.c, 0);
+    const askOpts = kind === 'rectangle' ? (['x', 'area', 'length'] as const) : kind === 'rhombus' ? (['x', 'side'] as const) : kind === 'isosceles' ? (['x', 'base'] as const) : (['x'] as const);
+    const ask = rng.pick(askOpts as readonly string[]);
+    const L0 = linAt(sides[0].l, x);
+    const W0 = sides.length > 1 ? linAt(sides[1].l, x) : L0;
+    const key = ask === 'x' ? x : ask === 'area' ? L0 * W0 : ask === 'base' ? W0 : L0;
+    const question = ask === 'x' ? 'Find $x$.' : ask === 'area' ? 'Find the area of the rectangle.' : ask === 'length' ? 'Find the length of the rectangle.' : ask === 'side' ? 'Find the length of one side.' : 'Find the length of the base.';
+    const perimTerms = sides.map((sd) => (sd.k === 1 ? `(${linTex(sd.l)})` : `${sd.k}(${linTex(sd.l)})`)).join(' + ');
+    const combined = `${A1}x${C1 === 0 ? '' : ` ${C1 < 0 ? '-' : '+'} ${Math.abs(C1)}`}`;
+    const noDouble = sides.some((sd) => sd.k === 2) ? Q(P - sides.reduce((sum, sd) => sum + sd.l.c, 0), sides.reduce((sum, sd) => sum + sd.l.a, 0)) : null;
+    return makeProblem({
+      skillId: 'S8.04',
+      tags: ['multi-step'],
+      prompt: [p(`${desc} Its perimeter is $${P}$ units. ${question}`)],
+      answer: { kind: 'number', value: String(key), ...(ask === 'x' ? {} : { unit: ask === 'area' ? 'square units' : 'units' }) },
+      inputHint: 'Type a number.',
+      hints: [`The perimeter is the sum of all ${shape === 'triangle' ? 'three' : 'four'} sides.`, `Write an equation: $${perimTerms} = ${P}$.`, 'Combine like terms, then solve for $x$.', ask === 'x' ? 'Check that every side length is positive.' : 'Substitute $x$ back into the expression you need.'],
+      solution: [
+        { text: 'Write the perimeter equation.', tex: `${perimTerms} = ${P}`, why: shape === 'rhombus' ? 'All four sides of a rhombus are equal.' : shape === 'triangle' ? 'An isosceles triangle has two equal sides plus the base.' : 'Opposite sides of a parallelogram (a rectangle is one) are equal, so each length appears twice.' },
+        { text: 'Combine like terms and solve.', tex: `${C1 === 0 ? '' : `${combined} = ${P} \\Rightarrow `}${A1}x = ${P - C1} \\Rightarrow x = ${x}`, why: 'Undo the addition first, then the multiplication.' },
+        ...(ask === 'x'
+          ? [{ text: 'Check the side lengths.', tex: sides.map((sd) => `${linTex(sd.l)} = ${linAt(sd.l, x)}`).join(',\\quad '), why: 'Every side is positive, so $x$ makes sense.' }]
+          : ask === 'area'
+            ? [{ text: 'Find the length and width, then multiply.', tex: `${L0} \\cdot ${W0} = ${key}`, why: 'Area of a rectangle = length × width.' }]
+            : [{ text: `Substitute $x = ${x}$.`, tex: `${linTex(ask === 'base' ? sides[1].l : sides[0].l)} = ${key}`, why: 'The question asks for a length, not for $x$.' }]),
+      ],
+      misconceptions: numberMisconceptions(Q(key), [
+        { value: ask === 'x' ? noDouble : null, tag: 'formula-error', feedback: 'Each side length appears more than once in the perimeter. Count every side.' },
+        { value: ask === 'x' ? null : Q(x), tag: 'other', feedback: 'That is the value of $x$. Substitute it to find what the question asks for.' },
+        { value: ask === 'area' ? Q(P) : null, tag: 'formula-error', feedback: 'That is the perimeter. Area is length × width.' },
+      ]),
+    });
+  }
+  throw new Error('algebraSides');
+}
+
+
+/** verify(): read the side expressions, solve the perimeter (or area) equation by evaluating them at x = 0 and 1. */
+function verifyAlgebraSides(pr: Problem, text: string): string[] {
+  if (pr.answer.kind !== 'number') return ['kind'];
+  const desc = text.slice(0, text.indexOf(' Its '));
+  const exprs = [...desc.matchAll(/\$([^$]*x[^$]*)\$/g)].map((m) => m[1]).filter((e) => /^[\dx +-]+$/.test(e));
+  const fns = exprs.map((e) => {
+    const node = parseExpression(texToExpr(e));
+    const c = evalNumeric(node, { x: 0 });
+    return { a: evalNumeric(node, { x: 1 }) - c, c };
+  });
+  const total = Number(/Its (?:perimeter|area) is \$(\d+)\$/.exec(text)![1]);
+  let mult: number[];
+  if (/^A triangle has a base/.test(text)) {
+    const h = Number(/height of \$(\d+)\$/.exec(text)![1]);
+    mult = [h / 2];
+  } else if (/rectangle|parallelogram/.test(text)) mult = [2, 2];
+  else if (/rhombus/.test(text)) mult = [4];
+  else if (/isosceles/.test(text)) mult = [2, 1];
+  else return ['unknown shape'];
+  if (fns.length !== mult.length) return ['cannot read side expressions'];
+  const A = fns.reduce((s, f, i) => s + mult[i] * f.a, 0);
+  const C = fns.reduce((s, f, i) => s + mult[i] * f.c, 0);
+  const x = (total - C) / A;
+  const len = fns.map((f) => f.a * x + f.c);
+  if (len.some((l) => l <= 0)) return ['a side is not positive'];
+  const got = Rational.parse(pr.answer.value).toNumber();
+  let want: number;
+  if (/Find \$x\$/.test(text)) want = x;
+  else if (/Find the area/.test(text)) want = len[0] * len[1];
+  else if (/length of the base/.test(text)) want = len[1];
+  else want = len[0];
+  return Math.abs(got - want) < 1e-9 ? [] : ['algebra side answer wrong'];
+}
+
 export const genPerimArea: GeneratorDef = {
   id: 'u8.perim-area',
   skillId: 'S8.04',
@@ -611,6 +807,7 @@ export const genPerimArea: GeneratorDef = {
       });
     }
     if (difficulty === 2) {
+      if (rng.int(0, 3) === 0) return quadArea(rng);
       if (rng.bool()) {
         // triangle with a horizontal or vertical base
         const horiz = rng.bool();
@@ -697,6 +894,7 @@ export const genPerimArea: GeneratorDef = {
           : numberMisconceptions(Rational.parse(v.toFixed(1)), [{ value: Q(2 * (a + b)), tag: 'formula-error', feedback: 'The slanted side is not the sum of the legs. Use the distance formula.' }]),
       });
     }
+    if (rng.int(0, 2) === 0) return algebraSides(rng);
     if (rng.int(0, 2) > 0) {
       // tilted rectangle with sides 2(a, b) and k(-b, a), k = 1 or 3 (k = 2 would be a square), or the right triangle on two of its sides
       const a = rng.int(1, 3);
@@ -771,9 +969,14 @@ export const genPerimArea: GeneratorDef = {
     const ps = readPts(pr);
     const order = ['A', 'B', 'C', 'D'].filter((k) => ps.has(k)).map((k) => ps.get(k)!);
     const text = textAll(pr);
+    if (/Its (perimeter|area) is \$\d+\$/.test(text)) return verifyAlgebraSides(pr, text);
     if (/area/.test(text)) {
       if (pr.answer.kind !== 'number') return ['kind'];
-      if (order.length === 4 && vClassify(order) !== 'Rectangle' && vClassify(order) !== 'Square') return ['not a rectangle'];
+      const named = /area of (parallelogram|rhombus|square) \$ABCD\$/.exec(text);
+      if (named) {
+        const want = named[1][0].toUpperCase() + named[1].slice(1);
+        if (vClassify(order) !== want) return [`not a ${named[1]}`];
+      } else if (order.length === 4 && vClassify(order) !== 'Rectangle' && vClassify(order) !== 'Square') return ['not a rectangle'];
       return Math.abs(Number(Rational.parse(pr.answer.value).toNumber()) - Math.abs(shoelace2(order)) / 2) < 1e-9 ? [] : ['area wrong'];
     }
     const per = order.reduce((s, a, i) => s + Math.sqrt(d2(a, order[(i + 1) % order.length])), 0);

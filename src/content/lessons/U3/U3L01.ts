@@ -106,6 +106,7 @@ export const U3L01: LessonContent = {
         ['product', '$\\sqrt{2} \\cdot \\sqrt{8} = \\sqrt{16} = 4$', '$\\sqrt{2} \\cdot \\sqrt{3} = \\sqrt{6}$'],
       ],
     },
+    { t: 'p', text: '**Show it, do not just say it.** To explain whether a result is rational, find its exact value. A square with side $\\sqrt{8}$ cm has perimeter $4\\sqrt{8} = 4 \\cdot 2\\sqrt{2} = 8\\sqrt{2}$ cm, which is irrational (a nonzero rational times an irrational), but its area is $\\sqrt{8} \\cdot \\sqrt{8} = 8$ square cm, which is rational. Reasons like "a calculator shows no pattern" or "it has a root sign" are not valid: a calculator rounds, and $\\sqrt{9} = 3$ has a root sign but is rational.' },
     { t: 'callout', variant: 'realworld', title: 'Where irrational numbers show up', text: 'A square tile with an area of $2$ square feet has a side length of exactly $\\sqrt{2}$ feet, an irrational length. A circle with diameter $10$ cm has a circumference of exactly $10\\pi$ cm, also irrational. Builders and engineers use rounded values like $1.414$ or $31.4$, which are close enough to measure with but are not exact.' },
   ],
   examples: [

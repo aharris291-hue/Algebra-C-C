@@ -137,6 +137,18 @@ export const U6L03: LessonContent = {
     { t: 'p', text: 'A sample has $100$ bacteria and doubles every hour, so $B(t) = 100(2)^t$. The scientist watches for $5$ hours. Time only runs from $t = 0$ to $t = 5$, so the **reasonable domain** is $0 \\le t \\le 5$, or $[0, 5]$.' },
     { t: 'p', text: 'Because $B$ is increasing, its smallest output is at the start and its largest at the end: $B(0) = 100$ and $B(5) = 100(32) = 3200$. The **reasonable range** is $100 \\le B \\le 3200$, or $[100, 3200]$. Brackets this time, because both endpoints really happen.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Any real model has a limited window: a savings account from the day it opens until you take the money out, or medicine from the dose until the next one. Stating the reasonable domain and range tells a reader which part of the curve to trust.' },
+
+    { t: 'p', text: '### Reading the range from a graph' },
+    { t: 'p', text: 'On a graph, find the dashed asymptote and ask which side of it the curve is on. If the asymptote is $y = -2$ and the curve is above it and rises without bound, the range is $(-2, \\infty)$: every output above $-2$ happens, but $-2$ itself never does.' },
+    { t: 'p', text: '### Counting inputs: discrete domains' },
+    { t: 'p', text: 'Sometimes the input **counts** something, so only whole numbers make sense. That kind of domain is called **discrete**: a list of separate values, not an interval.' },
+    { t: 'list', items: [
+      '**Bounces:** if $h(n) = 6(0.75)^n$ is the height of the $n$th bounce, the domain is the positive integers $1, 2, 3, \\dots$ There is no bounce $2.5$.',
+      '**Rounds of a tournament:** $T(r) = 32\\left(\\frac{1}{2}\\right)^r$ teams are left after $r$ rounds, and the tournament stops when $1$ team is left, at $r = 5$. The domain is the integers $0, 1, 2, 3, 4, 5$.',
+      '**Items in an order:** if building the $n$th engine of a $20$-engine order takes $h(n) = 50(0.9)^n$ person-hours, the domain is the integers $1, 2, \\dots, 20$.',
+      '**Time:** time flows continuously, so a $5$-hour experiment has the interval $[0, 5]$ as its domain, including times like $2.5$ hours.',
+    ] },
+    { t: 'callout', variant: 'tip', title: 'Ask what the input stands for', text: 'Count it (bounces, rounds, people, engines)? Use whole numbers, and check where the count starts and stops. Measure it (time, distance)? Use an interval.' },
   ],
   examples: [
     {

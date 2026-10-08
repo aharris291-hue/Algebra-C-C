@@ -147,11 +147,115 @@ const pickCtx = (rng: Rng, sign?: 1 | -1) => rng.pick(SC.filter((c) => sign === 
 
 const assocLabel = (band: Band, m: number) => (band === 'none' ? 'No association' : m > 0 ? 'Positive association' : 'Negative association');
 
+
+// ---------- representing data on a scatter plot (A.DSR.10.3) ----------
+/** A small table of whole-number data near the context's line. */
+function smallData(rng: Rng, c: SCtx, n: number, noise: number): Pt[] | null {
+  const pool = Array.from({ length: c.xHi - c.xLo + 1 }, (_, i) => c.xLo + i);
+  const xs = rng.shuffle(pool).slice(0, n).sort((u, v) => u - v);
+  const scale = 10 ** c.dec;
+  const amp = Math.abs(c.m) * (c.xHi - c.xLo) * noise;
+  const pts = xs.map((x) => ({ x, y: Math.round((c.m * x + c.b + (rng.next() * 2 - 1) * amp) * scale) / scale }));
+  return pts.some((q) => q.y < c.yLo || q.y > c.yHi) ? null : pts;
+}
+const ptKey = (pts: Pt[]) => pts.map((q) => `${q.x},${q.y}`).sort().join(';');
+
+function whichPlot(rng: Rng, difficulty: number) {
+  for (let t = 0; t < 300; t++) {
+    const c = rng.pick(SC.filter((x) => x.dec === 0));
+    const n = difficulty === 1 ? 5 : 7;
+    const pts = smallData(rng, c, n, 0.12);
+    if (!pts) continue;
+    const step0 = scatterGraph(c, pts).yStep!;
+    const move = (i: number, k: number): Pt[] => pts.map((q, j) => (j === i ? { x: q.x, y: q.y + k * step0 } : q));
+    const i1 = rng.int(0, n - 1);
+    let i2 = rng.int(0, n - 1);
+    if (i2 === i1) i2 = (i1 + 1 + rng.int(0, n - 2)) % n;
+    const s1 = rng.bool() ? 1 : -1;
+    // swapping the y-values of two points that are far apart in height
+    const pairs: Array<[number, number]> = [];
+    for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (Math.abs(pts[a].y - pts[b].y) >= 2 * step0) pairs.push([a, b]);
+    if (!pairs.length) continue;
+    const [sa, sb] = rng.pick(pairs);
+    const swapped = pts.map((q, j) => (j === sa ? { x: q.x, y: pts[sb].y } : j === sb ? { x: q.x, y: pts[sa].y } : q));
+    const cands = [pts, move(i1, 2 * s1), swapped, move(i2, -2 * s1)];
+    if (cands.some((cd) => cd.some((q) => q.y < 0))) continue;
+    if (new Set(cands.map(ptKey)).size !== 4) continue;
+    const all = cands.flat();
+    const win = scatterGraph(c, all);
+    if (win.yStep! < step0) continue;
+    const order = rng.shuffle([0, 1, 2, 3]);
+    const L = ['A', 'B', 'C', 'D'];
+    const graphs: Block[] = order.map((ci, i) => ({ t: 'graph', spec: { ...win, scatter: cands[ci], ariaLabel: `Graph ${L[i]}: scatter plot with points ${cands[ci].map((q) => `(${q.x}, ${q.y})`).join(', ')}.` }, caption: `Graph ${L[i]}` }));
+    const correct = L[order.indexOf(0)];
+    return makeProblem({
+      skillId: 'S7.06',
+      tags: ['graph', 'real-world'],
+      prompt: [p(`The table shows ${c.yName} and ${c.xName} for ${n} cases. Which scatter plot shows these data?`), { t: 'table', headers: [c.xLabel, c.yLabel], rows: pts.map((q) => [String(q.x), String(q.y)]) }, ...graphs],
+      answer: { kind: 'choice', options: L.map((l) => ({ id: l.toLowerCase(), label: `Graph ${l}` })), correct: correct.toLowerCase() },
+      hints: ['Each row of the table is one point: (x-value, y-value).', 'The first column goes on the horizontal axis and the second on the vertical axis.', 'Check every point, not just the first one: the wrong plots each have one or two points in the wrong place.', 'Use the grid to estimate each point, then compare with the table.'],
+      solution: [
+        { text: 'Each row of the table becomes one point.', tex: pts.map((q) => `(${q.x}, ${q.y})`).join(',\\ '), why: `$x$ is ${c.xName} (across) and $y$ is ${c.yName} (up).` },
+        { text: `Check each plot point by point. Graph ${correct} has every point in the right place.`, why: 'In the other graphs, one point is too high or too low, or two y-values have been switched.' },
+      ],
+      misconceptions: [],
+    });
+  }
+  throw new Error('whichPlot');
+}
+
+// ---------- line of best fit with technology (A.DSR.10.5) ----------
+/** Distance of v·10^p from the nearest rounding boundary (half-integer), to avoid borderline rounding. */
+const roundMargin = (v: number, places: number) => {
+  const t = v * 10 ** places;
+  return Math.abs(t - Math.floor(t) - 0.5);
+};
+function techFit(rng: Rng, difficulty: number) {
+  for (let t = 0; t < 400; t++) {
+    const c = pickCtx(rng);
+    const n = rng.int(6, 8);
+    const pts = smallData(rng, c, n, 0.1);
+    if (!pts) continue;
+    const reg = linearRegression(rats(pts.map((q) => String(q.x))), rats(pts.map((q) => String(q.y))));
+    if (Math.abs(reg.r) < 0.85 || Math.abs(reg.r) > 0.999) continue;
+    const ask = difficulty === 2 ? 'slope' : rng.pick(['intercept', 'r'] as const);
+    const val = ask === 'slope' ? reg.a.toNumber() : ask === 'intercept' ? reg.b.toNumber() : reg.r;
+    if (roundMargin(val, 2) < 0.05) continue;
+    const exact = ask === 'slope' ? reg.a : ask === 'intercept' ? reg.b : null;
+    const value = exact ? numStr(exact) : reg.r.toFixed(12);
+    const shown = val.toFixed(2);
+    const what = ask === 'slope' ? 'the slope $a$' : ask === 'intercept' ? 'the $y$-intercept $b$' : 'the correlation coefficient $r$';
+    const twoPt = (pts[n - 1].y - pts[0].y) / (pts[n - 1].x - pts[0].x);
+    return makeProblem({
+      skillId: 'S7.08',
+      tags: ['real-world'],
+      prompt: [
+        p(`The table shows ${c.yName} ($y$) and ${c.xName} ($x$). Use the graphing tool (or Desmos or a graphing calculator) to find the line of best fit $\\hat{y} = ax + b$. What is ${what}, rounded to the nearest hundredth?`),
+        { t: 'table', headers: [c.xLabel, c.yLabel], rows: pts.map((q) => [String(q.x), String(q.y)]) },
+      ],
+      answer: { kind: 'number', value, roundTo: 2 },
+      inputHint: 'Type a number rounded to the nearest hundredth.',
+      hints: ['Enter the first column as the x-values and the second column as the y-values.', 'Run a linear regression: in Desmos type y1 ~ m x1 + b under the table; on a calculator use STAT, CALC, LinReg(ax+b).', ask === 'r' ? 'Read r from the output (on a calculator, turn on Diagnostics if r is not shown).' : `Read ${ask === 'slope' ? 'the slope (a or m)' : 'the intercept (b)'} from the output.`, 'Round to two decimal places only at the end.'],
+      solution: [
+        { text: 'Enter the data and run a linear regression.', tex: `\\hat{y} \\approx ${reg.a.toNumber().toFixed(4)}x ${reg.b.isNegative() ? '-' : '+'} ${Math.abs(reg.b.toNumber()).toFixed(4)},\\quad r \\approx ${reg.r.toFixed(4)}`, why: 'Technology finds the least-squares line: the line that makes the sum of the squared vertical distances from the points as small as possible.' },
+        { text: `Round ${what} to the nearest hundredth.`, tex: `${ask === 'slope' ? 'a' : ask === 'intercept' ? 'b' : 'r'} \\approx ${shown}` },
+      ],
+      misconceptions: numberMisconceptions(Rational.parse(shown), [
+        { value: ask === 'slope' ? Rational.parse(twoPt.toFixed(2)) : null, tag: 'statistics-concept', feedback: 'That is the slope through the first and last points only. The line of best fit uses every point: run a linear regression.' },
+        { value: ask === 'slope' ? Rational.parse(reg.b.toNumber().toFixed(2)) : ask === 'intercept' ? Rational.parse(reg.a.toNumber().toFixed(2)) : null, tag: 'statistics-concept', feedback: ask === 'slope' ? 'That is the intercept b. The slope is the number multiplied by x.' : 'That is the slope a. The intercept is the constant term b.' },
+        { value: ask === 'r' ? Rational.parse((reg.r * reg.r).toFixed(2)) : null, tag: 'statistics-concept', feedback: 'That is $r^2$. Take the value labeled r.' },
+      ]),
+    });
+  }
+  throw new Error('techFit');
+}
+
 export const genScatter: GeneratorDef = {
   id: 'u7.scatter',
   skillId: 'S7.06',
   description: 'Describe the direction, strength and form of the association in a scatter plot and match scatter plots to correlation coefficients.',
   generate(rng, difficulty) {
+    if ((difficulty === 1 && rng.int(0, 2) === 0) || (difficulty === 2 && rng.int(0, 3) === 0)) return whichPlot(rng, difficulty);
     if (difficulty === 1) {
       const kind = rng.pick(['pos', 'neg', 'none'] as const);
       const c = kind === 'none' ? rng.pick(NONE) : pickCtx(rng, kind === 'pos' ? 1 : -1);
@@ -240,6 +344,15 @@ export const genScatter: GeneratorDef = {
     });
   },
   verify(pr) {
+    const graphs = pr.prompt.filter((b): b is Extract<Block, { t: 'graph' }> => b.t === 'graph');
+    if (graphs.length === 4) {
+      const table = pr.prompt.find((b) => b.t === 'table');
+      if (!table || table.t !== 'table' || pr.answer.kind !== 'choice') return ['cannot read'];
+      const want = table.rows.map((r) => `${Number(r[0])},${Number(r[1])}`).sort().join(';');
+      const hits = graphs.filter((g) => (g.spec.scatter ?? []).map((q) => `${q.x},${q.y}`).sort().join(';') === want);
+      for (const g of graphs) for (const q of g.spec.scatter ?? []) if (q.x < g.spec.xMin || q.x > g.spec.xMax || q.y < g.spec.yMin || q.y > g.spec.yMax) return ['point outside the window'];
+      return hits.length === 1 && hits[0].caption === choiceLabel(pr.answer) ? [] : ['plot match wrong'];
+    }
     const pts = scatterOf(pr);
     if (!pts) return ['no scatter'];
     const r = vR(pts);
@@ -438,6 +551,7 @@ export const genRegression: GeneratorDef = {
   skillId: 'S7.08',
   description: 'Use technology output for a line of best fit to make predictions, interpret r, and judge whether predictions are reasonable.',
   generate(rng, difficulty) {
+    if (difficulty >= 2 && rng.int(0, 2) === 0) return techFit(rng, difficulty);
     const c = pickCtx(rng);
     if (difficulty === 2 && rng.bool()) {
       // strongest r among four
@@ -531,6 +645,17 @@ export const genRegression: GeneratorDef = {
       if (pr.answer.kind !== 'choice') return ['kind'];
       const vals = pr.answer.options.map((o) => Math.abs(Number(o.label.replace('r = ', ''))));
       return Math.abs(Number(label.replace('r = ', ''))) === Math.max(...vals) && vals.filter((v) => v === Math.max(...vals)).length === 1 ? [] : ['strongest wrong'];
+    }
+    if (/Use the graphing tool/.test(text)) {
+      const table = pr.prompt.find((b) => b.t === 'table');
+      if (!table || table.t !== 'table' || pr.answer.kind !== 'number' || pr.answer.roundTo !== 2) return ['cannot read'];
+      const tp = table.rows.map((r) => ({ x: Number(r[0]), y: Number(r[1]) }));
+      const ln = vLine(tp);
+      const v = Rational.parse(pr.answer.value);
+      if (/the slope \$a\$/.test(text)) return v.eq(ln.a) ? [] : ['slope wrong'];
+      if (/the \$y\$-intercept \$b\$/.test(text)) return v.eq(ln.b) ? [] : ['intercept wrong'];
+      if (/correlation coefficient \$r\$/.test(text)) return Math.abs(v.toNumber() - vR(tp)) < 1e-9 ? [] : ['r wrong'];
+      return ['unknown request'];
     }
     const pts = scatterOf(pr);
     const out = readOut(pr);

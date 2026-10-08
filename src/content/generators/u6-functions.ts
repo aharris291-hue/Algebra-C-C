@@ -8,6 +8,8 @@ import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { parseInterval, intervalsEqual, parseRelation, checkAnswer } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
+import { parseExpression } from '../../core/math/parser';
+import { evalNumeric } from '../../core/math/evaluate';
 import { mathBlocks, graphOf } from './u4-common';
 import { dTex, commas, texExact } from './u5-common';
 import { type ExpFn, expFn, valueAt, rhsTex, rhsPlain, readFn, increasing, windowFor, ptLabel, parseLabel, textAll } from './u6-common';
@@ -218,6 +220,91 @@ function graphBlock(f: ExpFn, name: string): Block {
   return { t: 'graph', spec, caption: `The graph of $${name}$. The dashed line is the horizontal asymptote.` };
 }
 
+
+/** x-intercept of a(b)^x + k, built so that b^x = -k/a is a whole power of b (A.FGR.9.2). */
+function xIntercept(rng: Rng) {
+  const b = Q(rng.pick(['2', '3', '1/2', '1/3', '4', '2']));
+  const a = Q(rng.pick([1, 2, 3, -1, -2]));
+  const big = b.eq(2) || b.eq(Q(1, 2));
+  const n = (b.gt(1) ? 1 : -1) * rng.int(1, big ? 4 : 2);
+  const k = a.mul(b.pow(n)).neg();
+  const f: ExpFn = { a, b, k };
+  const target = k.neg().div(a);
+  const fx = `f(x) = ${rhsTex(f)}`;
+  const powT = `\\left(${dTex(b)}\\right)^{x}`;
+  return makeProblem({
+    skillId: 'S6.02',
+    tags: ['multi-step'],
+    prompt: [p('What is the $x$-intercept of the graph of $f$? Give the $x$-value.'), { t: 'math', tex: fx }],
+    answer: numSpec(Q(n)),
+    inputHint: 'Type a number.',
+    hints: ['At an $x$-intercept the output is 0, so set $f(x) = 0$.', 'Move the constant to the other side.', a.eq(1) ? 'Now the power is alone.' : `Divide both sides by $${dTex(a)}$ so the power is alone.`, `Write the other side as a power of $${dTex(b)}$ and match exponents.`],
+    solution: [
+      { text: 'Set the function equal to 0.', tex: `${rhsTex(f)} = 0`, why: 'The graph crosses the $x$-axis where the output is 0.' },
+      { text: 'Isolate the power.', tex: `${powT} = ${dTex(target)}`, why: a.eq(1) ? 'Move the constant to the other side.' : `Move the constant, then divide by $${dTex(a)}$.` },
+      { text: `Write $${dTex(target)}$ as a power of $${dTex(b)}$.`, tex: `${powT} = \\left(${dTex(b)}\\right)^{${n}} \\Rightarrow x = ${n}`, why: 'Equal powers of the same base have equal exponents.' },
+    ],
+    misconceptions: numberMisconceptions(Q(n), [
+      { value: target, tag: 'exponent-rule', feedback: 'That is the value of the power. Find the exponent that gives it.' },
+      { value: a.add(k), tag: 'graph-reading', feedback: 'That is the $y$-intercept. The $x$-intercept is where the output is 0.' },
+      { value: Q(-n), tag: 'sign-error', feedback: 'Check by substituting your answer: the output should be 0.' },
+      { value: k.neg(), tag: 'inverse-operation', feedback: 'After moving the constant, divide by the number in front, then find the exponent.' },
+    ]),
+  });
+}
+
+/** "Which graph is f(x) = ...?" with four labeled candidate graphs (A.FGR.9.2). */
+function matchGraph(rng: Rng, f: ExpFn) {
+  const cands: Array<{ fn: ExpFn; why: string }> = [
+    { fn: f, why: '' },
+    { fn: { a: f.a.neg(), b: f.b, k: f.k }, why: 'the sign of $a$ is flipped (reflected)' },
+    { fn: { a: f.a, b: f.b.inv(), k: f.k }, why: 'the base is $\\frac{1}{b}$ (it grows the other way)' },
+    { fn: { a: f.a, b: f.b, k: f.k.neg() }, why: 'the asymptote is on the other side of the $x$-axis' },
+  ];
+  const order = rng.shuffle([0, 1, 2, 3]);
+  const all = cands.map((c) => c.fn);
+  const xs = [-2, -1, 0, 1, 2];
+  const win = windowFor(all, xs);
+  const letters = ['A', 'B', 'C', 'D'];
+  const graphs: Block[] = order.map((ci, i) => {
+    const g = cands[ci].fn;
+    const pts = [0, 1].map((x) => ({ x, y: valueAt(g, x).toNumber(), label: ptLabel(x, valueAt(g, x)) }));
+    return { t: 'graph', spec: { ...win, functions: [{ expr: rhsPlain(g) }, { expr: numStr(g.k), dashed: true, color: '#888888' }], points: pts, ariaLabel: `Graph ${letters[i]}: an exponential curve through ${pts.map((q) => q.label).join(' and ')}, with a dashed asymptote at y = ${numStr(g.k)}.` }, caption: `Graph ${letters[i]}` } as Block;
+  });
+  const correct = letters[order.indexOf(0)];
+  const inc = increasing(f);
+  return makeProblem({
+    skillId: 'S6.02',
+    tags: ['graph'],
+    prompt: [p('Which graph shows this function?'), { t: 'math', tex: `f(x) = ${rhsTex(f)}` }, ...graphs],
+    answer: { kind: 'choice' as const, options: letters.map((l) => ({ id: l.toLowerCase(), label: `Graph ${l}` })), correct: correct.toLowerCase() },
+    hints: ['Find the horizontal asymptote first: it is the number added at the end.', 'Find the $y$-intercept: substitute $x = 0$.', 'Decide whether the function increases or decreases from the base and the sign of $a$.', 'Find the one graph that has all three features.'],
+    solution: [
+      { text: 'Asymptote.', tex: `y = ${numStr(f.k)}`, why: 'The power part approaches 0, so the outputs approach the constant.' },
+      { text: '$y$-intercept.', tex: `f(0) = ${dTex(f.a)} + ${f.k.isNegative() ? `(${dTex(f.k)})` : dTex(f.k)} = ${dTex(f.a.add(f.k))}`, why: 'Any nonzero base to the power 0 is 1.' },
+      { text: `Direction: $f$ is ${inc ? 'increasing' : 'decreasing'}.`, why: `$b = ${dTex(f.b)}$ is ${f.b.gt(1) ? 'greater than 1' : 'between 0 and 1'} and $a = ${dTex(f.a)}$ is ${f.a.sign() > 0 ? 'positive' : 'negative'}.` },
+      { text: `Graph ${correct} is the only graph with all three features.`, why: `In the others, ${order.filter((ci) => ci !== 0).map((ci) => cands[ci].why).join('; ')}.` },
+    ],
+    misconceptions: [],
+  });
+}
+
+/** Read an exponential a(b)^x + k back from its graph: dashed asymptote and labeled points (verify route). */
+function fnFromGraph(g: GraphSpec): ExpFn | string {
+  const pts = (g.points ?? []).map((q) => parseLabel(q.label!)!);
+  const dashed = g.functions?.find((fn) => fn.dashed);
+  if (!dashed) return 'no asymptote drawn';
+  const k = Q(dashed.expr);
+  const y = (x: number) => pts.find((q) => q.x.eq(x))?.y;
+  const y0 = y(0);
+  const y1 = y(1);
+  if (!y0 || !y1) return 'missing labeled points';
+  const a = y0.sub(k);
+  const b = y1.sub(k).div(a);
+  for (const q of g.points ?? []) if (Math.abs(q.y - a.mul(b.pow(q.x)).add(k).toNumber()) > 1e-9) return 'graph point off the curve';
+  return { a, b, k };
+}
+
 export const genExpFeatures: GeneratorDef = {
   id: 'u6.exp-features',
   skillId: 'S6.02',
@@ -226,7 +313,9 @@ export const genExpFeatures: GeneratorDef = {
     const f = randomFn(rng, difficulty >= 2);
     const yInt = f.a.add(f.k);
     const fx = `f(x) = ${rhsTex(f)}`;
-    const ask = difficulty === 3 ? rng.pick(['asym', 'yint', 'end'] as const) : difficulty === 2 ? rng.pick(['asym', 'yint', 'inc'] as const) : rng.pick(['asym', 'yint'] as const);
+    const ask = difficulty === 3 ? rng.pick(['asym', 'yint', 'end', 'match'] as const) : difficulty === 2 ? rng.pick(['asym', 'yint', 'inc', 'xint'] as const) : rng.pick(['asym', 'yint'] as const);
+    if (ask === 'xint') return xIntercept(rng);
+    if (ask === 'match') return matchGraph(rng, f);
     const intro: Block[] = difficulty === 3 ? [p('The graph of an exponential function $f$ is shown. Points on the graph are labeled.'), graphBlock(f, 'f')] : [{ t: 'math', tex: fx }];
     if (ask === 'yint') {
       return makeProblem({
@@ -307,6 +396,28 @@ export const genExpFeatures: GeneratorDef = {
     });
   },
   verify(pr) {
+    const graphs = pr.prompt.filter((b): b is Extract<Block, { t: 'graph' }> => b.t === 'graph');
+    if (graphs.length === 4) {
+      // which graph: evaluate each drawn curve against the printed equation
+      const f0 = readFn(mathBlocks(pr)[0]);
+      if (!f0 || pr.answer.kind !== 'choice') return ['cannot read'];
+      const matches: string[] = [];
+      for (const gb of graphs) {
+        const fg = fnFromGraph(gb.spec);
+        if (typeof fg === 'string') return [fg];
+        const node = parseExpression(gb.spec.functions!.find((q) => !q.dashed)!.expr);
+        if ([-2, -1, 0, 1, 2].some((x) => Math.abs(evalNumeric(node, { x }) - valueAt(fg, x).toNumber()) > 1e-9)) return ['labels do not match the drawn curve'];
+        if ([-2, -1, 0, 1, 2, 3].every((x) => Math.abs(evalNumeric(node, { x }) - valueAt(f0, x).toNumber()) < 1e-9)) matches.push(gb.caption ?? '');
+      }
+      return matches.length === 1 && matches[0] === choiceLabel(pr.answer) ? [] : ['graph match wrong'];
+    }
+    if (/\$x\$-intercept/.test(textAll(pr))) {
+      const f0 = readFn(mathBlocks(pr)[0]);
+      if (!f0 || pr.answer.kind !== 'number') return ['cannot read'];
+      const zeros: number[] = [];
+      for (let x = -12; x <= 12; x++) if (valueAt(f0, x).isZero()) zeros.push(x);
+      return zeros.length === 1 && Q(pr.answer.value).eq(zeros[0]) ? [] : ['x-intercept wrong'];
+    }
     const g = graphOf(pr);
     let f: ExpFn | null;
     if (g) {
@@ -346,6 +457,57 @@ export const genExpFeatures: GeneratorDef = {
 
 const rangeOf = (f: ExpFn) => (f.a.sign() > 0 ? `(${numStr(f.k)}, inf)` : `(-inf, ${numStr(f.k)})`);
 
+
+/** Reasonable domains in context, including discrete ones (A.FGR.9.1). */
+function discreteDomain(rng: Rng) {
+  const kind = rng.pick(['tournament', 'bounce', 'engines', 'continuous'] as const);
+  let story: string;
+  let correct: string;
+  let wrongs: string[];
+  let why: string;
+  if (kind === 'tournament') {
+    const R = rng.int(4, 7);
+    const T0 = 2 ** R;
+    story = `A single-elimination tournament starts with ${T0} teams. Half of the teams are knocked out in each round, so after $r$ rounds $T(r) = ${T0}\\left(\\frac{1}{2}\\right)^{r}$ teams are left. The tournament ends when one team is left.`;
+    correct = `The integers $0, 1, 2, \\dots, ${R}$`;
+    wrongs = [`All real numbers $r$ with $0 \\le r \\le ${R}$`, 'The whole numbers $0, 1, 2, 3, \\dots$', 'All real numbers'];
+    why = `Rounds are counted in whole numbers, from $r = 0$ (before any games) to $r = ${R}$, when $T(${R}) = 1$ team is left. There is no round 2.5.`;
+  } else if (kind === 'bounce') {
+    const H = rng.pick([5, 6, 8, 10]);
+    const b = rng.pick(['0.8', '0.75', '0.6']);
+    story = `A ball is dropped, and the height it reaches on its $n$th bounce is $h(n) = ${H}(${b})^{n}$ feet.`;
+    correct = 'The positive integers $1, 2, 3, \\dots$';
+    wrongs = ['All real numbers $n \\ge 0$', 'All real numbers', 'All integers'];
+    why = 'The input counts bounces: 1st, 2nd, 3rd and so on. There is no bounce number 0, $-2$ or 1.5.';
+  } else if (kind === 'engines') {
+    const N = rng.pick([10, 12, 20, 25]);
+    const H = rng.pick([50, 80, 100]);
+    story = `A factory builds an order of ${N} engines. As the workers get faster, building the $n$th engine takes $h(n) = ${H}(0.9)^{n}$ person-hours.`;
+    correct = `The integers $1, 2, 3, \\dots, ${N}$`;
+    wrongs = [`All real numbers $n$ with $0 \\le n \\le ${N}$`, 'The positive integers $1, 2, 3, \\dots$', 'All real numbers $n > 0$'];
+    why = `$n$ counts engines in the order, so it is a whole number from 1 to ${N}. Half an engine is not an engine, and there is no engine number ${N + 1}.`;
+  } else {
+    const a = rng.pick([50, 100, 200]);
+    const T = rng.int(4, 12);
+    story = `A scientist watches a bacteria culture continuously. The number of bacteria $t$ hours after the start is $B(t) = ${a}(2)^{t}$, and the experiment lasts ${T} hours.`;
+    correct = `All real numbers $t$ with $0 \\le t \\le ${T}$`;
+    wrongs = [`The integers $0, 1, 2, \\dots, ${T}$`, 'The positive integers $1, 2, 3, \\dots$', 'All real numbers'];
+    why = `Time passes continuously, so any time from the start, $t = 0$, to the end, $t = ${T}$, makes sense, including times like 2.5 hours.`;
+  }
+  return makeProblem({
+    skillId: 'S6.03',
+    tags: ['real-world'],
+    prompt: [p(story), p('What is the most reasonable domain for this situation?')],
+    answer: makeChoice(rng, correct, wrongs),
+    hints: ['The domain is the set of inputs that make sense in the situation, not just in the formula.', 'Ask what the input counts or measures.', 'Things you count (rounds, bounces, engines) take whole-number values; time can take any value in between.', 'Check where the inputs start and whether they stop.'],
+    solution: [
+      { text: 'Decide what the input stands for.', why },
+      { text: `So the reasonable domain is: ${correct}.`, why: 'The formula works for every real number, but the situation only uses these inputs.' },
+    ],
+    misconceptions: [],
+  });
+}
+
 export const genExpDomainRange: GeneratorDef = {
   id: 'u6.exp-domain-range',
   skillId: 'S6.03',
@@ -372,6 +534,27 @@ export const genExpDomainRange: GeneratorDef = {
       }
       const key = rangeOf(f);
       const up = f.a.sign() > 0;
+      if (difficulty === 2 && rng.int(0, 2) === 0) {
+        // read the range from a graph (A.FGR.9.2)
+        return makeProblem({
+          skillId: 'S6.03',
+          tags: ['graph'],
+          prompt: [p('The graph of an exponential function $f$ is shown. Points on the graph are labeled. What is the range of $f$?'), graphBlock(f, 'f')],
+          answer: { kind: 'interval', value: key },
+          inputHint: 'Type an interval like (3, inf) or an inequality like y > 3.',
+          hints: ['The range is the set of outputs: look up and down the graph.', 'The dashed line is the horizontal asymptote. The graph gets close to it but never touches it.', 'Is the whole curve above the dashed line or below it?', 'The other end of the curve keeps going without bound.'],
+          solution: [
+            { text: 'Read the asymptote.', tex: `y = ${numStr(f.k)}`, why: 'The curve levels off along the dashed line but never reaches it.' },
+            { text: up ? 'The whole curve is above the dashed line and rises without bound.' : 'The whole curve is below the dashed line and falls without bound.', tex: up ? `y > ${numStr(f.k)}` : `y < ${numStr(f.k)}`, why: 'Every output on that side of the asymptote is reached, but the asymptote value itself is not.' },
+            { text: 'In interval notation:', tex: up ? `(${numStr(f.k)}, \\infty)` : `(-\\infty, ${numStr(f.k)})` },
+          ],
+          misconceptions: intervalMis(key, [
+            { answer: up ? `[${numStr(f.k)}, inf)` : `(-inf, ${numStr(f.k)}]`, tag: 'interval-endpoint', feedback: 'The graph never reaches its asymptote, so that value is not included.' },
+            { answer: '(-inf, inf)', tag: 'interval-endpoint', feedback: 'That is the domain. The outputs stay on one side of the dashed line.' },
+            { answer: up ? `(-inf, ${numStr(f.k)})` : `(${numStr(f.k)}, inf)`, tag: 'inequality-direction', feedback: 'Check which side of the dashed line the curve is on.' },
+          ]),
+        });
+      }
       return makeProblem({
         skillId: 'S6.03',
         tags: [],
@@ -391,7 +574,9 @@ export const genExpDomainRange: GeneratorDef = {
         ]),
       });
     }
-    if (rng.bool()) {
+    const d3kind = rng.int(0, 2);
+    if (d3kind === 2) return discreteDomain(rng);
+    if (d3kind === 0) {
       // positive or negative interval of a(b)^x + k with a > 0, k < 0 and a nice crossing
       const bStr = rng.pick(['2', '3', '1/2', '2', '4']);
       const b = Q(bStr);
@@ -456,8 +641,38 @@ export const genExpDomainRange: GeneratorDef = {
     });
   },
   verify(pr) {
-    if (pr.answer.kind !== 'interval') return ['unexpected kind'];
     const text = textAll(pr);
+    if (/most reasonable domain/.test(text)) {
+      if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+      const label = choiceLabel(pr.answer);
+      const tour = /starts with (\d+) teams/.exec(text);
+      const eng = /order of (\d+) engines/.exec(text);
+      const lasts = /experiment lasts (\d+) hours/.exec(text);
+      let want: string;
+      if (tour) {
+        let teams = Number(tour[1]);
+        let rounds = 0;
+        while (teams > 1) {
+          teams /= 2;
+          rounds++;
+        }
+        want = `The integers $0, 1, 2, \\dots, ${rounds}$`;
+      } else if (eng) want = `The integers $1, 2, 3, \\dots, ${eng[1]}$`;
+      else if (lasts) want = `All real numbers $t$ with $0 \\le t \\le ${lasts[1]}$`;
+      else if (/\$n\$th bounce/.test(text)) want = 'The positive integers $1, 2, 3, \\dots$';
+      else return ['unknown context'];
+      return label === want && pr.answer.options.filter((o) => o.label === want).length === 1 ? [] : ['domain choice wrong'];
+    }
+    if (pr.answer.kind !== 'interval') return ['unexpected kind'];
+    const graphR = graphOf(pr);
+    if (graphR) {
+      const fg = fnFromGraph(graphR);
+      if (typeof fg === 'string') return [fg];
+      const got = parseInterval(pr.answer.value);
+      // the labeled points lie on one side of the asymptote; the curve runs off to infinity on that side
+      const side = valueAt(fg, 0).gt(fg.k) ? `(${numStr(fg.k)}, inf)` : `(-inf, ${numStr(fg.k)})`;
+      return intervalsEqual(got, parseInterval(side)) ? [] : [`expected ${side}`];
+    }
     const got = parseInterval(pr.answer.value);
     const eq = (s: string) => (intervalsEqual(got, parseInterval(s)) ? [] : [`expected ${s}`]);
     const ctx = /\$([CM])\(t\) = (.+?)\$, where/.exec(text);

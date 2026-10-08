@@ -9,7 +9,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U1L04: LessonContent = {
   lessonId: 'U1L04',
-  goal: 'Write the equation of a line from a slope and a point, from two points, or from a real situation, and rewrite it in slope-intercept, point-slope, or standard form.',
+  goal: 'Write the equation of a line from a slope and a point, from two points, or from a real situation or its graph, and rewrite it in slope-intercept, point-slope, or standard form.',
   needToKnow: [
     { t: 'p', text: 'You will use these skills over and over in this lesson:' },
     {
@@ -101,6 +101,20 @@ export const U1L04: LessonContent = {
         { text: 'Interpret.', why: 'The slope means **each mile costs \\$3**. The $y$-intercept means **there is a \\$2 flat fee** before any miles are driven.' },
       ],
       answer: '$C(d) = 3d + 2$: \\$3 per mile plus a \\$2 flat fee.',
+    },
+    {
+      title: 'From a graph of a situation to a rule',
+      kind: 'real-world',
+      problem: [
+        { t: 'p', text: 'A candle burns down at a steady rate. The graph shows its height. Write a rule for $H(t)$, the height in centimeters after $t$ hours.' },
+        { t: 'graph', spec: { xMin: 0, xMax: 16, yMin: 0, yMax: 40, xStep: 2, yStep: 5, xLabel: 'time (hours)', yLabel: 'candle height (cm)', functions: [{ expr: '-2.5x + 30', domain: [0, 12] }], points: [{ x: 0, y: 30, label: '(0, 30)' }, { x: 12, y: 0, label: '(12, 0)' }], ariaLabel: 'A line graph with time in hours across and candle height in centimeters up, falling from (0, 30) to (12, 0).' } },
+      ],
+      steps: [
+        { text: 'Read the starting value from the vertical axis.', tex: '(0, 30) \;\\Rightarrow\; b = 30', why: 'At 0 hours the candle is 30 cm tall. The point where the input is 0 gives the constant term.' },
+        { text: 'Find the rate from the two marked points.', tex: 'm = \\frac{0 - 30}{12 - 0} = -\\frac{30}{12} = -2.5', why: 'Change in output over change in input. The graph falls, so the rate is negative: the candle loses 2.5 cm each hour.' },
+        { text: 'Write the rule and check.', tex: 'H(t) = -2.5t + 30; \\quad H(12) = -30 + 30 = 0 \\checkmark', why: 'Rate times input plus starting value. The other marked point fits.' },
+      ],
+      answer: '$H(t) = -2.5t + 30$: the candle starts 30 cm tall and burns 2.5 cm per hour.',
     },
     {
       title: 'A common mistake: signs in point-slope form',
@@ -208,6 +222,7 @@ export const U1L04: LessonContent = {
       { generator: 'u1.write-two-points', difficulty: 2, weight: 2 },
       { generator: 'u1.write-two-points', difficulty: 3, weight: 1 },
       { generator: 'u1.write-context', difficulty: 2, weight: 1 },
+      { generator: 'u1.write-context', difficulty: 3, weight: 1 },
       { generator: 'u1.convert-forms', difficulty: 1, weight: 1 },
       { generator: 'u1.convert-forms', difficulty: 2, weight: 1 },
       { generator: 'u1.slope-points', difficulty: 2, weight: 1 },
@@ -226,7 +241,7 @@ export const U1L04: LessonContent = {
   summary: [
     'In $y = mx + b$, $m$ is the slope and $b$ is the $y$-intercept, the point $(0, b)$.',
     'From a slope and a point, substitute into $y = mx + b$ and solve for $b$. From two points, find the slope first, then do the same.',
-    'In context, the rate ("per," "each") is the slope and the starting amount ("fee," "initial") is the $y$-intercept.',
+    'In context, the rate ("per," "each") is the slope and the starting amount ("fee," "initial") is the $y$-intercept. On a graph of a situation, read the starting amount where the input is 0, and find the rate from two marked points.',
     'Point-slope form is $y - y_1 = m(x - x_1)$. Standard form is $Ax + By = C$ with integers and $A \\ge 0$. Convert by distributing and moving terms.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },

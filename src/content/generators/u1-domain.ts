@@ -1,7 +1,7 @@
 /**
  * Unit 1, Lesson 6 generator: domain and range of linear functions (S1.11).
  */
-import type { GeneratorDef, GraphSpec } from '../../core/curriculum/types';
+import type { GeneratorDef, GraphSpec, Problem, Rng } from '../../core/curriculum/types';
 import type { Misconception } from '../../core/math/answers';
 import { parseInterval, intervalsEqual, intervalToText, intervalToTex, type Interval } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
@@ -29,6 +29,87 @@ function ivMisconceptions(key: Interval, list: Array<{ iv: Interval; tag: Miscon
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Discrete domains and ranges, and translating to set-builder notation
+// ---------------------------------------------------------------------------
+
+const DISCRETE: Array<{ f: string; v: string; story: (P: number, N: number) => string; inWord: string; outWord: string }> = [
+  { f: 'C', v: 'n', story: (P, N) => `Movie tickets cost \\$${P} each. Each customer buys at least 1 and at most ${N} tickets. The cost, in dollars, of $n$ tickets is $C(n) = ${P}n$.`, inWord: 'numbers of tickets', outWord: 'costs in dollars' },
+  { f: 'T', v: 's', story: (P, N) => `Club T-shirts cost \\$${P} each. Each member orders at least 1 and at most ${N} shirts. The total cost, in dollars, of $s$ shirts is $T(s) = ${P}s$.`, inWord: 'numbers of shirts', outWord: 'totals in dollars' },
+  { f: 'M', v: 'b', story: (P, N) => `A bakery sells muffins in boxes of ${P}. A customer buys at least 1 and at most ${N} boxes. The number of muffins in $b$ boxes is $M(b) = ${P}b$.`, inWord: 'numbers of boxes', outWord: 'numbers of muffins' },
+];
+
+function discreteProblem(rng: Rng, askDomain: boolean): Problem {
+  const ctx = rng.pick(DISCRETE);
+  const P = rng.pick([4, 5, 6, 8, 9, 10, 12, 15]);
+  const N = rng.int(3, 6);
+  const ins = Array.from({ length: N }, (_, i) => i + 1);
+  const outs = ins.map((n) => n * P);
+  const key = askDomain ? ins : outs;
+  const word = askDomain ? 'domain' : 'range';
+  const setTex = (xs: number[]) => `\\{${xs.join(', ')}\\}`;
+  return makeProblem({
+    skillId: 'S1.11',
+    tags: ['real-world', 'word'],
+    prompt: [p(ctx.story(P, N)), p(`What is the ${word} of $${ctx.f}$ in this situation? List the values in braces, like $\\{2, 4, 6\\}$.`)],
+    answer: { kind: 'solutions', values: key.map(String), variable: askDomain ? ctx.v : 'y' },
+    inputHint: 'Type every value, separated by commas, inside braces like {2, 4, 6}.',
+    hints: [
+      `Can $${ctx.v}$ be a fraction here, like 2.5? Things you count come in whole numbers, so the ${word} is a list of separate values, not an interval.`,
+      `The inputs are the ${ctx.inWord} that are actually allowed, from the least to the most.`,
+      askDomain ? 'List every whole number from the smallest allowed input to the largest.' : `Find the output for each allowed input by substituting it into $${ctx.f}(${ctx.v}) = ${P}${ctx.v}$.`,
+      askDomain ? 'Check the words "at least" and "at most": both ends are allowed.' : 'List all of those outputs. A value between them, like one halfway between two outputs, can never happen.',
+    ],
+    solution: [
+      { text: 'Decide whether the input is discrete or continuous.', why: `Only whole ${ctx.inWord.replace('numbers of ', '')} are possible, so the domain is a list of whole numbers, not an interval.` },
+      { text: 'List the inputs.', tex: setTex(ins), why: `"At least 1 and at most ${N}" allows exactly these whole numbers.` },
+      ...(askDomain ? [] : [{ text: 'Find each output.', tex: ins.map((n) => `${ctx.f}(${n}) = ${n * P}`).join(',\\ '), why: 'The range is every output the allowed inputs produce.' }]),
+      { text: `Write the ${word}.`, tex: setTex(key), why: askDomain ? 'These are the only inputs that make sense.' : `Writing $[${outs[0]}, ${outs[N - 1]}]$ would wrongly include ${ctx.outWord} that no whole number of inputs can make.` },
+    ],
+    misconceptions: [
+      { answer: [0, ...key].join('|'), tag: 'interval-endpoint', feedback: 'Each customer buys at least 1, so 0 is not allowed here.' },
+      { answer: (askDomain ? outs : ins).join('|'), tag: 'graph-reading', feedback: askDomain ? 'Those are the outputs (the range). The domain is the list of allowed inputs.' : 'Those are the inputs (the domain). The range is the list of outputs.' },
+    ],
+  });
+}
+
+function setBuilderProblem(rng: Rng, askDomain: boolean): Problem {
+  const v = askDomain ? 'x' : 'y';
+  const a = rng.int(-6, 4);
+  const c = a + rng.int(2, 7);
+  const shape = rng.pick(['right', 'left', 'between'] as const);
+  const closedA = rng.bool();
+  const closedC = rng.bool();
+  const iv: Interval = shape === 'right' ? { lo: Q(a), loClosed: closedA, hi: null, hiClosed: false } : shape === 'left' ? { lo: null, loClosed: false, hi: Q(c), hiClosed: closedC } : { lo: Q(a), loClosed: closedA, hi: Q(c), hiClosed: closedC };
+  const op = (closed: boolean) => (closed ? '<=' : '<');
+  const opTex = (closed: boolean) => (closed ? '\\le' : '<');
+  const sb = (x: Interval) => (x.lo !== null && x.hi !== null ? `{${v} | ${x.lo} ${op(x.loClosed)} ${v} ${op(x.hiClosed)} ${x.hi}}` : x.lo !== null ? `{${v} | ${v} ${x.loClosed ? '>=' : '>'} ${x.lo}}` : `{${v} | ${v} ${op(x.hiClosed)} ${x.hi}}`);
+  const sbTex = (x: Interval) => (x.lo !== null && x.hi !== null ? `\\{${v} \\mid ${x.lo} ${opTex(x.loClosed)} ${v} ${opTex(x.hiClosed)} ${x.hi}\\}` : x.lo !== null ? `\\{${v} \\mid ${v} ${x.loClosed ? '\\ge' : '>'} ${x.lo}\\}` : `\\{${v} \\mid ${v} ${opTex(x.hiClosed)} ${x.hi}\\}`);
+  const flipped: Interval = { ...iv, loClosed: iv.lo !== null && !iv.loClosed, hiClosed: iv.hi !== null && !iv.hiClosed };
+  const word = askDomain ? 'domain' : 'range';
+  return makeProblem({
+    skillId: 'S1.11',
+    tags: [],
+    prompt: [p(`The ${word} of a function is $${intervalToTex(iv)}$. Write the ${word} in set-builder notation.`)],
+    answer: { kind: 'interval', value: sb(iv) },
+    inputHint: `Type set-builder notation like {${v} | ${v} >= 2} or {${v} | -1 < ${v} <= 4}. Use >= for ≥ and <= for ≤.`,
+    hints: [
+      `Set-builder notation looks like $\\{${v} \\mid \\text{condition}\\}$, read "all $${v}$ such that the condition is true." ${askDomain ? 'A domain describes inputs, so use $x$.' : 'A range describes outputs, so use $y$.'}`,
+      'Turn the interval into an inequality. A square bracket means the endpoint is included ($\\le$ or $\\ge$); a parenthesis means it is not ($<$ or $>$).',
+      iv.lo !== null && iv.hi !== null ? `Both ends are numbers, so $${v}$ goes in the middle of a compound inequality, with the smaller number on the left.` : `One side goes to infinity, so you only need one inequality. ${iv.lo !== null ? `$${v}$ is to the right of $${iv.lo}$ on the number line.` : `$${v}$ is to the left of $${iv.hi}$ on the number line.`}`,
+      `Put the inequality after the bar: $\\{${v} \\mid \\dots\\}$.`,
+    ],
+    solution: [
+      { text: 'Read each end of the interval.', tex: intervalToTex(iv), why: `${iv.lo === null ? 'It starts at $-\\infty$, so there is no lower limit.' : iv.loClosed ? `The bracket at $${iv.lo}$ means $${iv.lo}$ is included.` : `The parenthesis at $${iv.lo}$ means $${iv.lo}$ is not included.`} ${iv.hi === null ? 'It ends at $\\infty$, so there is no upper limit.' : iv.hiClosed ? `The bracket at $${iv.hi}$ means $${iv.hi}$ is included.` : `The parenthesis at $${iv.hi}$ means $${iv.hi}$ is not included.`}` },
+      { text: 'Write the matching inequality and put it in set-builder form.', tex: sbTex(iv), why: 'Set-builder notation names the variable, then states the condition every member satisfies.' },
+    ],
+    misconceptions: ivMisconceptions(iv, [
+      { iv: flipped, tag: 'interval-endpoint', feedback: 'Check each endpoint: a bracket means included ($\\le$ or $\\ge$), a parenthesis means not included ($<$ or $>$).' },
+      ...(shape === 'between' ? [] : [{ iv: shape === 'right' ? { lo: null, loClosed: false, hi: Q(a), hiClosed: closedA } : { lo: Q(c), loClosed: closedC, hi: null, hiClosed: false }, tag: 'inequality-direction' as const, feedback: 'Check the direction: which side of the endpoint does the interval cover on a number line?' }]),
+    ]).map((m) => ({ ...m, answer: sb(parseInterval(m.answer)) })),
+  });
+}
+
 export const genDomainRange: GeneratorDef = {
   id: 'u1.domain-range',
   skillId: 'S1.11',
@@ -38,6 +119,9 @@ export const genDomainRange: GeneratorDef = {
     const word = askDomain ? 'domain' : 'range';
     const notationHint = 'Type interval notation like [-2, 5) or (-inf, 3], set-builder like {x | x >= 2}, or an inequality like -2 <= x < 5.';
     if (difficulty === 3) {
+      const variant = rng.int(0, 2);
+      if (variant === 1) return discreteProblem(rng, askDomain);
+      if (variant === 2) return setBuilderProblem(rng, askDomain);
       const ctx = buildContext(rng, DECREASING_KEYS);
       const { f, v, m, b } = ctx;
       const end = b.div(m.neg()); // input where the output reaches 0
@@ -158,6 +242,29 @@ export const genDomainRange: GeneratorDef = {
     });
   },
   verify(pr) {
+    const lead = (pr.prompt[0] as { text?: string }).text ?? '';
+    if (pr.answer.kind === 'solutions') {
+      // discrete situation: enumerate the allowed whole-number inputs and apply the rule
+      const rm = /\$([A-Z])\(([a-z])\) = (\d+)([a-z])\$/.exec(lead);
+      const nm = /at least 1 and at most (\d+)/.exec(lead);
+      if (!rm || !nm || rm[2] !== rm[4]) return ['cannot parse discrete story'];
+      const askD = /What is the domain/.test((pr.prompt[1] as { text: string }).text);
+      const expect: string[] = [];
+      for (let n = 1; n <= Number(nm[1]); n++) expect.push(askD ? String(n) : toPoly(parseExpression(`${rm[3]}*${rm[2]}`)).evaluate({ [rm[2]]: Q(n) }).toString());
+      const got = pr.answer.values.map((x) => Rational.parse(x).toString());
+      return got.length === expect.length && expect.every((e) => got.includes(e)) ? [] : [`expected {${expect.join(', ')}}`];
+    }
+    const sbm = /^The (domain|range) of a function is \$(.+?)\$\. Write the (?:domain|range) in set-builder notation\.$/.exec(lead);
+    if (sbm) {
+      if (pr.answer.kind !== 'interval') return ['wrong kind'];
+      const given = parseInterval(sbm[2].replace(/\\infty/g, '∞'));
+      const errs: string[] = [];
+      if (!intervalsEqual(parseInterval(pr.answer.value), given)) errs.push('set-builder key does not match the interval');
+      const vm = /^\{\s*([a-z])\s*\|/.exec(pr.answer.value);
+      if (!vm) errs.push('key is not in set-builder form');
+      else if (vm[1] !== (sbm[1] === 'domain' ? 'x' : 'y')) errs.push('wrong variable');
+      return errs;
+    }
     if (pr.answer.kind !== 'interval') return ['wrong kind'];
     const got = parseInterval(pr.answer.value);
     const askDomain = /What is the domain/.test((pr.prompt[0] as { text: string }).text) || /What is the domain/.test((pr.prompt[1] as { text?: string })?.text ?? '');

@@ -157,6 +157,8 @@ export const U7L06: LessonContent = {
     },
     { t: 'p', text: 'There are two clusters: cheaper phones with about $9$ to $13$ hours of battery life, and expensive phones with about $18$ to $23$ hours. When you see clusters, say so, and describe what makes the groups different.' },
     { t: 'callout', variant: 'realworld', title: 'Describe it in context', text: 'A complete description names the direction, strength and form, mentions any outliers or clusters, and uses the **actual variables**: "There is a moderate, negative, linear association between daily screen time and hours of sleep: students with more screen time tended to sleep less." Avoid "$x$ goes up and $y$ goes down."' },
+
+    { t: 'callout', variant: 'tip', title: 'Plotting from a table', text: 'Each row of a table is one point: the first column is $x$ (across) and the second is $y$ (up). When you check a plot against a table, check **every** point. A plot with one point too high, or with two $y$-values switched, can look almost right.' },
   ],
   examples: [
     {

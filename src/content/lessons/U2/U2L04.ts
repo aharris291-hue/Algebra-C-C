@@ -2,6 +2,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
 
 /**
  * U2L04 Systems of Linear Inequalities (A.PAR.4.3, A.MM.1.2)
+ * Includes matching a system to its graph and finding the corner of a graphed region that gives the greatest profit.
  * Finding and testing points in the solution region of a system (S2.05) and modeling a
  * situation with a system of constraints, including the greatest whole-number amount (S2.06).
  *
@@ -82,6 +83,28 @@ export const U2L04: LessonContent = {
     { t: 'math', tex: '6 + y \\le 20 \\;\\Rightarrow\\; y \\le 14 \\qquad\\quad 30 + 8y \\ge 120 \\;\\Rightarrow\\; 8y \\ge 90 \\;\\Rightarrow\\; y \\ge 11.25' },
     { t: 'p', text: 'The number of tote bags must be a whole number from $12$ to $14$. The **greatest** is $14$ (check: $6 + 14 = 20 \\le 20$ and $30 + 112 = 142 \\ge 120$), and the **least** is $12$ (check: $6 + 12 = 18 \\le 20$ and $30 + 96 = 126 \\ge 120$).' },
     { t: 'callout', variant: 'realworld', title: 'Round with the constraint in mind', text: 'From $y \\ge 11.25$, the least whole number is $12$: rounding **down** to $11$ would earn only $30 + 88 = 118$ dollars, which misses the goal. Always check that a rounded answer still makes **every** constraint true.' },
+    { t: 'p', text: '### Reading a system from its graph' },
+    { t: 'p', text: 'When a graph models a situation, read its **labels** and **scale** first: the axes say what $x$ and $y$ count, and the grid step tells you what each square is worth. To check that a graph matches a constraint such as $2x + 3y \\le 12$ with $x \\ge 0$ and $y \\ge 0$, check three things: the boundary line crosses the axes at the right places (here $(6, 0)$ and $(0, 4)$), the line is solid or dashed to match the symbol, and the shading is on the side where a test point like $(0, 0)$ makes the inequality true. $x \\ge 0$ and $y \\ge 0$ keep only the first quadrant.' },
+    { t: 'p', text: '### The best plan is at a corner' },
+    { t: 'p', text: 'Mia makes bracelets and tote bags for a craft fair. She has room for **at most 12 items**. A bracelet takes 1 hour and a tote bag takes 2 hours, and she has **at most 18 hours**. She makes a profit of \\$4 per bracelet and \\$7 per tote bag. Which plan earns the most?' },
+    { t: 'math', tex: '\\begin{cases} x + y \\le 12 & \\text{items} \\\\ x + 2y \\le 18 & \\text{hours} \\\\ x \\ge 0,\\ y \\ge 0 \\end{cases} \\qquad P = 4x + 7y' },
+    {
+      t: 'graph',
+      caption: 'Mia\'s craft fair plan: the solution region has four corners.',
+      spec: { xMin: -1, xMax: 17, yMin: -1, yMax: 13, xLabel: 'bracelets', yLabel: 'tote bags', functions: [{ expr: '12 - x', label: 'items', domain: [0, 12] }, { expr: '9 - 0.5x', label: 'hours', domain: [0, 17] }], inequalities: [{ boundary: '12 - x', side: 'below', strict: false }, { boundary: '9 - 0.5x', side: 'below', strict: false }, { boundary: '0', side: 'above', strict: false }], verticalInequalities: [{ x: 0, side: 'right', strict: false }], points: [{ x: 0, y: 0, label: '(0, 0)' }, { x: 12, y: 0, label: '(12, 0)' }, { x: 6, y: 6, label: '(6, 6)' }, { x: 0, y: 9, label: '(0, 9)' }], ariaLabel: 'Solid line x + y = 12 and solid line x + 2y = 18, both shaded below, in the first quadrant. The region has corners (0, 0), (12, 0), (6, 6) and (0, 9).' },
+    },
+    { t: 'p', text: 'The two lines cross where $x + y = 12$ and $x + 2y = 18$ are both true. Subtracting the first equation from the second gives $y = 6$, so $x = 6$. A profit like $4x + 7y$ changes steadily as you move across the region, so its greatest value is always at a **corner**. Check each one:' },
+    {
+      t: 'table',
+      headers: ['Corner', 'Profit $4x + 7y$'],
+      rows: [
+        ['$(0, 0)$', '$0$'],
+        ['$(12, 0)$', '$4(12) = 48$'],
+        ['$(6, 6)$', '$4(6) + 7(6) = 24 + 42 = 66$'],
+        ['$(0, 9)$', '$7(9) = 63$'],
+      ],
+    },
+    { t: 'p', text: 'The best plan is **6 bracelets and 6 tote bags**, for a profit of \\$66. Notice that making only tote bags (the item with the bigger profit) earns less, because tote bags use up the hours twice as fast.' },
   ],
   examples: [
     {
@@ -161,6 +184,18 @@ export const U2L04: LessonContent = {
         { text: 'Check the ends.', tex: '(6, 8):\\ 14 \\le 15,\\ 66 + 120 = 186 \\ge 180 \\qquad (6, 9):\\ 15 \\le 15,\\ 66 + 135 = 201 \\ge 180', why: 'Both combinations pass both constraints. And $(6, 7)$ earns only $66 + 105 = 171$ dollars, which is too little.' },
       ],
       answer: 'Least: $8$ tutoring hours. Greatest: $9$ tutoring hours.',
+    },
+    {
+      title: 'Which corner gives the greatest profit?',
+      kind: 'real-world',
+      problem: [{ t: 'p', text: 'Dev builds birdhouses and stools. He can bring at most 10 items, a birdhouse takes 2 hours and a stool takes 3 hours, and he has at most 24 hours. The profit is \\$9 per birdhouse and \\$12 per stool. Which plan gives the greatest profit?' }],
+      steps: [
+        { text: 'Write the constraints and the profit.', tex: 'x + y \\le 10,\\quad 2x + 3y \\le 24,\\quad x \\ge 0,\\ y \\ge 0, \\qquad P = 9x + 12y', why: 'One inequality per limit; counts cannot be negative. Profit is (profit per item) times (how many), added.' },
+        { text: 'Find where the two boundary lines cross.', tex: 'y = 10 - x \;\\Rightarrow\; 2x + 3(10 - x) = 24 \;\\Rightarrow\; 30 - x = 24 \;\\Rightarrow\; x = 6,\\ y = 4', why: 'At the crossing point both limits are used up exactly.' },
+        { text: 'List all the corners.', tex: '(0, 0),\\ (10, 0),\\ (6, 4),\\ (0, 8)', why: '$(10, 0)$ is where the items line meets the $x$-axis ($2 \\cdot 10 = 20 \\le 24$, so the hours are fine), and $(0, 8)$ is where the hours line meets the $y$-axis ($3 \\cdot 8 = 24$).' },
+        { text: 'Evaluate the profit at each corner.', tex: 'P(0,0) = 0,\\quad P(10,0) = 90,\\quad P(6,4) = 54 + 48 = 102,\\quad P(0,8) = 96', why: 'The greatest value of a linear expression over the region is at a corner, so these four checks are enough.' },
+      ],
+      answer: '6 birdhouses and 4 stools, for a profit of \\$102.',
     },
   ],
   teachMeAgain: [
@@ -279,6 +314,7 @@ export const U2L04: LessonContent = {
       { generator: 'u2.model-system', difficulty: 2, weight: 1 },
       { generator: 'u2.max-in-context', difficulty: 1, weight: 1 },
       { generator: 'u2.max-in-context', difficulty: 2, weight: 1 },
+      { generator: 'u2.max-in-context', difficulty: 3, weight: 1 },
       { generator: 'u2.is-solution', difficulty: 2, weight: 1 },
     ],
   },
@@ -297,6 +333,7 @@ export const U2L04: LessonContent = {
     'Test a point in **each** inequality. If any one is false, the point is not a solution.',
     'A point on a **solid** boundary can be a solution if it passes the other inequalities; a point on a **dashed** boundary never is.',
     'To model a situation, write one inequality per constraint, add $x \\ge 0$ and $y \\ge 0$ for real counts, and check that any rounded whole-number answer still passes every constraint.',
+    'To find the best plan (greatest profit), evaluate the profit at each **corner** of the solution region and pick the largest.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },
 };

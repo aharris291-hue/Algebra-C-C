@@ -259,6 +259,14 @@ export const genConstraintContext: GeneratorDef = {
     const y = Rational.parse(mm[2]);
     const possible = x.isInteger() && y.isInteger() && !x.isNegative() && !y.isNegative() && holds(rel, x, y);
     if (choiceLabel(pr.answer).startsWith('Yes') !== possible) errs.push('verdict wrong');
+    // every claim the key makes about the inequality must be true
+    const truth = holds(rel, x, y);
+    const keyLab = choiceLabel(pr.answer);
+    if (/makes the inequality false/.test(keyLab) && truth) errs.push('key claims the inequality is false');
+    if (/makes the inequality true/.test(keyLab) && !truth) errs.push('key claims the inequality is true');
+    if (/cannot be \$/.test(keyLab) && x.isInteger()) errs.push('key claims a whole number is a fraction');
+    if (/negative number/.test(keyLab) && !y.isNegative() && !x.isNegative()) errs.push('key claims a negative count');
+    if (/Every point that makes the inequality true is possible|Only whole numbers can be tested|The total does not matter/.test(keyLab)) errs.push('key gives an invalid reason');
     // the correct option's stated comparison must be true
     const lab = choiceLabel(pr.answer);
     const totM = / = (-?\d+(?:\.\d+)?)\$/.exec(lab);

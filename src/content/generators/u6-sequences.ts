@@ -246,6 +246,55 @@ function pickGeo(rng: Rng, difficulty: number): { a1: Rational; r: Rational } {
 
 const recLabel = (a1: Rational, rTex: string, rel: string) => `$a_1 = ${dTex(a1)}$ and $a_n = ${rel.replace('R', rTex)}$`;
 
+
+/** verify() for the applied, graphed and explicit-to-recursive geometric items; null when not one of them. */
+function verifyGeoApplied(pr: Problem, text: string): string[] | null {
+  let a1: Rational | null = null;
+  let r: Rational | null = null;
+  const ball = /dropped from a height of (\d+) feet\. Each time it bounces, it rises to \$\\frac\{(\d+)\}\{(\d+)\}\$ of the height it fell from/.exec(text);
+  const share = /On day 1, (\d+) people share a new video\. Each day after that, the number of new shares is (twice|three times) the number/.exec(text);
+  const graph = pr.prompt.find((b) => b.t === 'graph');
+  const expl = pr.prompt.find((b) => b.t === 'math' && b.tex.startsWith('a_n = '));
+  if (ball) {
+    r = Q(Number(ball[2]), Number(ball[3]));
+    a1 = Q(ball[1]).mul(r); // the first bounce is already a fraction of the drop
+  } else if (share) {
+    a1 = Q(share[1]);
+    r = Q(share[2] === 'twice' ? 2 : 3);
+  } else if (graph && graph.t === 'graph') {
+    const pts = (graph.spec.points ?? []).map((q) => /^\((\d+), (-?[\d./]+)\)$/.exec(q.label ?? '')).map((m) => ({ n: Number(m![1]), v: Q(m![2]) })).sort((u, v) => u.n - v.n);
+    if (pts.some((q, i) => q.n !== i + 1)) return ['points are not terms 1, 2, 3, ...'];
+    const vs = pts.map((q) => q.v);
+    if (!allEq(ratios(vs))) return ['plotted terms are not geometric'];
+    a1 = vs[0];
+    r = ratios(vs)[0]!;
+  } else if (expl && expl.t === 'math' && pr.answer.kind === 'choice') {
+    const node = parseExpression(texToPlain(expl.tex.slice('a_n = '.length)));
+    const t1 = evalNumeric(node, { n: 1 });
+    const t2 = evalNumeric(node, { n: 2 });
+    const t3 = evalNumeric(node, { n: 3 });
+    const m = /^\$a_1 = (.+?)\$ and \$a_n = (.+?)\\,a_\{n-1\}\$$/.exec(choiceLabel(pr.answer));
+    if (!m) return ['recursive choice is not of the form r a_(n-1)'];
+    const c1 = texExact(m[1])!.toNumber();
+    const cr = texExact(m[2])!.toNumber();
+    return Math.abs(c1 - t1) < 1e-9 && Math.abs(cr * t1 - t2) < 1e-9 && Math.abs(cr * t2 - t3) < 1e-9 ? [] : ['recursive formula does not match the explicit formula'];
+  } else return null;
+  const a = pr.answer;
+  if (a.kind === 'expression') {
+    const node = parseExpression(a.value);
+    for (let n = 1; n <= 8; n++) {
+      const want = iterGeo(a1, r, n).toNumber();
+      if (Math.abs(evalNumeric(node, { n }) - want) > 1e-9 * Math.max(1, Math.abs(want))) return [`formula wrong at n = ${n}`];
+    }
+    return [];
+  }
+  if (a.kind !== 'number') return ['unexpected kind'];
+  const k = /bounce (\d+)\?|on day (\d+)\?|the (\d+)th term/.exec(text);
+  if (!k) return ['cannot read term number'];
+  const n = Number(k[1] ?? k[2] ?? k[3]);
+  return Q(a.value).eq(iterGeo(a1, r, n)) ? [] : ['term wrong'];
+}
+
 export const genGeometric: GeneratorDef = {
   id: 'u6.geometric',
   skillId: 'S6.07',
@@ -254,8 +303,145 @@ export const genGeometric: GeneratorDef = {
     const { a1, r } = pickGeo(rng, difficulty);
     const ts = [1, 2, 3, 4].map((n) => geo(a1, r, n));
     const intro: Block[] = [p('Here is a geometric sequence:'), math(listTex(ts))];
-    const task = difficulty === 1 ? rng.pick(['ratio', 'next'] as const) : difficulty === 2 ? rng.pick(['formula', 'term'] as const) : rng.pick(['recursive', 'rec2exp', 'which'] as const);
+    const task = difficulty === 1 ? rng.pick(['ratio', 'next'] as const) : difficulty === 2 ? rng.pick(['formula', 'term', 'context', 'graph'] as const) : rng.pick(['recursive', 'rec2exp', 'which', 'exp2rec', 'context'] as const);
     const rT = dTex(r);
+    if (task === 'context') {
+      // geometric sequences in applied situations (A.FGR.9.4)
+      const bounce = rng.bool();
+      let a1c: Rational;
+      let rc: Rational;
+      let story: string;
+      let ask: (k: number) => string;
+      let unit: string | undefined;
+      let ks: number[];
+      if (bounce) {
+        const [rs, H] = rng.pick([['2/3', 81], ['2/3', 27], ['3/4', 64], ['1/2', 32], ['1/2', 48], ['3/5', 25], ['4/5', 25]] as const);
+        rc = Q(rs);
+        a1c = Q(H).mul(rc);
+        story = `A ball is dropped from a height of ${H} feet. Each time it bounces, it rises to $${rc.toTex()}$ of the height it fell from. Let $a_n$ be the height, in feet, that the ball reaches on its $n$th bounce.`;
+        ask = (k) => `What height does the ball reach on bounce ${k}?`;
+        unit = 'feet';
+      } else {
+        const m = rng.pick([2, 3]);
+        rc = Q(m);
+        a1c = Q(rng.pick(m === 2 ? [3, 4, 5, 6, 10] : [2, 3, 4, 5]));
+        story = `On day 1, ${a1c.toString()} people share a new video. Each day after that, the number of new shares is ${m === 2 ? 'twice' : 'three times'} the number of new shares the day before. Let $a_n$ be the number of new shares on day $n$.`;
+        ask = (k) => `How many new shares are there on day ${k}?`;
+        unit = 'shares';
+      }
+      ks = [3, 4, 5, 6, 7].filter((k) => geo(a1c, rc, k).mul(100).isInteger() && geo(a1c, rc, k).lt(5000));
+      const askFormula = rng.bool() || ks.length === 0;
+      const hintsC: [string, string, string, string] = [
+        'Each term is the previous term times the same factor, so the sequence is geometric.',
+        bounce ? 'The first bounce already rises to that fraction of the drop height, so find $a_1$ first.' : 'The first term is the number on day 1.',
+        `The common ratio is the factor: $r = ${rc.toTex()}$.`,
+        'Use $a_n = a_1(r)^{n-1}$.',
+      ];
+      const firstStep = bounce
+        ? { text: 'Find the first term.', tex: `a_1 = ${rc.toTex()} \\cdot ${a1c.div(rc).toTex()} = ${dTex(a1c)}`, why: 'The first bounce rises to that fraction of the drop height.' }
+        : { text: 'Find the first term.', tex: `a_1 = ${dTex(a1c)}`, why: 'Day 1 is the first term.' };
+      if (askFormula) {
+        const spec = { kind: 'expression' as const, value: geoPlain(a1c, rc), variables: ['n'] };
+        return makeProblem({
+          skillId: 'S6.07',
+          tags: ['real-world'],
+          prompt: [p(story), p('Write an explicit formula for $a_n$.')],
+          answer: spec,
+          inputHint: 'Type a formula in n, like 54(2/3)^(n-1). You can start with a_n = .',
+          hints: hintsC,
+          solution: [
+            firstStep,
+            { text: 'Find the common ratio.', tex: `r = ${rc.toTex()}`, why: bounce ? 'Each bounce reaches the same fraction of the one before.' : 'Each day multiplies the number of new shares by the same factor.' },
+            { text: 'Write the explicit formula.', tex: `a_n = ${geoTex(a1c, rc)}`, why: 'Term $n$ is the first term multiplied by $r$ a total of $n - 1$ times.' },
+          ],
+          misconceptions: exprMis(spec, [
+            ...(bounce ? [{ answer: geoPlain(a1c.div(rc), rc), tag: 'sequence-index' as const, feedback: `The drop height is not a bounce. Check $n = 1$: the first bounce is already $${rc.toTex()}$ of the drop.` }] : []),
+            { answer: geoPlain(a1c, rc, 'n'), tag: 'sequence-index', feedback: 'Check $n = 1$: your formula should give the first term. Use the exponent $n - 1$.' },
+            { answer: `${numStr(a1c)}+(n-1)*${numStr(rc)}`, tag: 'other', feedback: 'That adds the ratio. The amount is multiplied by the same factor each time.' },
+          ]),
+        });
+      }
+      const k = rng.pick(ks);
+      const v = geo(a1c, rc, k);
+      return makeProblem({
+        skillId: 'S6.07',
+        tags: ['real-world'],
+        prompt: [p(story), p(ask(k))],
+        answer: numSpec(v, unit),
+        inputHint: 'Type a number.',
+        hints: hintsC,
+        solution: [
+          firstStep,
+          { text: 'Write the explicit formula.', tex: `a_n = ${geoTex(a1c, rc)}`, why: 'Each step multiplies by the same ratio.' },
+          { text: `Substitute $n = ${k}$.`, tex: `a_{${k}} = ${geoTex(a1c, rc, String(k - 1))} = ${dTex(v)}`, why: `From term 1 to term ${k} there are ${k - 1} multiplications by $r$.` },
+        ],
+        misconceptions: numberMisconceptions(v, [
+          { value: geo(a1c, rc, k + 1), tag: 'sequence-index', feedback: `That is term ${k + 1}. From term 1 to term ${k} there are ${k - 1} multiplications.` },
+          ...(bounce ? [{ value: geo(a1c, rc, k - 1), tag: 'sequence-index' as const, feedback: 'The drop height is not the first bounce. Start the count at the first bounce.' }] : []),
+          { value: a1c.add(rc.mul(k - 1)), tag: 'other', feedback: 'That adds the ratio. A geometric sequence multiplies by it.' },
+        ]),
+      });
+    }
+    if (task === 'graph') {
+      const rg = Q(rng.pick(['2', '3', '0.5']));
+      const a1g = Q(rg.eq(2) ? rng.int(1, 4) : rg.eq(3) ? rng.int(1, 3) : rng.pick([16, 32, 48, 64]));
+      const tsg = [1, 2, 3, 4].map((n) => geo(a1g, rg, n));
+      const top = Math.max(...tsg.map((t) => t.toNumber()));
+      const yStep = top > 80 ? 20 : top > 40 ? 10 : top > 20 ? 5 : top > 10 ? 2 : 1;
+      const spec: GraphSpec = {
+        xMin: -1,
+        xMax: 7,
+        yMin: -yStep,
+        yMax: Math.ceil((top + yStep) / yStep) * yStep,
+        yStep,
+        xLabel: 'n (term number)',
+        yLabel: 'a_n',
+        points: tsg.map((t, i) => ({ x: i + 1, y: t.toNumber(), label: `(${i + 1}, ${numStr(t)})` })),
+        ariaLabel: `Points of a sequence at ${tsg.map((t, i) => `(${i + 1}, ${numStr(t)})`).join(', ')}.`,
+      };
+      const askF = rng.int(0, 2) === 0;
+      const v = geo(a1g, rg, 6);
+      const spec2 = { kind: 'expression' as const, value: geoPlain(a1g, rg), variables: ['n'] };
+      return makeProblem({
+        skillId: 'S6.07',
+        tags: ['graph'],
+        prompt: [p('The graph shows the first four terms of a geometric sequence, plotted as points $(n, a_n)$.'), { t: 'graph', spec, caption: 'Each point is (term number, term).' }, p(askF ? 'Write an explicit formula for $a_n$.' : 'Find the 6th term, $a_{6}$.')],
+        answer: askF ? spec2 : numSpec(v),
+        inputHint: askF ? 'Type a formula in n, like 3(2)^(n-1).' : 'Type a number.',
+        hints: ['Read the terms from the labeled points: the $y$-coordinate of the point at $n$ is $a_n$.', 'Divide a term by the one before it to find the common ratio.', 'The point at $n = 1$ gives $a_1$.', askF ? 'Use $a_n = a_1(r)^{n-1}$.' : 'Keep multiplying by the ratio until you reach term 6.'],
+        solution: [
+          { text: 'Read the terms from the graph.', tex: listTex(tsg), why: 'The point $(n, a_n)$ is at height $a_n$ above term number $n$.' },
+          { text: 'Find the common ratio.', tex: `r = \\frac{${dTex(tsg[1])}}{${dTex(tsg[0])}} = ${dTex(rg)}`, why: rg.gt(1) ? 'The points rise faster and faster: each one is a multiple of the one before.' : 'The points fall by half each time and level off toward 0.' },
+          askF
+            ? { text: 'Write the formula.', tex: `a_n = ${geoTex(a1g, rg)}` }
+            : { text: 'Multiply on to term 6.', tex: `a_5 = ${dTex(geo(a1g, rg, 5))},\\quad a_6 = ${dTex(v)}`, why: 'Each term is the previous term times $r$.' },
+        ],
+        misconceptions: askF
+          ? exprMis(spec2, [{ answer: geoPlain(a1g, rg, 'n'), tag: 'sequence-index', feedback: 'Check $n = 1$: your formula should give the first point. Use the exponent $n - 1$.' }])
+          : numberMisconceptions(v, [
+              { value: geo(a1g, rg, 5), tag: 'sequence-index', feedback: 'That is the 5th term. Multiply by the ratio once more.' },
+              { value: tsg[3].add(tsg[3].sub(tsg[2]).mul(2)), tag: 'other', feedback: 'The points do not go up by the same amount each time. Multiply by the ratio.' },
+            ]),
+      });
+    }
+    if (task === 'exp2rec') {
+      const rTex = r.isInteger() && !r.isNegative() ? rT : paren(r);
+      const correct = recLabel(a1, rTex, 'R\\,a_{n-1}');
+      const wrongs = [recLabel(a1.mul(r), rTex, 'R\\,a_{n-1}'), recLabel(a1, rTex, 'a_{n-1} + R'), r.eq(a1) ? `$a_1 = ${dTex(a1)}$ and $a_n = ${rTex}\\,a_{n+1}$` : recLabel(r, a1.isNegative() ? paren(a1) : dTex(a1), 'R\\,a_{n-1}')];
+      return makeProblem({
+        skillId: 'S6.07',
+        tags: [],
+        prompt: [p('A geometric sequence has this explicit formula:'), math(`a_n = ${geoTex(a1, r)}`), p('Which recursive formula defines the same sequence?')],
+        answer: makeChoice(rng, correct, wrongs),
+        hints: ['In $a_n = a_1(r)^{n-1}$, the number in front is the first term and the base is the ratio.', 'Check $n = 1$: the exponent is 0, so $a_1$ is the number in front.', 'A recursive formula multiplies the previous term $a_{n-1}$ by the ratio.', 'Make sure the first term is the value of the formula at $n = 1$.'],
+        solution: [
+          { text: 'Find the first term.', tex: `a_1 = ${geoTex(a1, r, '0')} = ${dTex(a1)}`, why: 'Any nonzero number to the power 0 is 1.' },
+          { text: 'Find the ratio.', tex: `r = ${rT}`, why: 'The base of the power is what each term is multiplied by.' },
+          { text: 'Write the recursive formula.', tex: `a_1 = ${dTex(a1)},\\quad a_n = ${rTex}\\,a_{n-1}`, why: 'Each term is $r$ times the term before it.' },
+        ],
+        misconceptions: [],
+      });
+    }
     if (task === 'ratio') {
       return makeProblem({
         skillId: 'S6.07',
@@ -377,6 +563,8 @@ export const genGeometric: GeneratorDef = {
   },
   verify(pr) {
     const text = textAll(pr);
+    const ctxV = verifyGeoApplied(pr, text);
+    if (ctxV) return ctxV;
     const rec = /a_1 = (.+?),\\quad a_n = (.+?)\\,a_\{n-1\}/.exec(text);
     let a1: Rational;
     let r: Rational;

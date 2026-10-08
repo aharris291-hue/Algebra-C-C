@@ -9,7 +9,7 @@ import { isVertexForm, isCompletelyFactored, isExpandedForm, parseRelation } fro
 import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
-import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, money } from './util';
+import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, money, texToExpr, numberMisconceptions } from './util';
 import { tailTex } from './u4-common';
 import { X, pTex, pPlain, plainPoly, ev, vertexOf, vtxTex, vtxPlain, vtxPoly, factTex, factPlain, factPoly, rhsPoly, mathBlocks, promptText, graphOf, subTex, coefTex } from './u4-common';
 
@@ -22,11 +22,108 @@ type Hints = [string, string, string, string];
 // S4.18: rewrite forms; maximum and minimum
 // ---------------------------------------------------------------------------
 
+// Which equivalent form shows a property directly (A.PAR.6.2 / A.FGR.7.8).
+type Prop = 'zeros' | 'vertex' | 'yint';
+const PROP_FORM: Record<Prop, 'factored' | 'vertex' | 'expanded'> = { zeros: 'factored', vertex: 'vertex', yint: 'expanded' };
+const REVEAL_ASK: Record<Prop, { abstract: string; ctx: string }> = {
+  zeros: { abstract: 'the zeros ($x$-intercepts) of $f$', ctx: 'when the ball hits the ground' },
+  vertex: { abstract: 'the vertex of the graph of $f$', ctx: 'the maximum height of the ball and when it happens' },
+  yint: { abstract: 'the $y$-intercept of $f$', ctx: 'the height the ball is thrown from' },
+};
+
+function revealForm(rng: Rng, ctx: boolean) {
+  const v = ctx ? 't' : 'x';
+  const name = ctx ? 'h' : 'f';
+  let a: number;
+  let r: number;
+  let s: number;
+  if (ctx) {
+    a = -16;
+    do {
+      r = rng.int(3, 7);
+      s = -rng.pick([1, 1, 2]);
+    } while ((r + s) % 2 !== 0 || r + s <= 0);
+  } else {
+    a = rng.pick([1, -1, 2, -2]);
+    do {
+      r = rng.int(-6, 6);
+      s = rng.int(-6, 6);
+    } while (r === s || r === 0 || s === 0 || r + s === 0 || (r + s) % 2 !== 0);
+  }
+  const f = factPoly(a, r, s, v);
+  const hh = (r + s) / 2;
+  const kk = ev(f, hh, v);
+  const prop = rng.pick<Prop>(['zeros', 'vertex', 'yint']);
+  const std = pTex(f, v);
+  const forms = { factored: factTex(a, r, s, v), vertex: vtxTex(a, hh, kk, v), expanded: std };
+  // the function is shown in a form that does NOT reveal the property asked about
+  const shownKey = prop === 'yint' ? rng.pick(['vertex', 'factored'] as const) : prop === 'zeros' ? rng.pick(['expanded', 'vertex'] as const) : rng.pick(['expanded', 'factored'] as const);
+  const shownName = shownKey === 'expanded' ? 'standard form' : shownKey === 'vertex' ? 'vertex form' : 'factored form';
+  const decoy = prop === 'zeros' ? factTex(a, -r, -s, v) : prop === 'vertex' ? vtxTex(a, -hh, kk, v) : pTex(f.sub(Poly.fromCoeffs(v, [Q(0), f.coeff(v, 1).mul(2)])), v);
+  const lab = (t: string) => `$${name}(${v}) = ${t}$`;
+  const correct = lab(forms[PROP_FORM[prop]]);
+  const others = (['factored', 'vertex', 'expanded'] as const).filter((k) => k !== PROP_FORM[prop]).map((k) => lab(forms[k]));
+  const answer = makeChoice(rng, correct, [...others, lab(decoy)]);
+  const ask = ctx ? REVEAL_ASK[prop].ctx : REVEAL_ASK[prop].abstract;
+  const zerosT = `${name}(${v}) = 0 \\text{ when } ${v} = ${r} \\text{ or } ${v} = ${s}`;
+  const showWhy: Record<Prop, string> = {
+    zeros: `In factored form $a(${v} - r)(${v} - s)$, each factor is $0$ at one zero, so the zeros $${r}$ and $${s}$ can be read off.${ctx ? ` The ball lands at $t = ${r}$; $t = ${s}$ is before the throw.` : ''}`,
+    vertex: `Vertex form $a(${v} - h)^{2} + k$ shows the vertex $(${hh}, ${kk.toTex()})$.${ctx ? ` The maximum height is $${kk.toTex()}$ feet, at $t = ${hh}$ seconds.` : ''}`,
+    yint: `In standard form $a${v}^{2} + b${v} + c$, substituting $${v} = 0$ leaves just $c = ${f.coeff(v, 0).toTex()}$.${ctx ? ' That is the height at the moment of the throw.' : ''}`,
+  };
+  return makeProblem({
+    skillId: 'S4.18',
+    tags: ctx ? ['real-world'] : [],
+    prompt: [
+      p(ctx ? `A ball is thrown upward from the top of a cliff. Its height in feet above the ground below after $t$ seconds is modeled by the function below, written in ${shownName}.` : `Here is a quadratic function written in ${shownName}.`),
+      { t: 'math', tex: `${name}(${v}) = ${forms[shownKey]}` },
+      p(`Which **equivalent** form of $${name}$ shows ${ask} directly, without any more calculation? (One choice is not equivalent to $${name}$.)`),
+    ],
+    answer,
+    hints: [
+      'Factored form $a(x - r)(x - s)$ shows the zeros; vertex form $a(x - h)^{2} + k$ shows the vertex; standard form $ax^{2} + bx + c$ shows the $y$-intercept $c$.',
+      ctx ? (prop === 'zeros' ? 'The ball hits the ground when the height is $0$.' : prop === 'vertex' ? 'The maximum height is the $y$-value of the vertex.' : 'The starting height is the output when $t = 0$.') : 'Decide which feature the question asks about.',
+      'Two choices may look like the right type of form. Check that the one you pick is really equal to the function.',
+      'To check, multiply the form back out, or substitute one input into both and compare.',
+    ],
+    solution: [
+      { text: 'Match the property to a form.', why: showWhy[prop] },
+      { text: 'Check that the form is equivalent.', tex: `${forms[PROP_FORM[prop]]} = ${std}`, why: 'Multiplying it out gives the original function, so it is the same function written another way.' },
+      ...(prop === 'zeros' ? [{ text: 'Read the property.', tex: zerosT }] : []),
+      { text: 'Rule out the look-alike choice.', tex: `${decoy} \\ne ${std}`, why: 'It has the right shape but multiplies out to a different function.' },
+    ],
+    misconceptions: [],
+  });
+}
+
+function verifyReveal(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+  const tex = mathBlocks(pr)[0];
+  const v = /^h\(t\)/.test(tex) ? 't' : 'x';
+  const f = rhsPoly(tex);
+  const text = promptText(pr);
+  const prop = (Object.keys(REVEAL_ASK) as Prop[]).find((k) => text.includes(REVEAL_ASK[k].abstract) || text.includes(REVEAL_ASK[k].ctx));
+  if (!prop) return ['unknown property'];
+  const want = PROP_FORM[prop];
+  const good = pr.answer.options.filter((o) => {
+    const body = o.label.replace(/^\$\w\(\w\) = /, '').replace(/\$$/, '');
+    const n = parseExpression(texToExpr(body));
+    const same = [-2, 0, 1, 3, 5].every((x) => ev(toPoly(n), x, v).eq(ev(f, x, v)));
+    const formOk = want === 'vertex' ? isVertexForm(n, v) : want === 'factored' ? isCompletelyFactored(n) && !isExpandedForm(n) : isExpandedForm(n);
+    return same && formOk;
+  });
+  if (good.length !== 1) return [`${good.length} options are equivalent in the right form`];
+  return good[0].id === pr.answer.correct ? [] : ['wrong key'];
+}
+
 export const genRewriteForms: GeneratorDef = {
   id: 'u4.rewrite-forms',
   skillId: 'S4.18',
-  description: 'Rewrite a quadratic function among vertex, standard and factored form.',
+  description: 'Rewrite a quadratic function among vertex, standard and factored form, and choose the form that reveals a property.',
   generate(rng, difficulty) {
+    const roll = rng.int(0, 2);
+    if (difficulty === 2 && roll === 0) return revealForm(rng, false);
+    if (difficulty === 3 && roll === 0) return revealForm(rng, true);
     const mode = difficulty === 1 ? 'v2s' : difficulty === 2 ? rng.pick(['f2s', 's2f'] as const) : 'f2v';
     const a = mode === 'v2s' ? rng.pick([1, 2, 3, -1, -2]) : mode === 's2f' ? rng.pick([1, 1, -1, 2, 3]) : rng.pick([1, 2, -1, -2, 3]);
     let fromTex: string;
@@ -119,6 +216,7 @@ export const genRewriteForms: GeneratorDef = {
     });
   },
   verify(pr) {
+    if (pr.answer.kind === 'choice') return verifyReveal(pr);
     if (pr.answer.kind !== 'expression') return ['unexpected kind'];
     const f = rhsPoly(mathBlocks(pr)[0]);
     const n = parseExpression(pr.answer.value);
@@ -202,9 +300,34 @@ export const genMaxMin: GeneratorDef = {
   description: 'Find the maximum or minimum value of a quadratic function, including in context.',
   generate(rng, difficulty) {
     if (difficulty === 3) {
+      const askBoth = rng.bool();
       const c = maxContext(rng);
       const { a, b, h, k } = vertexOf(c.f, c.v);
       const name = c.fTex.charAt(0);
+      if (askBoth) {
+        const lab = (kind: string, val: Rational, at: Rational) => `A ${kind} of $${val.toTex()}$ ${c.unit}, when $${c.v} = ${at.toTex()}$ ${c.whenUnit}`;
+        const correct = lab('maximum', k, h);
+        const answer = makeChoice(rng, correct, [lab('minimum', k, h), lab('maximum', h, k), lab('maximum', k, h.mul(2))]);
+        return makeProblem({
+          skillId: 'S4.18',
+          tags: ['real-world', 'multi-step'],
+          prompt: [...c.story, { t: 'math', tex: c.fTex }, p(`Does $${name}$ have a maximum or a minimum value? What is it, and for what value of $${c.v}$ does it happen?`)],
+          answer,
+          hints: [
+            'The sign of the leading coefficient tells you whether the parabola opens up (minimum) or down (maximum).',
+            c.fTex.includes('\\left(') ? 'Multiply it out to standard form, or average the two zeros, to find the input of the vertex.' : `Use $${c.v} = -\\frac{b}{2a}$ for the input of the vertex.`,
+            `Substitute that input into $${name}(${c.v})$ to get the output.`,
+            'The input says **when** (or at what value) it happens; the output is the maximum or minimum value itself.',
+          ],
+          solution: [
+            ...(c.fTex.includes('\\left(') ? [{ text: 'Write in standard form.', tex: `${name}(${c.v}) = ${pTex(c.f, c.v)}` }] : []),
+            { text: 'Decide maximum or minimum.', why: `$a = ${a.toTex()} < 0$, so the parabola opens down and the vertex is the highest point: a maximum.` },
+            { text: 'Find when it happens.', tex: `${c.v} = -\\frac{${b.toTex()}}{2(${a.toTex()})} = ${h.toTex()}`, why: `This is the input of the vertex, in ${c.whenUnit}.` },
+            { text: 'Find the maximum value.', tex: `${name}(${h.toTex()}) = ${k.toTex()}`, why: `So the maximum is $${k.toTex()}$ ${c.unit}, when $${c.v} = ${h.toTex()}$.` },
+          ],
+          misconceptions: [],
+        });
+      }
       const misconceptions: Misconception[] = [{ answer: numStr(h), tag: 'graph-reading', feedback: `That is when (or where) the maximum happens. The question asks for the maximum value of $${name}$.` }];
       return makeProblem({
         skillId: 'S4.18',
@@ -268,10 +391,25 @@ export const genMaxMin: GeneratorDef = {
     });
   },
   verify(pr) {
-    if (pr.answer.kind !== 'number') return ['unexpected kind'];
+    if (pr.answer.kind !== 'number' && pr.answer.kind !== 'choice') return ['unexpected kind'];
     const tex = mathBlocks(pr)[0];
     const v = /^[hARf]\((\w)\)/.exec(tex)?.[1] ?? 'x';
     const f = rhsPoly(tex);
+    if (pr.answer.kind === 'choice') {
+      // complete the square independently, then read the chosen statement
+      const [c0, b0, a0] = f.coeffsIn(v);
+      const hx = b0.neg().div(a0.mul(2));
+      const top = c0.sub(b0.mul(b0).div(a0.mul(4)));
+      for (const d of [Q(1, 5), Q(1), Q(-1, 5), Q(-1)]) if (ev(f, hx.add(d), v).sub(top).sign() !== a0.sign()) return ['not an extreme value'];
+      const m = /^A (maximum|minimum) of \$(.+?)\$ .*, when \$\w = (.+?)\$/.exec(choiceLabel(pr.answer));
+      if (!m) return ['cannot read choice'];
+      const rd = (t: string) => toPoly(parseExpression(texToExpr(t))).constantValue();
+      const errs: string[] = [];
+      if ((m[1] === 'maximum') !== (a0.sign() < 0)) errs.push('max/min wrong');
+      if (!rd(m[2]).eq(top)) errs.push('value wrong');
+      if (!rd(m[3]).eq(hx)) errs.push('input wrong');
+      return errs;
+    }
     // complete the square: f = a(x + b/2a)^2 + (c - b^2/4a); then confirm nearby values are all on one side
     const [c, b, a] = f.coeffsIn(v);
     const best = c.sub(b.mul(b).div(a.mul(4)));
@@ -369,6 +507,94 @@ export const genAvgRate: GeneratorDef = {
         misconceptions: rateMis(f1, f2, t1, t2),
       });
     }
+    const d2roll = difficulty === 2 ? rng.int(0, 2) : 0;
+    if (d2roll === 1) {
+      // estimate the rate from a graph with two labeled points (A.FGR.7.7)
+      const a = rng.pick([1, -1]);
+      let h = 0;
+      let k = 0;
+      let x1 = 0;
+      let x2 = 0;
+      do {
+        h = rng.int(-3, 3);
+        k = a > 0 ? rng.int(-6, 0) : rng.int(2, 9);
+        x1 = rng.int(h - 3, h + 2);
+        x2 = rng.int(x1 + 2, x1 + 4);
+      } while (x2 - x1 < 2 || Math.abs(x2 - h) > 4 || Math.abs(x1 - h) > 4 || x1 === h - (x2 - h));
+      const f = vtxPoly(a, h, k);
+      const f1 = ev(f, x1);
+      const f2 = ev(f, x2);
+      const rate = f2.sub(f1).div(x2 - x1);
+      const ys = [k, f1.toNumber(), f2.toNumber(), ev(f, h + 4).toNumber()];
+      const lo = Math.floor(Math.min(...ys, 0)) - 1;
+      const hi = Math.ceil(Math.max(...ys, 0)) + 1;
+      const yStep = hi - lo > 24 ? 4 : hi - lo > 12 ? 2 : 1;
+      const spec: GraphSpec = {
+        xMin: Math.min(h - 5, x1 - 1, -1),
+        xMax: Math.max(h + 5, x2 + 1, 1),
+        yMin: Math.floor(lo / yStep) * yStep,
+        yMax: Math.ceil(hi / yStep) * yStep,
+        yStep,
+        functions: [{ expr: gexpr(f), label: 'y = f(x)' }],
+        points: [
+          { x: x1, y: f1.toNumber(), label: `(${x1}, ${f1.toString()})` },
+          { x: x2, y: f2.toNumber(), label: `(${x2}, ${f2.toString()})` },
+        ],
+        ariaLabel: `A parabola opening ${a > 0 ? 'up' : 'down'} with labeled points (${x1}, ${f1.toString()}) and (${x2}, ${f2.toString()}).`,
+      };
+      return makeProblem({
+        skillId: 'S4.19',
+        tags: ['graph'],
+        prompt: [p(`The graph shows a quadratic function $f$ with two labeled points. Use the graph to find the average rate of change of $f$ from $x = ${x1}$ to $x = ${x2}$.`), { t: 'graph', spec }],
+        answer: numSpec(rate),
+        hints: [
+          'The average rate of change is the slope of the line through the two points: change in $y$ over change in $x$.',
+          `Read the two labeled points: at $x = ${x1}$ and at $x = ${x2}$.`,
+          'Subtract the $y$-values, and subtract the $x$-values in the same order.',
+          `The change in $x$ is $${x2} - ${subTex(x1)} = ${x2 - x1}$.`,
+        ],
+        solution: [
+          { text: 'Read the points from the graph.', tex: `(${x1}, ${f1.toTex()}) \\text{ and } (${x2}, ${f2.toTex()})` },
+          { text: 'Divide the change in $y$ by the change in $x$.', tex: `\\frac{${f2.toTex()} - ${subTex(f1)}}{${x2} - ${subTex(x1)}} = \\frac{${f2.sub(f1).toTex()}}{${x2 - x1}} = ${rate.toTex()}`, why: 'It is the slope of the secant line joining the two points. On a curve the rate is different for different intervals, so it only describes this interval.' },
+        ],
+        misconceptions: rateMis(f1, f2, x1, x2),
+      });
+    }
+    if (d2roll === 2) {
+      // linear vs quadratic with a difference table (A.FGR.7.7, A.FGR.7.9)
+      const a = rng.pick([1, 2, 3]);
+      const kStar = rng.int(1, 3);
+      const m = rng.int(a * (2 * kStar - 1), a * (2 * kStar + 1) - 1);
+      const b = rng.int(0, 12);
+      const c = rng.int(0, 5);
+      const F = X([c, 0, a]);
+      const G = X([b, m]);
+      const xs = [0, 1, 2, 3, 4];
+      const L = (k: number) => `From $x = ${k}$ to $x = ${k + 1}$`;
+      const fr = (k: number) => ev(F, k + 1).sub(ev(F, k));
+      return makeProblem({
+        skillId: 'S4.19',
+        tags: ['multi-step'],
+        prompt: [
+          p('The table shows a quadratic function $f$ and a linear function $g$.'),
+          { t: 'table', headers: ['$x$', '$f(x)$', '$g(x)$'], rows: xs.map((x) => [`$${x}$`, `$${ev(F, x).toTex()}$`, `$${ev(G, x).toTex()}$`]) },
+          p('Over which interval is the average rate of change of $f$ greater than the average rate of change of $g$ for the **first** time?'),
+        ],
+        answer: makeChoice(rng, L(kStar), [0, 1, 2, 3].filter((k) => k !== kStar).map(L)),
+        hints: [
+          'On each interval of length $1$, the average rate of change is just the difference between consecutive outputs.',
+          'Find the differences for $g$: a linear function has the same difference every time.',
+          'Find the differences for $f$: a quadratic\'s differences change by the same amount each step, so they keep growing.',
+          'Compare the two lists of differences, interval by interval, starting at $x = 0$.',
+        ],
+        solution: [
+          { text: 'Differences for $g$.', tex: xs.slice(0, 4).map((x) => `${ev(G, x + 1).toTex()} - ${ev(G, x).toTex()} = ${m}`).join(',\\ '), why: `$g$ is linear, so its rate of change is always $${m}$ (equal differences over equal intervals).` },
+          { text: 'Differences for $f$.', tex: xs.slice(0, 4).map((x) => `${ev(F, x + 1).toTex()} - ${ev(F, x).toTex()} = ${fr(x).toTex()}`).join(',\\ '), why: `$f$ is quadratic, so its differences grow by $${2 * a}$ each step.` },
+          { text: `Compare: the first interval where $f$'s rate is greater than $${m}$.`, tex: `${fr(kStar).toTex()} > ${m}`, why: `Before that, $f$'s rate was ${kStar === 1 ? `$${fr(0).toTex()}$` : `${xs.slice(0, kStar).map((x) => `$${fr(x).toTex()}$`).join(', ')}`}, not more than $${m}$. A quadratic's rate keeps growing, so it eventually beats any linear rate.` },
+        ],
+        misconceptions: [],
+      });
+    }
     const a = rng.pick([1, 2, -1, -2, 3]);
     const b = rng.int(-6, 6);
     const c = rng.int(-9, 9);
@@ -418,6 +644,34 @@ export const genAvgRate: GeneratorDef = {
   verify(pr) {
     const text = promptText(pr);
     const tbl = (pr.prompt as Block[]).find((b) => b.t === 'table') as Extract<Block, { t: 'table' }> | undefined;
+    const spec0 = graphOf(pr);
+    if (spec0) {
+      // the two labeled points must lie on the drawn curve; the rate is their slope
+      if (pr.answer.kind !== 'number') return ['unexpected kind'];
+      const g = toPoly(parseExpression(spec0.functions![0].expr));
+      const pts = (spec0.points ?? []).map((q) => [Q(String(q.x)), Q(q.label!.replace(/^\(-?\d+, /, '').replace(/\)$/, ''))] as [Rational, Rational]);
+      if (pts.length !== 2) return ['need two points'];
+      for (const [x, y] of pts) if (!ev(g, x).eq(y)) return ['labeled point off the curve'];
+      const m = /from \$x = (-?\d+)\$ to \$x = (-?\d+)\$/.exec(text);
+      if (!m || !pts[0][0].eq(Number(m[1])) || !pts[1][0].eq(Number(m[2]))) return ['interval does not match points'];
+      const want = pts[1][1].sub(pts[0][1]).div(pts[1][0].sub(pts[0][0]));
+      return Q(pr.answer.value).eq(want) ? [] : ['wrong rate'];
+    }
+    if (tbl && tbl.headers.length === 3) {
+      if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+      const rows = tbl.rows.map((r) => r.map((c) => Q(c.replace(/\$/g, ''))));
+      const d = (col: number) => rows.slice(1).map((r, i) => r[col].sub(rows[i][col]));
+      const df = d(1);
+      const dg = d(2);
+      if (rows.some((r, i) => !r[0].eq(i))) return ['x must be 0, 1, 2, ...'];
+      if (dg.some((x) => !x.eq(dg[0]))) return ['g is not linear'];
+      const d2 = df.slice(1).map((x, i) => x.sub(df[i]));
+      if (d2.some((x) => !x.eq(d2[0])) || d2[0].isZero()) return ['f is not quadratic'];
+      const first = df.findIndex((x) => x.gt(dg[0]));
+      if (first < 0) return ['f never exceeds'];
+      const mm = /From \$x = (\d+)\$ to \$x = (\d+)\$/.exec(choiceLabel(pr.answer));
+      return mm && Number(mm[1]) === first && Number(mm[2]) === first + 1 ? [] : ['wrong interval'];
+    }
     let val: (x: number) => Rational;
     if (tbl) {
       const m = new Map(tbl.rows.map((r) => [Number(r[0].replace(/\$/g, '')), toPoly(parseExpression(r[1].replace(/\$/g, '').replace(/\\frac\{(-?\d+)\}\{(\d+)\}/, '($1/$2)'))).constantValue()]));
@@ -632,11 +886,110 @@ export const genWriteFactoredForm: GeneratorDef = {
   },
 };
 
+/** "Which graph correctly shows the model?" for a launched ball (A.FGR.7.6: labels, scales, domain). */
+function graphChoiceQuad(rng: Rng) {
+  const [T, r] = rng.pick([[2, Q(1, 2)], [3, Q(1, 2)], [3, Q(1, 4)], [4, Q(1, 4)], [2, Q(1)], [3, Q(1)], [4, Q(1, 2)]] as const);
+  const v = Q(16).mul(Q(T).sub(r)).toInt();
+  const h0 = Q(16 * T).mul(r).toInt();
+  const f = Poly.fromCoeffs('x', [Q(h0), Q(v), Q(-16)]);
+  const tv = Q(v, 32);
+  const K = ev(f, tv);
+  const step = K.gt(120) ? 25 : K.gt(60) ? 20 : 10;
+  const yMax = Math.ceil((K.toNumber() * 1.15) / step) * step;
+  const thing = rng.pick(['ball', 'water balloon', 'softball', 'beanbag']);
+  const pts = [
+    { x: 0, y: h0, label: `(0, ${h0})` },
+    { x: tv.toNumber(), y: K.toNumber(), label: `(${numStr(tv)}, ${numStr(K)})` },
+    { x: T, y: 0, label: `(${T}, 0)` },
+  ];
+  const base = (): GraphSpec => ({
+    xMin: 0,
+    xMax: T + 1,
+    yMin: 0,
+    yMax,
+    xStep: 1,
+    yStep: step,
+    xLabel: 'time t (seconds)',
+    yLabel: 'height h (feet)',
+    functions: [{ expr: gexpr(f), domain: [0, T] }],
+    points: pts,
+    ariaLabel: '',
+  });
+  const correct = base();
+  correct.ariaLabel = `A downward parabola drawn from t = 0 to t = ${T}, starting at height ${h0}, peaking at ${numStr(K)} and landing at t = ${T}. Horizontal axis: time t (seconds); vertical axis: height h (feet).`;
+  const swapped = base();
+  swapped.xLabel = 'height h (feet)';
+  swapped.yLabel = 'time t (seconds)';
+  swapped.ariaLabel = `The same curve, but the horizontal axis is labeled height h (feet) and the vertical axis is labeled time t (seconds).`;
+  const noDomain = base();
+  noDomain.xMin = -2;
+  noDomain.xMax = T + 2;
+  noDomain.yMin = -Math.ceil((K.toNumber() * 0.8) / step) * step;
+  noDomain.functions = [{ expr: gexpr(f) }];
+  noDomain.ariaLabel = `The whole parabola from t = -2 to t = ${T + 2}, including negative times and negative heights, with the correct axis labels.`;
+  const T2 = Math.sqrt(h0) / 4;
+  const drop = Poly.fromCoeffs('x', [Q(h0), Q(0), Q(-16)]);
+  const wrongCurve = base();
+  wrongCurve.functions = [{ expr: gexpr(drop), domain: [0, T2] }];
+  wrongCurve.points = [{ x: 0, y: h0, label: `(0, ${h0})` }];
+  wrongCurve.ariaLabel = `A curve that starts at its highest point (0, ${h0}) and falls to the ground, with the correct axis labels.`;
+  const cands = rng.shuffle([correct, swapped, noDomain, wrongCurve]);
+  const letters = ['A', 'B', 'C', 'D'];
+  const slot = cands.indexOf(correct);
+  const blocks: Block[] = cands.map((spec, i) => ({ t: 'graph', spec, caption: `Graph ${letters[i]}` }));
+  return makeProblem({
+    skillId: 'S4.20',
+    tags: ['real-world', 'graph'],
+    prompt: [
+      p(`A ${thing} is thrown upward from a height of $${h0}$ feet at $${v}$ feet per second. Its height in feet after $t$ seconds is`),
+      { t: 'math', tex: `h(t) = ${pTex(Poly.fromCoeffs('t', [Q(h0), Q(v), Q(-16)]), 't')}` },
+      p(`It is in the air from $t = 0$ until it lands at $t = ${T}$. Which graph correctly shows this model for $0 \\le t \\le ${T}$, with correctly labeled axes?`),
+      ...blocks,
+    ],
+    answer: { kind: 'choice' as const, options: letters.map((L, i) => ({ id: 'abcd'[i], label: `Graph ${L}` })), correct: 'abcd'[slot] },
+    hints: [
+      'Check three things on each graph: the curve, the part of the curve that is drawn (the domain), and the axis labels.',
+      `The input is time, so time belongs on the horizontal axis; the output, height, goes on the vertical axis.`,
+      `The curve should start at $(0, ${h0})$, rise to its highest point, and come down to $(${T}, 0)$.`,
+      `Only times from $0$ to $${T}$ make sense: no negative times or heights.`,
+    ],
+    solution: [
+      { text: 'Find the key points of the model.', tex: `h(0) = ${h0},\\quad t = -\\frac{${v}}{2(-16)} = ${tv.toTex()},\\quad h(${tv.toTex()}) = ${K.toTex()},\\quad h(${T}) = 0`, why: 'The starting height, the vertex (highest point) and the landing time pin down the graph.' },
+      { text: 'Rule out the wrong graphs.', why: 'One graph swaps the axis labels (time must be the horizontal input axis). One draws the whole parabola, including negative times and heights, which are outside the domain. One shows a different curve that starts at its highest point, like a dropped object, not a thrown one.' },
+      { text: `The correct graph is Graph ${letters[slot]}.`, why: `It is the parabola through $(0, ${h0})$, $(${tv.toTex()}, ${K.toTex()})$ and $(${T}, 0)$, drawn only for $0 \\le t \\le ${T}$, with time on the horizontal axis and height on the vertical axis, each labeled with units and an even scale.` },
+    ],
+    misconceptions: [],
+  });
+}
+
+function verifyGraphChoiceQuad(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+  const model = rhsPoly(mathBlocks(pr)[0]);
+  const m = model.coeffsIn('t').map((c) => c.toNumber());
+  const T = (-m[1] - Math.sqrt(m[1] * m[1] - 4 * m[2] * m[0])) / (2 * m[2]);
+  const graphs = (pr.prompt as Block[]).filter((b): b is Extract<Block, { t: 'graph' }> => b.t === 'graph');
+  const ok = graphs.map((g) => {
+    const fn = g.spec.functions?.[0];
+    if (!fn || g.spec.functions!.length !== 1) return false;
+    const poly = toPoly(parseExpression(fn.expr));
+    const same = [0, 1, 2, 3].every((x) => Math.abs(ev(poly, x).toNumber() - (m[0] + m[1] * x + m[2] * x * x)) < 1e-9);
+    const dom = !!fn.domain && Math.abs(fn.domain[0]) < 1e-9 && Math.abs(fn.domain[1] - T) < 1e-9;
+    const labels = /time/.test(g.spec.xLabel ?? '') && /height/.test(g.spec.yLabel ?? '');
+    const win = g.spec.xMin <= 0 && g.spec.xMax >= T && g.spec.yMin <= 0 && g.spec.yMax >= Math.max(...[0, 0.25, 0.5, 0.75, 1].map((u) => m[0] + m[1] * u * T + m[2] * u * u * T * T));
+    return same && dom && labels && win;
+  });
+  if (ok.filter(Boolean).length !== 1) return [`${ok.filter(Boolean).length} graphs are correct`];
+  const idx = ok.indexOf(true);
+  if ((graphs[idx].caption ?? '') !== choiceLabel(pr.answer)) return ['wrong key'];
+  return [];
+}
+
 export const genModelSituation: GeneratorDef = {
   id: 'u4.model-situation',
   skillId: 'S4.20',
-  description: 'Write a quadratic model for a projectile, an area or a revenue situation.',
+  description: 'Write a quadratic model for a projectile, an area or a revenue situation, and choose its correctly labeled graph.',
   generate(rng, difficulty) {
+    if (difficulty >= 2 && rng.int(0, 2) === 0) return graphChoiceQuad(rng);
     const kind = difficulty === 1 ? 'launch' : difficulty === 2 ? rng.pick(['fence', 'frame'] as const) : rng.pick(['revenue', 'frame'] as const);
     let story: string;
     let value: string;
@@ -716,6 +1069,7 @@ export const genModelSituation: GeneratorDef = {
     });
   },
   verify(pr) {
+    if (pr.answer.kind === 'choice') return verifyGraphChoiceQuad(pr);
     if (pr.answer.kind !== 'expression') return ['unexpected kind'];
     const text = promptText(pr);
     const g = plainPoly(pr.answer.value);
@@ -786,11 +1140,68 @@ const FEAT_TEXT: Record<Feature, { noun: string; greater: string }> = {
   rate: { noun: 'average rate of change from $x = 0$ to $x = 2$', greater: 'greater average rate of change from $x = 0$ to $x = 2$' },
 };
 
+/** First whole number x >= 0 where a quadratic f overtakes a linear g (A.FGR.7.9). */
+function quadBeatsLinear(rng: Rng) {
+  let a = 1;
+  let c = 0;
+  let m = 0;
+  let b = 0;
+  let n = 0;
+  const F = () => X([c, 0, a]);
+  const G = () => X([b, m]);
+  for (let guard = 0; guard < 200; guard++) {
+    a = rng.pick([1, 1, 2]);
+    c = rng.pick([0, 0, 1, 2, 3, 4]);
+    m = rng.int(3, 15);
+    b = rng.int(5, 40);
+    n = 0;
+    while (!ev(F(), n).gt(ev(G(), n))) n++;
+    if (n >= 4 && n <= 16) break;
+  }
+  const f = F();
+  const g = G();
+  const asTable = rng.bool();
+  const xs = [0, 1, 2, 3, 4];
+  const gBlock: Block = asTable
+    ? { t: 'table', headers: ['$x$', '$g(x)$'], rows: xs.map((x) => [`$${x}$`, `$${ev(g, x).toTex()}$`]) }
+    : { t: 'math', tex: `g(x) = ${pTex(g)}` };
+  const eqAt = ev(f, n - 1).eq(ev(g, n - 1));
+  const rows = [n - 2, n - 1, n].filter((x) => x >= 0);
+  return makeProblem({
+    skillId: 'S4.21',
+    tags: ['multi-step'],
+    prompt: [
+      p(`Function $f$ is quadratic. Function $g$ is linear and is given by ${asTable ? 'a table' : 'an equation'}.`),
+      { t: 'math', tex: `f(x) = ${pTex(f)}` },
+      gBlock,
+      p('Right now $g$ is greater, but a quadratic function eventually grows faster than a linear one. What is the **first whole number** $x \\ge 0$ for which $f(x) > g(x)$?'),
+    ],
+    answer: numSpec(Q(n)),
+    hints: [
+      asTable ? `$g$ is linear: its outputs go up by the same amount each time $x$ goes up by $1$. Find that amount and $g(0)$ to write $g(x)$.` : 'Compare the two functions for $x = 0, 1, 2, \\ldots$',
+      `$f$ grows by more each step: its differences are $${ev(f, 1).sub(ev(f, 0)).toTex()}, ${ev(f, 2).sub(ev(f, 1)).toTex()}, ${ev(f, 3).sub(ev(f, 2)).toTex()}, \\ldots$, while $g$ grows by $${m}$ every step.`,
+      'Make a table of $f(x)$ and $g(x)$ and keep going until $f$ passes $g$, or solve $f(x) = g(x)$ to know where to look.',
+      'The answer is the first $x$ where $f(x)$ is strictly greater, not equal.',
+    ],
+    solution: [
+      ...(asTable ? [{ text: 'Write the rule for $g$ from the table.', tex: `g(x) = ${pTex(g)}`, why: `The outputs go up by $${m}$ each step (equal differences, so $g$ is linear), and $g(0) = ${b}$.` }] : []),
+      { text: 'Compare the outputs as $x$ grows.', tex: rows.map((x) => `f(${x}) = ${ev(f, x).toTex()},\\ g(${x}) = ${ev(g, x).toTex()}`).join(';\\quad '), why: `$f$'s differences increase by $${2 * a}$ each step, while $g$'s stay at $${m}$, so once $f$ starts gaining it keeps gaining.` },
+      { text: `So $x = ${n}$ is the first whole number with $f(x) > g(x)$.`, why: eqAt ? `At $x = ${n - 1}$ the two are equal, which is not "greater".` : `At $x = ${n - 1}$, $g$ is still greater.` },
+    ],
+    misconceptions: numberMisconceptions(Q(n), [{ value: Q(n - 1), tag: 'other', feedback: eqAt ? 'At that input the two functions are equal. The question asks where $f$ is strictly greater.' : 'At that input $g$ is still greater. Check $f(x)$ and $g(x)$ again.' }]),
+    steps: [
+      { prompt: [p(`Write a rule for $g(x)$.`)], answer: { kind: 'expression', value: pPlain(g), variables: ['x'] }, inputHint: 'Type an expression in x, like 5x + 12.', hints: ['A linear function has the form $mx + b$.', `$b$ is $g(0)$.`, '$m$ is how much $g$ goes up each step.', 'Check another row.'], explanation: `$g(x) = ${pTex(g)}$.` },
+      { prompt: [p('What is the first whole number $x \\ge 0$ for which $f(x) > g(x)$?')], answer: numSpec(Q(n)), hints: ['Make a table of both functions.', 'Start where they are close.', 'Look for the first $x$ where $f$ is bigger.', 'Equal does not count.'], explanation: `$x = ${n}$.` },
+    ],
+  });
+}
+
 export const genCompareFunctions: GeneratorDef = {
   id: 'u4.compare-functions',
   skillId: 'S4.21',
   description: 'Compare key features of two quadratic functions given as an equation, a table or a graph.',
   generate(rng, difficulty) {
+    if (difficulty === 3 && rng.bool()) return quadBeatsLinear(rng);
     const ft: Feature = difficulty === 1 ? rng.pick(['yint', 'axis'] as const) : rng.pick(['max', 'min', 'max', 'min', 'rate'] as const);
     const sign = ft === 'max' ? -1 : ft === 'min' ? 1 : rng.pick([1, -1]);
     const mk = () => {
@@ -905,6 +1316,28 @@ export const genCompareFunctions: GeneratorDef = {
     const fTex = mathBlocks(pr)[0];
     const f = rhsPoly(fTex);
     const tbl = (pr.prompt as Block[]).find((b) => b.t === 'table') as Extract<Block, { t: 'table' }> | undefined;
+    if (/first whole number/.test(promptText(pr))) {
+      if (pr.answer.kind !== 'number') return ['unexpected kind'];
+      let gv: (x: number) => Rational;
+      if (tbl) {
+        const rows = tbl.rows.map((r) => [Number(r[0].replace(/\$/g, '')), Q(r[1].replace(/\$/g, ''))] as [number, Rational]);
+        const d = rows.slice(1).map((r, i) => r[1].sub(rows[i][1]).div(r[0] - rows[i][0]));
+        if (d.some((x) => !x.eq(d[0]))) return ['g table is not linear'];
+        const [x0, y0] = rows[0];
+        gv = (x) => y0.add(d[0].mul(x - x0));
+      } else {
+        const gp = rhsPoly(mathBlocks(pr)[1]);
+        if (gp.degreeIn('x') > 1) return ['g is not linear'];
+        gv = (x) => ev(gp, x);
+      }
+      if (f.degreeIn('x') !== 2) return ['f is not quadratic'];
+      if (!gv(0).gt(ev(f, 0))) return ['g should start greater'];
+      let x = 0;
+      while (x < 1000 && !ev(f, x).gt(gv(x))) x++;
+      // once f passes g it stays ahead (a > 0): check a few more inputs
+      for (let y = x; y < x + 20; y++) if (!ev(f, y).gt(gv(y))) return ['f does not stay ahead'];
+      return Q(pr.answer.value).eq(x) ? [] : [`expected ${x}`];
+    }
     let g: Poly;
     if (tbl) {
       const rows = tbl.rows.map((r) => [Number(r[0].replace(/\$/g, '')), Q(r[1].replace(/\$/g, ''))] as [number, Rational]);

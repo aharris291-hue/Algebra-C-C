@@ -111,7 +111,8 @@ function makeItem(rng: Rng, kind: Kind): NumItem {
       const m = rng.int(2, 3);
       const choice = rng.int(0, 2);
       if (choice === 0) return { tex: `\\sqrt{${b}} \\cdot \\sqrt{${b * m * m}}`, rational: true, why: `$\\sqrt{${b}} \\cdot \\sqrt{${b * m * m}} = \\sqrt{${b * b * m * m}} = ${b * m}$, an integer.` };
-      if (choice === 1) return { tex: `\\frac{\\sqrt{${b * m * m}}}{\\sqrt{${b}}}`, rational: true, why: `$\\frac{\\sqrt{${b * m * m}}}{\\sqrt{${b}}} = \\sqrt{${m * m}} = ${m}$, an integer.` };
+      // a product, not a quotient: dividing radicals is outside A.NR.5
+      if (choice === 1) return { tex: `${m}\\sqrt{${b}} \\cdot \\sqrt{${b}}`, rational: true, why: `$${m}\\sqrt{${b}} \\cdot \\sqrt{${b}} = ${m}\\sqrt{${b * b}} = ${m} \\cdot ${b} = ${m * b}$, an integer.` };
       const k = rng.int(1, 9);
       return { tex: `${k} + \\sqrt{${b}} - \\sqrt{${b}}`, rational: true, why: `The two roots cancel, leaving $${k}$.` };
     }
@@ -344,8 +345,11 @@ function pairLabel(op: Op, q: Pair): string {
 }
 
 function combineTex(op: Op, q: Pair): string {
-  const y = q.y.startsWith('-') ? `\\left(${q.y}\\right)` : q.y;
-  return op === 'sum' ? `${q.x} + ${y}` : `${q.x} \\cdot ${y}`;
+  // a factor with more than one term needs parentheses in a product: (4 + √3)·√3, not 4 + √3·√3
+  const multiTerm = (t: string) => / [+-] /.test(t);
+  const y = q.y.startsWith('-') || (op === 'product' && multiTerm(q.y)) ? `\\left(${q.y}\\right)` : q.y;
+  const x = op === 'product' && multiTerm(q.x) ? `\\left(${q.x}\\right)` : q.x;
+  return op === 'sum' ? `${x} + ${y}` : `${x} \\cdot ${y}`;
 }
 
 export const genClosureType: GeneratorDef = {
@@ -402,6 +406,8 @@ export const genClosureType: GeneratorDef = {
         misconceptions: [],
       });
     }
+    if (difficulty === 2 && rng.next() < 0.4) return measurementClosure(rng);
+    if (difficulty === 3 && rng.next() < 0.4) return explainIrrational(rng);
     if (difficulty === 2) {
       const rule = rng.pick(RULES);
       const answer = makeChoice(rng, RESULT_LABEL[rule.result], Object.values(RESULT_LABEL).filter((l) => l !== RESULT_LABEL[rule.result]));
@@ -431,7 +437,7 @@ export const genClosureType: GeneratorDef = {
     if (op === 'sum') correct = rng.bool() ? { x: `${k} + \\sqrt{${b}}`, y: `${k} - \\sqrt{${b}}` } : { x: `\\sqrt{${b}}`, y: `-\\sqrt{${b}}` };
     else correct = rng.bool() ? { x: `\\sqrt{${b}}`, y: `\\sqrt{${b * 9}}` } : { x: `${k > 1 ? k : 2}\\sqrt{${b}}`, y: `\\sqrt{${b}}` };
     const others = SQUAREFREE.filter((x) => x !== b && Math.sqrt(x * b) % 1 !== 0);
-    const c = rng.pick(others.slice(0, 6));
+    const c = rng.pick(others.filter((x) => x !== (b * 2 === 4 ? 6 : b * 2)).slice(0, 6));
     const distractors: Pair[] =
       op === 'sum'
         ? [
@@ -471,6 +477,8 @@ export const genClosureType: GeneratorDef = {
   verify(pr) {
     if (pr.answer.kind !== 'choice') return ['unexpected kind'];
     const text = (pr.prompt[0] as { text: string }).text;
+    if (/^A (square|rectangle) /.test(text)) return verifyMeasurement(pr);
+    if (/^Which argument correctly explains why/.test(text)) return verifyExplain(pr);
     const key = choiceLabel(pr.answer);
     const one = /^Is \$(.+)\$ rational or irrational\?$/.exec(text);
     if (one) {
@@ -507,5 +515,210 @@ export const genClosureType: GeneratorDef = {
     return ['cannot parse'];
   },
 };
+
+
+// ---------------------------------------------------------------------------
+// S3.02 (A.NR.5.2): closure in a measurement, with the exact value as evidence
+// ---------------------------------------------------------------------------
+
+const UNITS = [
+  { len: 'cm', area: 'square cm' },
+  { len: 'inches', area: 'square inches' },
+  { len: 'feet', area: 'square feet' },
+  { len: 'meters', area: 'square meters' },
+];
+
+/** Values that are not perfect squares, written under a square root. */
+const NON_SQUARES = [2, 3, 5, 6, 7, 8, 10, 12, 18, 20, 27, 50];
+
+function sqrtTex(n: number): string {
+  return `\\sqrt{${n}}`;
+}
+
+function measurementClosure(rng: Rng) {
+  const unit = rng.pick(UNITS);
+  const shape = rng.int(0, 3);
+  let L: string;
+  let W: string;
+  let text: string;
+  if (shape === 0) {
+    L = W = sqrtTex(rng.pick(NON_SQUARES));
+    text = `A square has sides of length $${L}$ ${unit.len}.`;
+  } else if (shape === 1) {
+    // like radicals: √(b·m²) by √b, so the area is rational
+    const b = rng.pick([2, 3, 5]);
+    const m = rng.int(2, 3);
+    L = sqrtTex(b * m * m);
+    W = sqrtTex(b);
+    text = `A rectangle is $${L}$ ${unit.len} long and $${W}$ ${unit.len} wide.`;
+  } else if (shape === 2) {
+    // unlike radicals whose product is not a perfect square
+    const b = rng.pick([2, 3, 5, 7]);
+    const c = rng.pick([3, 5, 6, 7, 10].filter((x) => x !== b && !Number.isInteger(Math.sqrt(x * b))));
+    L = sqrtTex(c);
+    W = sqrtTex(b);
+    text = `A rectangle is $${L}$ ${unit.len} long and $${W}$ ${unit.len} wide.`;
+  } else {
+    const k = rng.int(2, 9);
+    L = String(k);
+    W = sqrtTex(rng.pick([2, 3, 5, 7]));
+    text = `A rectangle is $${L}$ ${unit.len} long and $${W}$ ${unit.len} wide.`;
+  }
+  const askPerimeter = rng.bool();
+  const P = texSurd(`2\\left(${L} + ${W}\\right)`)!;
+  const A = texSurd(`${L} \\cdot ${W}`)!;
+  const val = askPerimeter ? P : A;
+  const other = askPerimeter ? A : P;
+  const what = askPerimeter ? 'perimeter' : 'area';
+  const u = askPerimeter ? unit.len : unit.area;
+  const verdict = (r: boolean) => (r ? 'Rational' : 'Irrational');
+  const lab = (r: boolean, v: string) => `${verdict(r)}: the ${what} is $${v}$ ${u}.`;
+  const rational = val.isRational();
+  const correct = lab(rational, val.toTex());
+  const distractors = [
+    lab(!rational, val.toTex()),
+    lab(other.isRational(), other.toTex()),
+    rational ? `Irrational: the side lengths are irrational, so the ${what} must be irrational too.` : `Rational: a length you can measure with a ruler is always rational.`,
+  ];
+  const answer = makeChoice(rng, correct, distractors);
+  const formula = askPerimeter ? (shape === 0 ? `P = 4 \\cdot ${L}` : `P = 2\\left(${L} + ${W}\\right)`) : shape === 0 ? `A = ${L} \\cdot ${L}` : `A = ${L} \\cdot ${W}`;
+  return makeProblem({
+    skillId: 'S3.02',
+    tags: ['real-world', 'multi-step'],
+    prompt: [p(text), p(`Is its **${what}** rational or irrational? Choose the answer with the correct exact value.`)],
+    answer,
+    hints: [
+      askPerimeter ? 'Perimeter means adding all the side lengths.' : 'Area of a rectangle (or square) is length times width.',
+      askPerimeter ? 'Simplify each root first. Like radicals combine the way like terms do; unlike radicals stay separate.' : 'Use $\\sqrt{a} \\cdot \\sqrt{b} = \\sqrt{ab}$, then check whether the result is a perfect square.',
+      'A nonzero rational number times an irrational number is irrational. A product of two irrational numbers can be rational.',
+      'Find the exact value first, then decide: does it simplify to a fraction of integers, or does a root remain?',
+    ],
+    solution: [
+      { text: `Write the ${what}.`, tex: `${formula} = ${val.toTex()}`, why: askPerimeter ? 'Add all four sides, simplify each root, and combine any like radicals by adding their coefficients.' : 'Multiply the length by the width. Multiplying under one root: $\\sqrt{a} \\cdot \\sqrt{b} = \\sqrt{ab}$.' },
+      { text: `So the ${what} is **${rational ? 'rational' : 'irrational'}**.`, why: rational ? 'The roots multiplied to a perfect square, so no root is left: the result is a fraction of integers.' : 'A root of a number that is not a perfect square is left over, so the decimal never ends and never repeats.' },
+      { text: 'Check the reasoning in the other choices.', why: rational ? 'Irrational side lengths can still give a rational result, so "the sides are irrational" is not a valid reason.' : 'A ruler gives a rounded measurement. The exact length can still be irrational.' },
+    ],
+    misconceptions: [],
+  });
+}
+
+function verifyMeasurement(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+  const text = (pr.prompt[0] as { text: string }).text;
+  const q = (pr.prompt[1] as { text: string }).text;
+  const sq = /^A square has sides of length \$(.+?)\$/.exec(text);
+  const re = /^A rectangle is \$(.+?)\$ .+ long and \$(.+?)\$ .+ wide/.exec(text);
+  const L = sq ? sq[1] : re?.[1];
+  const W = sq ? sq[1] : re?.[2];
+  if (!L || !W) return ['cannot parse sides'];
+  const l = texSurd(L);
+  const w = texSurd(W);
+  if (!l || !w) return ['cannot evaluate sides'];
+  const perimeter = /\*\*perimeter\*\*/.test(q);
+  const val = perimeter ? l.add(w).add(l).add(w) : l.mul(w);
+  const errs: string[] = [];
+  const good = pr.answer.options.filter((o) => {
+    const m = /^(Rational|Irrational): the (perimeter|area) is \$(.+)\$/.exec(o.label);
+    if (!m) {
+      // reason-only options must state the wrong verdict
+      if (o.label.startsWith(val.isRational() ? 'Rational' : 'Irrational')) errs.push(`reason-only option has the right verdict: ${o.label}`);
+      return false;
+    }
+    const v = texSurd(m[3]);
+    return !!v && v.equals(val) && (m[1] === 'Rational') === val.isRational() && m[2] === (perimeter ? 'perimeter' : 'area');
+  });
+  if (good.length !== 1) errs.push(`${good.length} options are correct`);
+  else if (good[0].id !== pr.answer.correct) errs.push('wrong key');
+  if (new Set(pr.answer.options.map((o) => o.label)).size !== 4) errs.push('expected 4 distinct options');
+  return errs;
+}
+
+// ---------------------------------------------------------------------------
+// S3.02 (A.NR.5.2): choose the argument that explains why a number is irrational
+// ---------------------------------------------------------------------------
+
+const CALCULATOR_REASON = 'A calculator shows its decimal without any repeating pattern, so it must be irrational.';
+const EVERY_ROOT_REASON = 'Every number written with a square root sign is irrational.';
+
+function explainIrrational(rng: Rng) {
+  const b = rng.pick([2, 3, 5, 6, 7, 10, 11]);
+  const kind = rng.int(0, 2);
+  let expr: string;
+  let isolate: string;
+  let because: string;
+  let wrongIdentity: string;
+  let op: string;
+  if (kind === 0 || kind === 1) {
+    // k + √b or √b − k
+    let k = rng.int(1, 9);
+    while (Number.isInteger(Math.sqrt(k + b)) || Number.isInteger(Math.sqrt(Math.abs(b - k))) || b === k) k = rng.int(1, 9);
+    expr = kind === 0 ? `${k} + \\sqrt{${b}}` : `\\sqrt{${b}} - ${k}`;
+    isolate = kind === 0 ? `q - ${k}` : `q + ${k}`;
+    because = kind === 0 ? 'rational minus rational is rational' : 'rational plus rational is rational';
+    op = kind === 0 ? `Subtract $${k}$ from both sides` : `Add $${k}$ to both sides`;
+    wrongIdentity = kind === 0 ? `$${expr} = \\sqrt{${k + b}}$, and $${k + b}$ is not a perfect square.` : `$${expr} = \\sqrt{${Math.abs(b - k)}}$, and $${Math.abs(b - k)}$ is not a perfect square.`;
+  } else {
+    let k = rng.int(2, 9);
+    while (Number.isInteger(Math.sqrt(k * b))) k = rng.int(2, 9);
+    expr = `${k}\\sqrt{${b}}`;
+    isolate = `\\frac{q}{${k}}`;
+    because = `a rational number divided by the nonzero number $${k}$ is rational`;
+    op = `Divide both sides by $${k}$`;
+    wrongIdentity = `$${expr} = \\sqrt{${k * b}}$, and $${k * b}$ is not a perfect square.`;
+  }
+  const correct = `If $${expr}$ were a rational number $q$, then $\\sqrt{${b}} = ${isolate}$ would be rational too, because ${because}. But $\\sqrt{${b}}$ is irrational, so $${expr}$ cannot be rational.`;
+  const answer = makeChoice(rng, correct, [CALCULATOR_REASON, EVERY_ROOT_REASON, wrongIdentity]);
+  return makeProblem({
+    skillId: 'S3.02',
+    tags: ['multi-step'],
+    prompt: [p(`Which argument correctly explains why $${expr}$ is irrational?`)],
+    answer,
+    hints: [
+      'A good explanation must be true for **exact** values, not just for the digits a calculator shows.',
+      'Test each claim with a counterexample. For instance, is $\\sqrt{9}$ irrational?',
+      'Check every equation in an argument. Does adding (or multiplying) really work that way with square roots?',
+      `Try "pretend it is rational": call $${expr}$ a rational number $q$ and solve for $\\sqrt{${b}}$. What kind of number would that make $\\sqrt{${b}}$?`,
+    ],
+    solution: [
+      { text: 'Pretend the number is rational and call it $q$.', tex: `${expr} = q` },
+      { text: `${op}.`, tex: `\\sqrt{${b}} = ${isolate}`, why: `That would make $\\sqrt{${b}}$ rational, because ${because}.` },
+      { text: 'That is impossible.', why: `$${b}$ is not a perfect square, so $\\sqrt{${b}}$ is irrational. The pretend statement must be false, so $${expr}$ is irrational.` },
+      { text: 'Why the other arguments fail.', why: `A calculator rounds to a few digits, so its screen cannot show a pattern that goes on forever. $\\sqrt{9} = 3$ has a root sign and is rational. ${wrongIdentity.split(',')[0]} is false: square roots do not ${kind === 2 ? 'absorb a coefficient that way ($k\\sqrt{b} = \\sqrt{k^2 b}$)' : 'add or subtract that way'}.` },
+    ],
+    misconceptions: [],
+  });
+}
+
+function verifyExplain(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+  const m = /^Which argument correctly explains why \$(.+)\$ is irrational\?$/.exec((pr.prompt[0] as { text: string }).text);
+  if (!m) return ['cannot parse'];
+  const expr = m[1];
+  const value = texSurd(expr);
+  const errs: string[] = [];
+  if (!value || value.isRational()) errs.push('number is not irrational');
+  const valid = pr.answer.options.filter((o) => {
+    const c = /^If \$(.+?)\$ were a rational number \$q\$, then \$(\\sqrt\{\d+\}) = (.+?)\$ would be rational too/.exec(o.label);
+    if (c) {
+      // substitute q = the number: the isolated root must come back exactly, and must be irrational
+      const root = texSurd(c[2]);
+      const back = texSurd(c[3].replace(/q/g, `\\left(${expr}\\right)`));
+      return c[1] === expr && !!root && !!back && root.equals(back) && !root.isRational();
+    }
+    if (o.label === CALCULATOR_REASON) return false;
+    if (o.label === EVERY_ROOT_REASON) return texSurd('\\sqrt{9}')!.isRational() === false;
+    const id = /^\$(.+) = (.+)\$, and/.exec(o.label);
+    if (id) {
+      const lhs = texSurd(id[1]);
+      const rhs = texSurd(id[2]);
+      return !!lhs && !!rhs && lhs.equals(rhs);
+    }
+    errs.push(`unrecognized option ${o.label}`);
+    return false;
+  });
+  if (valid.length !== 1) errs.push(`${valid.length} valid arguments`);
+  else if (valid[0].id !== pr.answer.correct) errs.push('wrong key');
+  return errs;
+}
 
 export const U3_NUMBER_GENERATORS: GeneratorDef[] = [genClassifyNumber, genWhichIrrational, genClosureType];

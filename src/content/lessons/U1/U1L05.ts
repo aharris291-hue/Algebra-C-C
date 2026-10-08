@@ -8,7 +8,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U1L05: LessonContent = {
   lessonId: 'U1L05',
-  goal: 'Find the $x$- and $y$-intercepts of a line and explain what they mean, then describe where a linear function is increasing, decreasing, positive and negative.',
+  goal: 'Find the $x$- and $y$-intercepts of a line and explain what they mean, match an equation to its graph, read a graph of a real situation, and describe where a linear function is increasing, decreasing, positive and negative, its end behavior, and its maximum and minimum over an interval.',
   needToKnow: [
     { t: 'p', text: 'This lesson uses three things you already know:' },
     {
@@ -75,6 +75,25 @@ export const U1L05: LessonContent = {
     },
     { t: 'callout', variant: 'warning', title: 'Dividing by a negative flips the sign', text: 'For $y = -3x + 6$, solving $-3x + 6 > 0$ gives $-3x > -6$. Dividing by $-3$ flips the symbol: $x < 2$. A decreasing line is positive on the **left** of its $x$-intercept.' },
     { t: 'callout', variant: 'why', title: 'Why is the x-intercept left out?', text: 'At the $x$-intercept, $y = 0$ exactly. Zero is neither positive nor negative, so that one $x$-value belongs to neither interval.' },
+    { t: 'p', text: '### Matching an equation to its graph' },
+    { t: 'p', text: 'To pick the graph of $y = 2x - 3$, use the two numbers in the equation. The $y$-intercept $-3$ says the line crosses the $y$-axis at $(0, -3)$. The slope $2$ says that from there, 1 step right goes 2 up, to $(1, -1)$. A graph that crosses at $(0, 3)$ (sign of $b$ flipped), falls instead of rising (sign of $m$ flipped), or crosses at $(0, 2)$ with slope $-3$ (numbers switched) is a different line.' },
+    { t: 'p', text: '### End behavior' },
+    { t: 'p', text: '**End behavior** describes what the outputs do at the far ends of the graph: as $x \\to \\infty$ (moving right forever) and as $x \\to -\\infty$ (moving left forever). A non-horizontal line never levels off, so its outputs head to $\\infty$ or $-\\infty$, and only the **sign of the slope** decides which.' },
+    {
+      t: 'table',
+      caption: 'End behavior of a line y = mx + b.',
+      headers: ['Slope', 'As $x \\to \\infty$', 'As $x \\to -\\infty$', 'Example'],
+      rows: [
+        ['$m > 0$', '$f(x) \\to \\infty$', '$f(x) \\to -\\infty$', '$f(x) = 3x - 1$'],
+        ['$m < 0$', '$f(x) \\to -\\infty$', '$f(x) \\to \\infty$', '$f(x) = -2x + 5$'],
+      ],
+    },
+    { t: 'callout', variant: 'why', title: 'Why does the y-intercept not matter far away?', text: 'For $f(x) = -2x + 5$, try $x = 1000$: $f(1000) = -2000 + 5 = -1995$. The $+5$ hardly changes anything, and bigger inputs give even more negative outputs. So as $x \\to \\infty$, $f(x) \\to -\\infty$.' },
+    { t: 'p', text: '### Maximum and minimum on an interval' },
+    { t: 'p', text: 'A line that goes on forever has no highest or lowest point. But when a function is used only on an interval such as $-2 \\le x \\le 4$, it does. A line moves steadily in one direction, so the **maximum** (largest output) and **minimum** (smallest output) are at the two **endpoints** of the interval.' },
+    { t: 'p', text: 'For $f(x) = 3x - 1$ on $[-2, 4]$: $f(-2) = -7$ and $f(4) = 11$. The slope is positive, so the function increases: the minimum is $-7$ (at $x = -2$) and the maximum is $11$ (at $x = 4$). The maximum **value** is the output $11$, not the input $4$.' },
+    { t: 'p', text: '### Reading a graph of a real situation' },
+    { t: 'p', text: 'A graph of a situation has labeled axes. The horizontal axis is the input (often time) and the vertical axis is the output, each with units. Read each point as "input, then output": on a graph of a tank with axes "time (hours)" and "water left (gallons)", the point $(0, 480)$ means that at 0 hours the tank holds 480 gallons, and $(24, 0)$ means that after 24 hours it is empty.' },
   ],
   examples: [
     {
@@ -114,6 +133,33 @@ export const U1L05: LessonContent = {
         { text: 'Write the intervals.', tex: '\\text{positive: } x < 4,\\ (-\\infty, 4) \\qquad \\text{negative: } x > 4,\\ (4, \\infty)' },
       ],
       answer: 'Decreasing; positive on $(-\\infty, 4)$; negative on $(4, \\infty)$',
+    },
+    {
+      title: 'End behavior and the largest and smallest outputs',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: '(a) Describe the end behavior of $f(x) = -2x + 5$. (b) The function $g(x) = 3x - 1$ is used only on $-2 \\le x \\le 4$. Find its maximum and minimum values.' }],
+      steps: [
+        { text: '(a) Use the sign of the slope.', tex: 'm = -2 < 0', why: 'A negative slope falls from left to right, and a line never levels off.' },
+        { text: 'State the end behavior.', tex: '\\text{As } x \\to \\infty,\\ f(x) \\to -\\infty; \\qquad \\text{as } x \\to -\\infty,\\ f(x) \\to \\infty', why: 'Check with big inputs: $f(100) = -195$ and $f(-100) = 205$.' },
+        { text: '(b) Evaluate $g$ at both endpoints.', tex: 'g(-2) = 3(-2) - 1 = -7, \\qquad g(4) = 3(4) - 1 = 11', why: 'A line changes steadily, so its largest and smallest outputs on a closed interval are at the endpoints.' },
+        { text: 'Compare.', tex: '\\text{maximum } 11 \\text{ at } x = 4, \\qquad \\text{minimum } -7 \\text{ at } x = -2', why: 'The slope $3$ is positive, so the outputs grow from left to right: the smallest is at the left end and the largest at the right end.' },
+      ],
+      answer: '(a) As $x \\to \\infty$, $f(x) \\to -\\infty$; as $x \\to -\\infty$, $f(x) \\to \\infty$. (b) Maximum $11$ (at $x = 4$), minimum $-7$ (at $x = -2$).',
+    },
+    {
+      title: 'Reading a graph of a draining tank',
+      kind: 'real-world',
+      problem: [
+        { t: 'p', text: 'The graph shows the water left in a tank as it drains. What do the points $(0, 480)$ and $(24, 0)$ mean? Write a rule for $W(t)$.' },
+        { t: 'graph', spec: { xMin: 0, xMax: 30, yMin: 0, yMax: 600, xStep: 5, yStep: 100, xLabel: 'time (hours)', yLabel: 'water left (gallons)', functions: [{ expr: '-20x + 480', domain: [0, 24] }], points: [{ x: 0, y: 480, label: '(0, 480)' }, { x: 24, y: 0, label: '(24, 0)' }], ariaLabel: 'A line graph with time in hours across and water left in gallons up, falling from (0, 480) to (24, 0).' } },
+      ],
+      steps: [
+        { text: 'Read $(0, 480)$ with the axis labels.', why: 'Input first: at time 0 hours, the output is 480 gallons. The tank starts with 480 gallons. This is the vertical intercept.' },
+        { text: 'Read $(24, 0)$.', why: 'After 24 hours, 0 gallons are left: the tank is empty. This is the horizontal intercept, and the graph stops there because the water cannot go below 0.' },
+        { text: 'Find the rate from the two points.', tex: 'm = \\dfrac{0 - 480}{24 - 0} = -20', why: 'The tank loses 20 gallons each hour, so the rate is $-20$ gallons per hour.' },
+        { text: 'Write the rule.', tex: 'W(t) = -20t + 480', why: 'Rate times time, plus the starting amount. Check: $W(24) = -480 + 480 = 0$.' },
+      ],
+      answer: '$(0, 480)$: the tank starts with 480 gallons. $(24, 0)$: it is empty after 24 hours. $W(t) = -20t + 480$.',
     },
     {
       title: 'A common mistake: using the y-intercept as the boundary',
@@ -236,9 +282,11 @@ export const U1L05: LessonContent = {
     mix: [
       { generator: 'u1.intercepts', difficulty: 1, weight: 1 },
       { generator: 'u1.intercepts', difficulty: 2, weight: 2 },
+      { generator: 'u1.intercepts-context', difficulty: 1, weight: 1 },
       { generator: 'u1.intercepts-context', difficulty: 2, weight: 1 },
-      { generator: 'u1.key-features', difficulty: 1, weight: 1 },
+      { generator: 'u1.key-features', difficulty: 1, weight: 2 },
       { generator: 'u1.key-features', difficulty: 2, weight: 2 },
+      { generator: 'u1.key-features', difficulty: 3, weight: 1 },
       { generator: 'u1.write-two-points', difficulty: 2, weight: 1 },
       { generator: 'u1.solve-fx', difficulty: 2, weight: 1 },
     ],
@@ -258,6 +306,9 @@ export const U1L05: LessonContent = {
     'In context, the $y$-intercept is usually the starting value and the $x$-intercept is when the amount reaches $0$.',
     'Positive slope means increasing, negative slope means decreasing, and slope $0$ means constant.',
     'A function is positive where its graph is above the $x$-axis and negative where it is below. The $x$-intercept is the boundary, and the answer is a set of $x$-values.',
+    'End behavior: a line with $m > 0$ goes to $\\infty$ as $x \\to \\infty$ and to $-\\infty$ as $x \\to -\\infty$; a line with $m < 0$ does the opposite.',
+    'On an interval like $[-2, 4]$, a line has its maximum and minimum values at the endpoints. Report the output, not the $x$-value.',
+    'On a graph of a situation, read each point as (input, output) with the units on the axis labels.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },
 };
