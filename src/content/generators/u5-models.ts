@@ -787,6 +787,54 @@ function amount(P: Rational, r: Rational, n: number, t: number): Rational {
   return P.mul(Q(1).add(r.div(n)).pow(n * t));
 }
 
+/** What each part of a compound interest formula with numbers means (A.PAR.8.1). */
+type CPart = 'periods' | 'periodRate' | 'factor' | 'principal';
+const CPART_LABEL: Record<CPart | 'years' | 'yearRate', string> = {
+  periods: 'The number of times interest is added in $t$ years',
+  periodRate: 'The interest rate for each compounding period, as a decimal',
+  factor: 'The number the balance is multiplied by each compounding period',
+  principal: 'The amount deposited at the start',
+  years: 'The number of years the money is in the account',
+  yearRate: 'The yearly interest rate, as a decimal',
+};
+
+function interpretCompound(rng: Rng, P: Rational, r: Rational, name: string) {
+  const o = rng.pick(COMPOUND.slice(1));
+  const part = rng.pick<CPart>(['periods', 'periods', 'periodRate', 'factor', 'principal']);
+  const rTex = dTex(r);
+  const fx = `A = ${numStr(P)}\\left(1 + \\frac{${rTex}}{${o.n}}\\right)^{${o.n}t}`;
+  const shown: Record<CPart, string> = { periods: `${o.n}t`, periodRate: `\\frac{${rTex}}{${o.n}}`, factor: `1 + \\frac{${rTex}}{${o.n}}`, principal: numStr(P) };
+  const pool: Array<CPart | 'years' | 'yearRate'> = part === 'periods' ? ['years', 'periodRate', 'principal'] : part === 'periodRate' ? ['yearRate', 'factor', 'periods'] : part === 'factor' ? ['periodRate', 'yearRate', 'periods'] : ['factor', 'periods', 'years'];
+  const answer = makeChoice(rng, CPART_LABEL[part], pool.map((k) => CPART_LABEL[k]));
+  const why: Record<CPart, string> = {
+    periods: `Interest is added ${o.word}, which is $${o.n}$ times a year, so in $t$ years it is added $${o.n} \\cdot t$ times. That is the number of times the balance is multiplied.`,
+    periodRate: `The yearly rate $${rTex}$ is split into $${o.n}$ equal parts because interest is added ${o.word}, so each period pays $\\frac{${rTex}}{${o.n}}$ of the balance.`,
+    factor: `Each period the balance keeps all of itself ($1$) and gains $\\frac{${rTex}}{${o.n}}$ more, so it is multiplied by $1 + \\frac{${rTex}}{${o.n}}$.`,
+    principal: `At $t = 0$ the exponent is $0$, so $A = ${numStr(P)} \\cdot 1 = ${numStr(P)}$: the starting deposit.`,
+  };
+  return makeProblem({
+    skillId: 'S5.06',
+    tags: ['real-world'],
+    prompt: [
+      p(`${name} deposits ${moneyText(P)} in an account that pays ${pct(r)}% interest compounded ${o.word}. No other money is added or taken out. The balance after $t$ years is`),
+      { t: 'math', tex: fx },
+      p(`What does the **$${shown[part]}$** in the formula represent?`),
+    ],
+    answer,
+    hints: [
+      'Compare with the general formula $A = P\\left(1 + \\frac{r}{n}\\right)^{nt}$.',
+      `Compounded ${o.word} means $n = ${o.n}$: interest is added $${o.n}$ times a year.`,
+      '$\\frac{r}{n}$ is the rate for one period, $1 + \\frac{r}{n}$ is what the balance is multiplied by each period, and the exponent counts the periods.',
+      'Try $t = 1$: how many times is interest added in one year?',
+    ],
+    solution: [
+      { text: 'Match the formula to $A = P\\left(1 + \\frac{r}{n}\\right)^{nt}$.', tex: `P = ${numStr(P)},\\ r = ${rTex},\\ n = ${o.n}`, why: `The yearly rate ${pct(r)}% is $${rTex}$ as a decimal, and ${o.word} means $${o.n}$ times a year.` },
+      { text: `So $${shown[part]}$ is: ${CPART_LABEL[part].charAt(0).toLowerCase() + CPART_LABEL[part].slice(1)}.`, why: why[part] },
+    ],
+    misconceptions: [],
+  });
+}
+
 export const genCompoundInterest: GeneratorDef = {
   id: 'u5.compound-interest',
   skillId: 'S5.06',
@@ -797,6 +845,7 @@ export const genCompoundInterest: GeneratorDef = {
     const t = rng.int(2, 10);
     const name = rng.pick(['Maya', 'Jordan', 'Luis', 'Priya', 'Sam', 'Aaliyah', 'Chris', 'Kenji']);
     const formula = 'A = P\\left(1 + \\frac{r}{n}\\right)^{nt}';
+    if (difficulty === 2 && rng.int(0, 2) === 0) return interpretCompound(rng, P, r, name);
     if (difficulty === 3 && rng.bool()) {
       // compare two accounts
       let o1 = rng.pick(COMPOUND);
@@ -854,6 +903,19 @@ export const genCompoundInterest: GeneratorDef = {
   },
   verify(pr) {
     const text = textOf(pr);
+    if (/in the formula represent/.test(text)) {
+      if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+      const fm = /^A = (\d+)\\left\(1 \+ \\frac\{([\d.]+)\}\{(\d+)\}\\right\)\^\{(\d+)t\}$/.exec(mathBlocks(pr)[0]);
+      const am = /pays ([\d.]+)% interest compounded (\w+)/.exec(text);
+      const sm = /\*\*\$(.+?)\$\*\*/.exec(text);
+      if (!fm || !am || !sm) return ['cannot read formula'];
+      const n = COMPOUND.find((c) => c.word === am[2])?.n;
+      if (!n || Number(fm[3]) !== n || Number(fm[4]) !== n || !Q(fm[2]).eq(Q(am[1]).div(100))) return ['formula does not match the story'];
+      const shown = sm[1];
+      const want: CPart | null = shown === `${n}t` ? 'periods' : shown === `\\frac{${fm[2]}}{${n}}` ? 'periodRate' : shown === `1 + \\frac{${fm[2]}}{${n}}` ? 'factor' : shown === fm[1] ? 'principal' : null;
+      if (!want) return ['asked part not in formula'];
+      return choiceLabel(pr.answer) === CPART_LABEL[want] ? [] : [`expected ${want}`];
+    }
     const accts = [...text.matchAll(/pays ([\d.]+)% interest compounded (\w+)/g)];
     const P = Q(/\\\$([\d,]+)/.exec(text)![1].replace(/,/g, ''));
     const t = Number(/(?:for|in|after) (\d+) years/.exec(text)![1]);

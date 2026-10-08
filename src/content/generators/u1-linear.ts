@@ -722,7 +722,7 @@ export const genInterceptsContext: GeneratorDef = {
         solution: [
           { text: 'Set the profit equal to 0.', tex: `${rule} = 0`, why: 'Breaking even means the money brought in equals the cost of supplies, so the profit is 0.' },
           { text: `Add $${decTex(b.abs())}$, then divide by $${decTex(m)}$.`, tex: `${v} = \\dfrac{${decTex(b.abs())}}{${decTex(m)}} = ${decTex(zero)}`, why: 'Undo the subtraction, then undo the multiplication.' },
-          { text: 'Choose a whole number of cars.', tex: `${f}(${decTex(below)}) = ${decTex(m.mul(below).add(b))} < 0, \\quad ${f}(${decTex(need)}) = ${decTex(m.mul(need).add(b))} \\ge 0`, why: `A fraction of a car is not possible. With ${decTex(below)} cars the band is still losing money, so it must wash ${decTex(need)} cars. Rounding to the nearest whole number would not work here if it rounds down.` },
+          { text: 'Choose a whole number of cars.', tex: `${f}(${decTex(below)}) = ${decTex(m.mul(below).add(b))} < 0, \\quad ${f}(${decTex(need)}) = ${decTex(m.mul(need).add(b))} \\ge 0`, why: `A fraction of a car is not possible. With ${decTex(below)} cars the band is still losing money, so it must wash ${decTex(need)} cars. Here you always round up, even when the decimal part is less than one half.` },
         ],
         misconceptions: numberMisconceptions(need, [
           { value: below, tag: 'other', feedback: 'Check the profit for that many cars: it is still below \\$0. Round so that the band does not lose money.' },

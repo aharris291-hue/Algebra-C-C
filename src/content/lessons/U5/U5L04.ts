@@ -95,6 +95,11 @@ export const U5L04: LessonContent = {
     { t: 'callout', variant: 'warning', title: 'The exponent is not a multiplier', text: 'For $4^x = 8$ it is tempting to say $x = 2$ "because $4 \\cdot 2 = 8$." But $4^2 = 16$, not $8$. The exponent tells you how many times to multiply $4$ by itself, so check: $4^2 = 4 \\cdot 4 = 16 \\ne 8$.' },
     { t: 'callout', variant: 'warning', title: 'Fraction bases are negative exponents', text: '$\\left(\\frac{1}{2}\\right)^x = (2^{-1})^x = 2^{-x}$. So $\\left(\\frac{1}{2}\\right)^x = 16$ becomes $2^{-x} = 2^4$, giving $-x = 4$ and $x = -4$, not $4$.' },
     { t: 'callout', variant: 'tip', title: 'When there is no common base', text: 'Some equations, like $2^x = 10$, cannot be rewritten with a common base, because $10$ is not a whole-number power of $2$. The answer is between $3$ and $4$ (since $2^3 = 8$ and $2^4 = 16$). You can estimate it with a graph or a table; later math courses use logarithms to find it exactly.' },
+    { t: 'p', text: '### Create the equation from a story' },
+    { t: 'p', text: 'Many problems do not hand you the equation. Build it from three facts: the **starting amount**, the **factor** (doubles means $2$, triples means $3$, is cut in half means $\\frac{1}{2}$), and **how long one step takes**. If the amount doubles every $3$ hours, then after $t$ hours it has doubled $\\frac{t}{3}$ times:' },
+    { t: 'math', tex: '\\text{amount} = \\text{start} \\cdot (\\text{factor})^{\\frac{t}{\\text{time per step}}}' },
+    { t: 'p', text: 'For example, $5$ bacteria that double every hour reach $320$ when $5 \\cdot 2^t = 320$. Divide by $5$: $2^t = 64 = 2^6$, so $t = 6$ hours. A $1024$-milligram sample cut in half every $4$ hours is down to $64$ milligrams when $1024\\left(\\frac{1}{2}\\right)^{\\frac{t}{4}} = 64$. Divide: $\\left(\\frac{1}{2}\\right)^{\\frac{t}{4}} = \\frac{1}{16} = \\left(\\frac{1}{2}\\right)^4$, so $\\frac{t}{4} = 4$ and $t = 16$ hours.' },
+    { t: 'callout', variant: 'warning', title: 'Count steps, then convert to time', text: 'The exponent counts **steps** (doublings or halvings), not hours. In the sample above, $4$ halvings at $4$ hours each is $16$ hours, not $4$.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'How many hours until a doubling bacteria culture reaches a target, how many half-lives until a medicine drops to a safe level, or how many rounds of a single-elimination tournament are needed for $64$ teams ($2^x = 64$, so $6$ rounds) are all exponential equations.' },
   ],
   examples: [
@@ -174,6 +179,18 @@ export const U5L04: LessonContent = {
         { text: 'Check and interpret.', tex: '800\\left(\\tfrac{1}{2}\\right)^5 = \\tfrac{800}{32} = 25', why: 'Halving five times: $800 \\to 400 \\to 200 \\to 100 \\to 50 \\to 25$.' },
       ],
       answer: 'After $5$ hours, $25$ milligrams are left.',
+    },
+    {
+      title: 'Write the equation yourself',
+      kind: 'real-world',
+      problem: [{ t: 'p', text: 'A rumor is known by $6$ students, and the number who know it triples every $2$ days. Write an exponential equation and solve it to find when $486$ students know the rumor.' }],
+      steps: [
+        { text: 'Name the variable and build the model.', tex: '6 \\cdot 3^{\\frac{t}{2}} = 486', why: 'Let $t$ be the number of days. The count starts at $6$ and is multiplied by $3$ once every $2$ days, so after $t$ days it has tripled $\\frac{t}{2}$ times.' },
+        { text: 'Divide by the starting amount.', tex: '3^{\\frac{t}{2}} = 81', why: '$486 \\div 6 = 81$. Divide before working with the exponent, because the $6$ multiplies the power.' },
+        { text: 'Rewrite with the same base and set the exponents equal.', tex: '3^{\\frac{t}{2}} = 3^4 \;\\Longrightarrow\; \\frac{t}{2} = 4 \;\\Longrightarrow\; t = 8', why: '$81 = 3 \\cdot 3 \\cdot 3 \\cdot 3 = 3^4$. Equal powers of the same base have equal exponents.' },
+        { text: 'Check and interpret.', tex: '6 \\to 18 \\to 54 \\to 162 \\to 486', why: 'Four triplings, each taking $2$ days, is $8$ days.' },
+      ],
+      answer: 'After $8$ days, $486$ students know the rumor.',
     },
     {
       title: 'Both sides rewritten, with a fraction',
