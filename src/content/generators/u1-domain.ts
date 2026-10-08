@@ -52,7 +52,7 @@ function discreteProblem(rng: Rng, askDomain: boolean): Problem {
     skillId: 'S1.11',
     tags: ['real-world', 'word'],
     prompt: [p(ctx.story(P, N)), p(`What is the ${word} of $${ctx.f}$ in this situation? List the values in braces, like $\\{2, 4, 6\\}$.`)],
-    answer: { kind: 'solutions', values: key.map(String), variable: askDomain ? ctx.v : 'y' },
+    answer: { kind: 'solutions', values: key.map(String), variable: askDomain ? ctx.v : 'y', display: 'set' },
     inputHint: 'Type every value, separated by commas, inside braces like {2, 4, 6}.',
     hints: [
       `Can $${ctx.v}$ be a fraction here, like 2.5? Things you count come in whole numbers, so the ${word} is a list of separate values, not an interval.`,
@@ -91,7 +91,7 @@ function setBuilderProblem(rng: Rng, askDomain: boolean): Problem {
     skillId: 'S1.11',
     tags: [],
     prompt: [p(`The ${word} of a function is $${intervalToTex(iv)}$. Write the ${word} in set-builder notation.`)],
-    answer: { kind: 'interval', value: sb(iv) },
+    answer: { kind: 'interval', value: sb(iv), form: 'set-builder' },
     inputHint: `Type set-builder notation like {${v} | ${v} >= 2} or {${v} | -1 < ${v} <= 4}. Use >= for ≥ and <= for ≤.`,
     hints: [
       `Set-builder notation looks like $\\{${v} \\mid \\text{condition}\\}$, read "all $${v}$ such that the condition is true." ${askDomain ? 'A domain describes inputs, so use $x$.' : 'A range describes outputs, so use $y$.'}`,
