@@ -22,6 +22,8 @@ An offline Windows desktop app that teaches Georgia's 9th-grade **Algebra: Conce
 
 **Forgot the Parent PIN:** Parent Mode → *Forgot the PIN?* → enter the recovery code. A new recovery code is issued.
 
+**Something not working?** See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): installer warnings, startup errors, recovered or unsaved data, a forgotten PIN, moving to a new computer.
+
 ## For developers
 
 Requirements: Node.js 22+, npm. Windows is required only to produce `Setup.exe` (or use the GitHub Actions workflow).
