@@ -12,5 +12,8 @@ export default defineConfig({
     globals: true,
     include: ['tests/**/*.test.ts'],
     testTimeout: 60000,
+    setupFiles: ['tests/setup/yield.ts'],
+    // Separate processes are more robust than worker threads on Windows CI.
+    pool: 'forks',
   },
 });
