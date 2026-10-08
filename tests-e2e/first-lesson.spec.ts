@@ -194,6 +194,14 @@ test('first lesson, start to finish, in the real UI', async ({ page }) => {
   await shot(page, 'weekly-report');
   await page.getByRole('tab', { name: 'Time & support' }).click();
   await expect(page.locator('.card').filter({ hasText: 'Support used' })).toContainText('Teach Me Again');
+  // the standards view: every expectation, where it is taught, and this student's progress
+  await page.getByRole('tab', { name: 'Standards' }).click();
+  await expect(page.locator('.standard-row')).toHaveCount(46);
+  await page.getByLabel('Search').fill('A.FGR.2.4');
+  await expect(page.locator('.standard-row')).toHaveCount(1);
+  await page.locator('.standard-row summary').click();
+  await expect(page.locator('.standard-detail')).toContainText('Functions and Function Notation (done)');
+  await shot(page, 'parent-standards');
 
   expect(errors).toEqual([]);
 });
