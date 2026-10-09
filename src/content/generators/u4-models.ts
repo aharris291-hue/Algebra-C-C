@@ -305,7 +305,9 @@ export const genMaxMin: GeneratorDef = {
       const { a, b, h, k } = vertexOf(c.f, c.v);
       const name = c.fTex.charAt(0);
       if (askBoth) {
-        const lab = (kind: string, val: Rational, at: Rational) => `A ${kind} of $${val.toTex()}$ ${c.unit}, when $${c.v} = ${at.toTex()}$ ${c.whenUnit}`;
+        // "1 foot", "1 second", "1 dollar": a unit after exactly 1 is singular
+        const one = (val: Rational, unit: string) => (val.eq(Q(1)) ? unit.replace(/feet$/, 'foot').replace(/s$/, '') : unit);
+        const lab = (kind: string, val: Rational, at: Rational) => `A ${kind} of $${val.toTex()}$ ${one(val, c.unit)}, when $${c.v} = ${at.toTex()}$ ${one(at, c.whenUnit)}`;
         const correct = lab('maximum', k, h);
         const answer = makeChoice(rng, correct, [lab('minimum', k, h), lab('maximum', h, k), lab('maximum', k, h.mul(2))]);
         return makeProblem({
