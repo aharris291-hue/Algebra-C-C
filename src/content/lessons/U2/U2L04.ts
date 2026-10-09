@@ -191,7 +191,7 @@ export const U2L04: LessonContent = {
       problem: [{ t: 'p', text: 'Dev builds birdhouses and stools. He can bring at most 10 items, a birdhouse takes 2 hours and a stool takes 3 hours, and he has at most 24 hours. The profit is \\$9 per birdhouse and \\$12 per stool. Which plan gives the greatest profit?' }],
       steps: [
         { text: 'Write the constraints and the profit.', tex: 'x + y \\le 10,\\quad 2x + 3y \\le 24,\\quad x \\ge 0,\\ y \\ge 0, \\qquad P = 9x + 12y', why: 'One inequality per limit; counts cannot be negative. Profit is (profit per item) times (how many), added.' },
-        { text: 'Find where the two boundary lines cross.', tex: 'y = 10 - x \;\\Rightarrow\; 2x + 3(10 - x) = 24 \;\\Rightarrow\; 30 - x = 24 \;\\Rightarrow\; x = 6,\\ y = 4', why: 'At the crossing point both limits are used up exactly.' },
+        { text: 'Find where the two boundary lines cross.', tex: 'y = 10 - x \\;\\Rightarrow\\; 2x + 3(10 - x) = 24 \\;\\Rightarrow\\; 30 - x = 24 \\;\\Rightarrow\\; x = 6,\\ y = 4', why: 'At the crossing point both limits are used up exactly.' },
         { text: 'List all the corners.', tex: '(0, 0),\\ (10, 0),\\ (6, 4),\\ (0, 8)', why: '$(10, 0)$ is where the items line meets the $x$-axis ($2 \\cdot 10 = 20 \\le 24$, so the hours are fine), and $(0, 8)$ is where the hours line meets the $y$-axis ($3 \\cdot 8 = 24$).' },
         { text: 'Evaluate the profit at each corner.', tex: 'P(0,0) = 0,\\quad P(10,0) = 90,\\quad P(6,4) = 54 + 48 = 102,\\quad P(0,8) = 96', why: 'The greatest value of a linear expression over the region is at a corner, so these four checks are enough.' },
       ],

@@ -110,7 +110,7 @@ export const U1L04: LessonContent = {
         { t: 'graph', spec: { xMin: 0, xMax: 16, yMin: 0, yMax: 40, xStep: 2, yStep: 5, xLabel: 'time (hours)', yLabel: 'candle height (cm)', functions: [{ expr: '-2.5x + 30', domain: [0, 12] }], points: [{ x: 0, y: 30, label: '(0, 30)' }, { x: 12, y: 0, label: '(12, 0)' }], ariaLabel: 'A line graph with time in hours across and candle height in centimeters up, falling from (0, 30) to (12, 0).' } },
       ],
       steps: [
-        { text: 'Read the starting value from the vertical axis.', tex: '(0, 30) \;\\Rightarrow\; b = 30', why: 'At 0 hours the candle is 30 cm tall. The point where the input is 0 gives the constant term.' },
+        { text: 'Read the starting value from the vertical axis.', tex: '(0, 30) \\;\\Rightarrow\\; b = 30', why: 'At 0 hours the candle is 30 cm tall. The point where the input is 0 gives the constant term.' },
         { text: 'Find the rate from the two marked points.', tex: 'm = \\frac{0 - 30}{12 - 0} = -\\frac{30}{12} = -2.5', why: 'Change in output over change in input. The graph falls, so the rate is negative: the candle loses 2.5 cm each hour.' },
         { text: 'Write the rule and check.', tex: 'H(t) = -2.5t + 30; \\quad H(12) = -30 + 30 = 0 \\checkmark', why: 'Rate times input plus starting value. The other marked point fits.' },
       ],

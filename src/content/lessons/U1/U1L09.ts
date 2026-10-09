@@ -130,7 +130,7 @@ export const U1L09: LessonContent = {
       steps: [
         { text: 'Turn the length fact into an area fact.', tex: '1 \\text{ yd}^2 = (3 \\text{ ft})(3 \\text{ ft}) = 9 \\text{ ft}^2', why: 'A square yard is 3 feet long and 3 feet wide, so it holds a 3-by-3 grid of square feet.' },
         { text: 'Convert.', tex: '54 \\text{ ft}^2 \\cdot \\frac{1 \\text{ yd}^2}{9 \\text{ ft}^2} = 6 \\text{ yd}^2', why: 'The conversion factor equals 1, and square feet cancel. Square yards are bigger, so there are fewer of them.' },
-        { text: 'Check the common mistake.', tex: '54 \\div 3 = 18 \;(\\text{wrong})', why: 'Dividing by 3 only converts one dimension. Area needs the factor twice.' },
+        { text: 'Check the common mistake.', tex: '54 \\div 3 = 18 \\;(\\text{wrong})', why: 'Dividing by 3 only converts one dimension. Area needs the factor twice.' },
       ],
       answer: '$6$ square yards',
     },

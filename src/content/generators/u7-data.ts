@@ -897,6 +897,8 @@ function summaryCompare(rng: Rng) {
   const tight = sa < sb ? g.a : g.b;
   const loose = sa < sb ? g.b : g.a;
   const center = centerPhrase(ma, mb, g.a, g.b);
+  // name a group that does NOT have the greater mean, so this distractor is false, not just badly reasoned
+  const lowerMean = ma === mb ? loose : ma > mb ? g.b : g.a;
   const correct = `${center}, and ${spreadPhrase(tight)}.`;
   const wrongCenter = ma === mb ? `${((w: string) => `${w} ${has(w)}`)(rng.pick([g.a, g.b]))} the greater mean` : rng.bool() ? `${g.a} and ${g.b} have the same mean` : `${ma > mb ? g.b : g.a} ${has(ma > mb ? g.b : g.a)} the greater mean`;
   return makeProblem({
@@ -906,7 +908,7 @@ function summaryCompare(rng: Rng) {
       p(`The table summarizes the ${g.what} for ${g.a} and ${g.b} (in ${g.unit}). Both distributions are roughly symmetric with no outliers. Which conclusion is supported by the summaries?`),
       { t: 'table', headers: ['Group', 'Mean', 'Standard deviation'], rows: [[g.a, String(ma), String(sa)], [g.b, String(mb), String(sb)]] },
     ],
-    answer: makeChoice(rng, correct, [`${center}, and ${loose} ${is(loose)} more consistent (larger standard deviation).`, `${wrongCenter}, and ${spreadPhrase(tight)}.`, `${loose} ${has(loose)} the greater mean, because ${plural(loose) ? 'their' : 'its'} standard deviation is larger.`]),
+    answer: makeChoice(rng, correct, [`${center}, and ${loose} ${is(loose)} more consistent (larger standard deviation).`, `${wrongCenter}, and ${spreadPhrase(tight)}.`, `${lowerMean} ${has(lowerMean)} the greater mean, because ${plural(lowerMean) ? 'their' : 'its'} standard deviation is larger.`]),
     hints: ['Compare centers with the means.', 'Compare spreads with the standard deviations.', 'A smaller standard deviation means the values stay closer to the mean.', 'Values that stay close together are more consistent.'],
     solution: [
       { text: 'Compare the means.', tex: `${ma} \\text{ vs } ${mb}`, why: ma === mb ? 'The means are equal, so the typical values are the same.' : 'The greater mean is the higher typical value.' },

@@ -196,7 +196,9 @@ function quadrantGraphChoice(rng: Rng, difficulty: number) {
     const ks: number[] = [];
     // a realistic total for the situation (a theater show brings in hundreds of dollars)
     const minTotal = ctx.key === 'theater' ? 200 : ctx.key === 'jobs' ? 100 : 20;
-    for (let k = 1; k <= 30; k++) if (B * k <= 60 && A * k <= 60 && Math.min(A, B) * k >= 3 && A * B * k >= minTotal) ks.push(k);
+    // and a realistic count: a student works at most about 25 hours a week (the same cap as this context's other problems)
+    const maxCount = ctx.key === 'jobs' ? ctx.n[1] : 60;
+    for (let k = 1; k <= 30; k++) if (B * k <= maxCount && A * k <= maxCount && Math.min(A, B) * k >= 3 && A * B * k >= minTotal) ks.push(k);
     if (!ks.length) return quadrantGraphChoice(rng, difficulty);
     const k = rng.pick(ks);
     C = A * B * k;

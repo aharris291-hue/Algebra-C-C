@@ -67,7 +67,7 @@ function discreteProblem(rng: Rng, askDomain: boolean): Problem {
       { text: `Write the ${word}.`, tex: setTex(key), why: askDomain ? 'These are the only inputs that make sense.' : `Writing $[${outs[0]}, ${outs[N - 1]}]$ would wrongly include ${ctx.outWord} that no whole number of inputs can make.` },
     ],
     misconceptions: [
-      { answer: [0, ...key].join('|'), tag: 'interval-endpoint', feedback: 'Each customer buys at least 1, so 0 is not allowed here.' },
+      { answer: [0, ...key].join('|'), tag: 'interval-endpoint', feedback: 'The story says at least 1, so 0 is not allowed here.' },
       { answer: (askDomain ? outs : ins).join('|'), tag: 'graph-reading', feedback: askDomain ? 'Those are the outputs (the range). The domain is the list of allowed inputs.' : 'Those are the inputs (the domain). The range is the list of outputs.' },
     ],
   });

@@ -187,7 +187,7 @@ export const U5L04: LessonContent = {
       steps: [
         { text: 'Name the variable and build the model.', tex: '6 \\cdot 3^{\\frac{t}{2}} = 486', why: 'Let $t$ be the number of days. The count starts at $6$ and is multiplied by $3$ once every $2$ days, so after $t$ days it has tripled $\\frac{t}{2}$ times.' },
         { text: 'Divide by the starting amount.', tex: '3^{\\frac{t}{2}} = 81', why: '$486 \\div 6 = 81$. Divide before working with the exponent, because the $6$ multiplies the power.' },
-        { text: 'Rewrite with the same base and set the exponents equal.', tex: '3^{\\frac{t}{2}} = 3^4 \;\\Longrightarrow\; \\frac{t}{2} = 4 \;\\Longrightarrow\; t = 8', why: '$81 = 3 \\cdot 3 \\cdot 3 \\cdot 3 = 3^4$. Equal powers of the same base have equal exponents.' },
+        { text: 'Rewrite with the same base and set the exponents equal.', tex: '3^{\\frac{t}{2}} = 3^4 \\;\\Longrightarrow\\; \\frac{t}{2} = 4 \\;\\Longrightarrow\\; t = 8', why: '$81 = 3 \\cdot 3 \\cdot 3 \\cdot 3 = 3^4$. Equal powers of the same base have equal exponents.' },
         { text: 'Check and interpret.', tex: '6 \\to 18 \\to 54 \\to 162 \\to 486', why: 'Four triplings, each taking $2$ days, is $8$ days.' },
       ],
       answer: 'After $8$ days, $486$ students know the rumor.',
