@@ -1497,3 +1497,139 @@ figcaption {
   gap: 0.6rem;
   margin-top: 0.8rem;
 }
+
+/* Parent Mode standards view */
+.standards-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 0;
+}
+.standard-row {
+  border-top: 1px solid var(--border, #e3e6ef);
+  padding: 0.5rem 0;
+}
+.standard-row summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  align-items: baseline;
+}
+.standard-text {
+  flex: 1 1 24rem;
+}
+.standard-progress {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.standard-detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem 0.8rem;
+  margin: 0.5rem 0 0.2rem 1rem;
+}
+.standard-detail dt {
+  font-weight: 600;
+}
+.standard-detail dd {
+  margin: 0;
+}
+
+/* graphing tool */
+.gt-launch {
+  position: fixed;
+  right: 1.2rem;
+  bottom: 1.2rem;
+  z-index: 20;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  background: var(--surface);
+}
+.graphing-tool {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 100vw);
+  z-index: 30;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -6px 0 22px rgba(0, 0, 0, 0.16);
+  padding: 0.8rem 1rem 1.4rem;
+}
+.gt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.gt-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.gt-rows {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
+.gt-row {
+  display: grid;
+  grid-template-columns: 0.9rem 1fr;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+}
+.gt-row input {
+  font-family: var(--mono, monospace);
+  font-size: 1rem;
+  padding: 0.35rem 0.5rem;
+}
+.gt-swatch {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  margin-right: 0.2rem;
+}
+.gt-error {
+  grid-column: 2;
+  color: var(--danger, #b3261e);
+  font-size: 0.85rem;
+}
+.gt-window {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+}
+.gt-window label {
+  display: grid;
+  font-size: 0.85rem;
+}
+.gt-window input {
+  width: 5.2rem;
+}
+.gt-poi ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0;
+}
+.gt-poi h3 {
+  margin: 0.6rem 0 0.2rem;
+  font-size: 1rem;
+}
+.gt-table table {
+  border-collapse: collapse;
+  margin-top: 0.4rem;
+}
+.gt-table td,
+.gt-table th {
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.8rem;
+  text-align: right;
+}
+.gt-data textarea {
+  width: 100%;
+  font-family: var(--mono, monospace);
+}
+.gt-fit {
+  font-weight: 600;
+}

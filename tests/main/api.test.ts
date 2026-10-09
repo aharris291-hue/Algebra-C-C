@@ -122,4 +122,29 @@ describe('AcademyApi', () => {
     expect((await api.previewAnswer('[2, 5)', 'interval')).tex).toBe('[2, 5)');
     expect((await api.previewAnswer('(3,-2)', 'point')).error).toBeNull();
   });
+
+  it('standards view: every expectation, where it is taught, and the student\'s progress (parent only)', async () => {
+    const { api, ctx } = await setup();
+    await api.setupParent(PIN);
+    const p = await api.createProfile(PIN, 'Ana', 'spark');
+    await expect(api.getStandardsProgress('0000', p.id)).rejects.toThrow();
+    let rows = await api.getStandardsProgress(PIN, p.id);
+    const { EXPECTATIONS, LESSON_BY_ID } = await import('../../src/content');
+    expect(rows.map((r) => r.code)).toEqual(EXPECTATIONS.map((e) => e.code));
+    for (const r of rows) {
+      expect(r.skills.length, r.code).toBeGreaterThan(0);
+      expect(r.taught.length, r.code).toBeGreaterThan(0);
+      expect(r.assessed.length, r.code).toBeGreaterThan(0);
+      for (const l of [...r.taught, ...r.reviewed, ...r.assessed]) expect(LESSON_BY_ID.get(l.id)!.title).toBe(l.title);
+      expect(r.percentProficient).toBe(0);
+    }
+    expect(rows.find((r) => r.code === 'A.FGR.2.4')!.taught[0]).toMatchObject({ id: 'U1L01', status: 'available' });
+    // progress follows the student's skill states
+    ctx.db.run("INSERT INTO skill_state(profile_id, skill_id, stage, score, evidence_count, updated_at) VALUES (?, 'S1.01', 'PROFICIENT', 0.9, 5, 0)", [p.id]);
+    rows = await api.getStandardsProgress(PIN, p.id);
+    const fgr24 = rows.find((r) => r.code === 'A.FGR.2.4')!;
+    const n = fgr24.skills.length;
+    expect(fgr24.skills.find((s) => s.skillId === 'S1.01')!.stage).toBe('PROFICIENT');
+    expect(fgr24.percentProficient).toBe(Math.round(100 / n));
+  });
 });

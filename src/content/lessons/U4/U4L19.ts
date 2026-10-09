@@ -68,6 +68,19 @@ export const U4L19: LessonContent = {
     },
     { t: 'callout', variant: 'warning', title: 'Compare the feature, not the coefficient', text: 'A bigger $a$ does not mean a bigger maximum. The maximum is the $y$-value of the vertex, $k$. The value of $a$ tells how narrow the parabola is and which way it opens, which affects rates of change but not the height of the vertex.' },
     { t: 'callout', variant: 'tip', title: 'A table may not show the vertex', text: 'If the outputs in a table do not turn around, the vertex is not in the table. Use matching outputs to find the axis: if $g(0) = g(6)$, the axis is $x = 3$, halfway between.' },
+    { t: 'p', text: '### Quadratic versus linear: the quadratic eventually wins' },
+    { t: 'p', text: 'Compare $f(x) = x^2$ with the linear function $g(x) = 10x + 24$. At first $g$ is far ahead: $g(0) = 24$ but $f(0) = 0$. Look at how each one grows on intervals of length $1$:' },
+    {
+      t: 'table',
+      caption: 'Outputs and differences for f(x) = x squared and g(x) = 10x + 24. The linear differences stay at 10; the quadratic differences keep growing by 2.',
+      headers: ['$x$', '$0$', '$1$', '$2$', '$3$', '$\\ldots$', '$11$', '$12$', '$13$'],
+      rows: [
+        ['$f(x) = x^2$', '$0$', '$1$', '$4$', '$9$', '$\\ldots$', '$121$', '$144$', '$169$'],
+        ['$g(x) = 10x + 24$', '$24$', '$34$', '$44$', '$54$', '$\\ldots$', '$134$', '$144$', '$154$'],
+      ],
+    },
+    { t: 'p', text: 'The linear function has **equal differences**: it always grows by $10$. The quadratic\'s differences are $1, 3, 5, 7, \\ldots$, growing by $2$ each step, so once they pass $10$ (from $x = 5$ to $x = 6$ the difference is $11$), $f$ gains on $g$ every step. They are equal at $x = 12$ ($144 = 144$), and from $x = 13$ on, $f(x) > g(x)$ for good.' },
+    { t: 'callout', variant: 'why', title: 'Why a quadratic always overtakes a linear function', text: 'A linear function adds the same amount every step. An upward-opening quadratic adds a little more each step than the step before, so its step size eventually beats any fixed amount, and after that the gap only grows. To find where it passes, make a table or solve $f(x) = g(x)$: here $x^2 = 10x + 24$ gives $(x - 12)(x + 2) = 0$, so $x = 12$.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'One friend\'s app shows a jump as a graph, another\'s gives a table of heights, and a coach describes a third in words. To decide whose jump went highest, you find the maximum of each first.' },
   ],
   examples: [
@@ -343,6 +356,7 @@ export const U4L19: LessonContent = {
     'The maximum or minimum is the $y$-value of the vertex; the axis of symmetry is the $x$-value of the vertex, $x = h$.',
     'In a table, the vertex is where the outputs turn around, and the axis is halfway between matching outputs; in factored form, it is the midpoint of the zeros.',
     'Watch the sign in vertex form: $-(x + 4)^2 + 6$ has vertex $(-4, 6)$, and a bigger $a$ does not mean a bigger maximum.',
+    'A linear function grows by equal differences; an upward-opening quadratic\'s differences keep increasing, so it eventually exceeds any linear function: $x^2$ passes $10x + 24$ after $x = 12$.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },
 };

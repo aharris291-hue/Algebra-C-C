@@ -62,6 +62,7 @@ export const ARG_SCHEMA: Record<keyof AcademyApi, ArgType[]> = {
   getWeeklyReport: ['string', 'int', 'string?'],
   getSkillMastery: ['int'],
   getStandards: [],
+  getStandardsProgress: ['string', 'int'],
   getAssessmentDetail: ['string', 'int', 'int'],
   exportBackup: ['string'],
   inspectBackup: ['string', 'string'],

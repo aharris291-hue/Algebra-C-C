@@ -93,6 +93,11 @@ export const U8L04: LessonContent = {
     { t: 'p', text: 'Same answer, and the box method does not need a right angle. It works for **any** triangle or polygon drawn on a grid.' },
     { t: 'callout', variant: 'why', title: 'Why subtracting works', text: 'The box is made of the triangle plus the corner pieces, with no overlaps and no gaps. So box $=$ triangle $+$ corners, which means triangle $=$ box $-$ corners. Every corner piece has horizontal and vertical legs, so its area is easy to find.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Surveyors find the area of a plot of land from the coordinates of its corners, landscapers use perimeter to buy fencing and edging, and builders use area to order flooring, sod or paint.' },
+
+    { t: 'p', text: '### Areas of parallelograms, rhombuses and squares' },
+    { t: 'p', text: 'Any parallelogram (rhombuses included) has area **base × height**, where the height is the perpendicular distance between the base and the opposite side, not the length of a slanted side. For $A(0, 0)$, $B(5, 0)$, $C(7, 3)$, $D(2, 3)$, the base $AB$ is $5$ and the height is the vertical distance $3$, so the area is $15$ (the slanted side $AD = \\sqrt{13}$ is not the height). For a tilted square, find one side with the distance formula; the area is side$^2$, so for a side from $(0, 0)$ to $(1, 2)$ the area is $1^2 + 2^2 = 5$.' },
+    { t: 'p', text: '### Sides with unknown lengths' },
+    { t: 'p', text: 'When side lengths are expressions, write the perimeter (or area) formula with them and solve. A rectangle with length $x + 4$ and width $x$ has perimeter $2(x + 4) + 2x = 4x + 8$. If the perimeter is $28$, then $4x + 8 = 28$, so $x = 5$, the sides are $9$ and $5$, and the area is $45$.' },
   ],
   examples: [
     {
@@ -180,6 +185,20 @@ export const U8L04: LessonContent = {
         { text: 'Check with the box method.', tex: '5 \\times 5 - \\left(\\tfrac{1}{2}(3)(3) + \\tfrac{1}{2}(2)(2) + \\tfrac{1}{2}(3)(3) + \\tfrac{1}{2}(2)(2)\\right) = 25 - 13 = 12 \\; \\checkmark', why: 'The box runs from $x = -1$ to $4$ and $y = 0$ to $5$. Its four corner triangles have legs $3$ and $3$ (two of them) and $2$ and $2$ (two of them).' },
       ],
       answer: 'All slopes are $1$ or $-1$, so every angle is a right angle. Perimeter $10\\sqrt{2} \\approx 14.1$ units; area $12$ square units.',
+    },
+
+    {
+      title: 'Solving for an unknown side',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: '(a) A rectangle has length $x + 4$ and width $x$, in units, and perimeter $28$ units. Find $x$ and the area. (b) Each side of a rhombus is $2x - 1$ units, and its perimeter is $36$ units. Find $x$ and the side length.' }],
+      steps: [
+        { text: '(a) Write the perimeter equation.', tex: '2(x + 4) + 2x = 28', why: 'A rectangle has two lengths and two widths.' },
+        { text: 'Solve.', tex: '4x + 8 = 28 \\Rightarrow 4x = 20 \\Rightarrow x = 5', why: 'Combine like terms, then undo the addition and the multiplication.' },
+        { text: 'Find the area.', tex: '(5 + 4)(5) = 9 \\cdot 5 = 45', why: 'Substitute $x = 5$ into each side, then use length × width. The answer is $45$ square units, not $x$.' },
+        { text: '(b) All four sides of a rhombus are equal.', tex: '4(2x - 1) = 36 \\Rightarrow 2x - 1 = 9 \\Rightarrow x = 5', why: 'Divide both sides by $4$ first, then solve.' },
+        { text: 'Find the side length.', tex: '2(5) - 1 = 9', why: 'Check: $4 \\cdot 9 = 36$.' },
+      ],
+      answer: '(a) $x = 5$ and the area is $45$ square units. (b) $x = 5$ and each side is $9$ units.',
     },
   ],
   teachMeAgain: [

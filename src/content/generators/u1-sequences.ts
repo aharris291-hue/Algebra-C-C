@@ -4,7 +4,7 @@
  * verify() always re-derives values by repeated addition (the recursive definition),
  * which is a different route from the explicit formula the generator uses.
  */
-import type { GeneratorDef, Rng, Difficulty } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, Difficulty, Problem } from '../../core/curriculum/types';
 import type { Misconception } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
 import { linearPlain, linearTex } from '../../core/math/format';
@@ -49,6 +49,135 @@ function iterate(a1: Rational, d: Rational, n: number): Rational {
 }
 
 // ---------------------------------------------------------------------------
+// Arithmetic sequences in real situations
+// ---------------------------------------------------------------------------
+
+interface SeqContext {
+  story: (a1: number, d: number) => string;
+  /** reads a_1 and d back out of the story */
+  parse: RegExp;
+  /** what a_n means, with n in TeX */
+  term: string;
+  /** "How many seats are in row 15?" */
+  ask: (n: number) => string;
+  unit: string;
+  a1: [number, number];
+  d: [number, number];
+}
+
+const SEQ_CONTEXTS: SeqContext[] = [
+  {
+    story: (a, d) => `Row 1 of a theater has ${a} seats, and each row after that has ${d} more seats than the row before it.`,
+    parse: /Row 1 of a theater has (\d+) seats, and each row after that has (\d+) more seats/,
+    term: 'the number of seats in row $n$',
+    ask: (n) => `How many seats are in row ${n}?`,
+    unit: 'seats',
+    a1: [16, 30],
+    d: [2, 6],
+  },
+  {
+    story: (a, d) => `Renting a bike costs \\$${a} for 1 day, and each extra day adds \\$${d} to the cost.`,
+    parse: /costs \\\$(\d+) for 1 day, and each extra day adds \\\$(\d+)/,
+    term: 'the cost, in dollars, of renting the bike for $n$ days',
+    ask: (n) => `How much does it cost, in dollars, to rent the bike for ${n} days?`,
+    unit: 'dollars',
+    a1: [15, 30],
+    d: [5, 12],
+  },
+  {
+    story: (a, d) => `Maya runs ${a} minutes in week 1 of a training plan, and each week she runs ${d} minutes more than the week before.`,
+    parse: /runs (\d+) minutes in week 1 of a training plan, and each week she runs (\d+) minutes more/,
+    term: 'the number of minutes Maya runs in week $n$',
+    ask: (n) => `How many minutes will Maya run in week ${n}?`,
+    unit: 'minutes',
+    a1: [10, 20],
+    d: [2, 5],
+  },
+  {
+    story: (a, d) => `One stacking chair is ${a} inches tall. Each chair added to the stack makes it ${d} inches taller.`,
+    parse: /One stacking chair is (\d+) inches tall\. Each chair added to the stack makes it (\d+) inches taller/,
+    term: 'the height, in inches, of a stack of $n$ chairs',
+    ask: (n) => `How tall, in inches, is a stack of ${n} chairs?`,
+    unit: 'inches',
+    a1: [30, 36],
+    d: [2, 4],
+  },
+];
+
+function seqContextProblem(rng: Rng, difficulty: Difficulty): Problem {
+  const ctx = rng.pick(SEQ_CONTEXTS);
+  const a1 = Q(rng.int(ctx.a1[0], ctx.a1[1]));
+  const d = Q(rng.int(ctx.d[0], ctx.d[1]));
+  const formula = explicitPlain(a1, d);
+  const story = ctx.story(a1.toNumber(), d.toNumber());
+  const buildHints: [string, string] = [
+    `Term 1 is the first value in the story, and the common difference is the amount added each time.`,
+    'Substitute them into $a_n = a_1 + (n - 1)d$, then simplify.',
+  ];
+  const buildSteps = [
+    { text: 'Identify the first term and the common difference.', tex: `a_1 = ${a1.toTex()}, \\quad d = ${d.toTex()}`, why: `The story starts at ${a1.toTex()} ${ctx.unit} and adds ${d.toTex()} each time, so the values form an arithmetic sequence.` },
+    { text: 'Write the explicit formula.', tex: `a_n = ${a1.toTex()} + (n - 1)(${d.toTex()}) = ${explicitTex(a1, d)}`, why: `To reach term $n$ from term 1 you add $d$ exactly $n - 1$ times.` },
+  ];
+  if (difficulty === 2) {
+    return makeProblem({
+      skillId: 'S1.12',
+      tags: ['real-world', 'word'],
+      prompt: [p(story), p(`Let $a_n$ be ${ctx.term}. Write an explicit formula for $a_n$.`)],
+      answer: { kind: 'expression', value: formula, variables: ['n'] },
+      inputHint: 'Type a formula in n, like 3 + (n - 1)5 or 5n - 2. You can start with a_n = .',
+      hints: ['An amount that grows by the same number each step is an arithmetic sequence.', ...buildHints, 'Check: your formula should give the first value in the story when $n = 1$.'],
+      solution: [...buildSteps, { text: 'Check with $n = 2$.', tex: `${explicitTex(a1, d).replace(/n/g, '(2)')} = ${term(a1, d, 2).toTex()}`, why: `That is ${a1.toTex()} + ${d.toTex()}, the second value.` }],
+      misconceptions: [
+        { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $n = 1$: your formula should give the first value. Use $(n - 1)d$, not $nd$.' },
+        { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The amount added each time multiplies $(n - 1)$; the first value is added on.' },
+      ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula)))),
+    });
+  }
+  const n = rng.int(12, 30);
+  const an = term(a1, d, n);
+  return makeProblem({
+    skillId: 'S1.12',
+    tags: ['real-world', 'word', 'multi-step'],
+    prompt: [p(story), p(ctx.ask(n))],
+    answer: { kind: 'number', value: numStr(an), unit: ctx.unit },
+    hints: ['Write an explicit formula first, so you do not have to list every term.', ...buildHints, `Then evaluate your formula at $n = ${n}$.`],
+    solution: [...buildSteps, { text: `Evaluate at $n = ${n}$.`, tex: `a_{${n}} = ${a1.toTex()} + (${n} - 1)(${d.toTex()}) = ${a1.toTex()} + ${d.mul(n - 1).toTex()} = ${an.toTex()}`, why: `There are ${n - 1} steps of ${d.toTex()} between term 1 and term ${n}.` }],
+    misconceptions: numberMisconceptions(an, [
+      { value: a1.add(d.mul(n)), tag: 'sequence-index', feedback: `From term 1 to term ${n} there are ${n - 1} steps, not ${n}.` },
+      { value: d.mul(n), tag: 'sequence-index', feedback: 'Start from the first value, then add the steps.' },
+    ]),
+    steps: [
+      {
+        prompt: [p(`Let $a_n$ be ${ctx.term}. Write an explicit formula for $a_n$.`)],
+        answer: { kind: 'expression', value: formula, variables: ['n'] },
+        inputHint: 'Type a formula in n. You can start with a_n = .',
+        hints: buildHintsFour(buildHints),
+        explanation: `$a_n = ${explicitTex(a1, d)}$.`,
+      },
+      {
+        prompt: [p(`Now use your formula: find $a_{${n}}$.`)],
+        answer: { kind: 'number', value: numStr(an) },
+        hints: [`Substitute $n = ${n}$.`, 'Multiply first, then add.', `$${d.toTex()} \\cdot ${n}$ comes first.`, 'Then add the constant term.'],
+        explanation: `$a_{${n}} = ${an.toTex()}$ ${ctx.unit}.`,
+      },
+    ],
+  });
+}
+
+function buildHintsFour(h: [string, string]): [string, string, string, string] {
+  return ['Find the first value and the amount added each time.', h[0], h[1], 'Check the formula at $n = 1$.'];
+}
+
+/** Re-read a situation's first term and common difference from its story. */
+function parseSeqContext(text: string): { a1: Rational; d: Rational } | null {
+  for (const c of SEQ_CONTEXTS) {
+    const mm = c.parse.exec(text);
+    if (mm) return { a1: Rational.parse(mm[1]), d: Rational.parse(mm[2]) };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // S1.12: explicit formulas
 // ---------------------------------------------------------------------------
 
@@ -57,6 +186,7 @@ export const genSeqExplicit: GeneratorDef = {
   skillId: 'S1.12',
   description: 'Find the common difference, a far term, the explicit formula, or which term has a given value.',
   generate(rng, difficulty) {
+    if (difficulty > 1 && rng.int(0, 2) === 0) return seqContextProblem(rng, difficulty);
     const s = pickSeq(rng, difficulty);
     const { a1, d } = s;
     const listed = listTex(a1, d, 4);
@@ -170,6 +300,20 @@ export const genSeqExplicit: GeneratorDef = {
     });
   },
   verify(pr) {
+    const ctxSeq = parseSeqContext((pr.prompt[0] as { text?: string }).text ?? '');
+    if (ctxSeq) {
+      const a = pr.answer;
+      const errs: string[] = [];
+      if (a.kind === 'expression') {
+        const poly = toPoly(parseExpression(a.value));
+        for (let n = 1; n <= 6; n++) if (!poly.evaluate({ n: Q(n) }).eq(iterate(ctxSeq.a1, ctxSeq.d, n))) errs.push(`formula wrong at n = ${n}`);
+        return errs;
+      }
+      const nm = /(\d+)\D*$/.exec((pr.prompt[1] as { text: string }).text);
+      if (!nm || a.kind !== 'number') return ['cannot parse context ask'];
+      if (!Rational.parse(a.value).eq(iterate(ctxSeq.a1, ctxSeq.d, Number(nm[1])))) errs.push('term mismatch');
+      return errs;
+    }
     const mathBlock = pr.prompt.find((b) => b.t === 'math') as { tex: string };
     const ts = termsFrom(mathBlock.tex);
     const d = diffOf(ts);
@@ -216,7 +360,7 @@ export const genSeqRecursive: GeneratorDef = {
   description: 'Use a recursive formula to list terms or find a term; convert a recursive formula to an explicit one; choose the recursive formula for a sequence.',
   generate(rng, difficulty) {
     const { a1, d } = pickSeq(rng, difficulty);
-    const task = difficulty === 1 ? 'list' : difficulty === 2 ? rng.pick(['term', 'choose'] as const) : 'explicit';
+    const task = difficulty === 1 ? 'list' : difficulty === 2 ? rng.pick(['term', 'choose'] as const) : rng.pick(['explicit', 'toRecursive'] as const);
     const rec = recTex(a1, d);
     if (task === 'list') {
       const vals = [1, 2, 3, 4].map((n) => term(a1, d, n));
@@ -286,6 +430,32 @@ export const genSeqRecursive: GeneratorDef = {
         misconceptions: [],
       });
     }
+    if (task === 'toRecursive') {
+      const ex = explicitTex(a1, d);
+      const c0 = a1.sub(d);
+      return makeProblem({
+        skillId: 'S1.13',
+        tags: ['multi-step'],
+        prompt: [p('An arithmetic sequence has this explicit formula:'), math(`a_n = ${ex}`), p('Complete its recursive formula $a_1 = \\square, \\quad a_n = a_{n-1} + \\square$. Type the two missing numbers in order, separated by a comma.')],
+        answer: { kind: 'sequence-terms', values: [numStr(a1), numStr(d)] },
+        inputHint: 'Type two numbers separated by a comma: first a_1, then the number added each time.',
+        hints: [
+          'A recursive formula needs two things: the first term $a_1$, and what you add to each term to get the next one.',
+          'Find $a_1$ by substituting $n = 1$ into the explicit formula.',
+          'The number multiplying $n$ is the common difference: each time $n$ goes up by 1, the term goes up by that much.',
+          'Check: substitute $n = 2$ as well. The difference $a_2 - a_1$ should be your second number.',
+        ],
+        solution: [
+          { text: 'Find the first term.', tex: `a_1 = ${ex.replace(/n/g, '(1)')} = ${a1.toTex()}`, why: 'The recursive formula has to start from the actual first term.' },
+          { text: 'Find the common difference.', tex: `a_2 = ${term(a1, d, 2).toTex()}, \\quad a_2 - a_1 = ${d.toTex()}`, why: 'In $a_n = dn + c$, the coefficient $d$ of $n$ is the amount added each step.' },
+          { text: 'Write the recursive formula.', tex: recTex(a1, d), why: 'Start at $a_1$, and add the common difference to get each next term.' },
+        ],
+        misconceptions: [
+          { answer: `${numStr(d)}|${numStr(a1)}`, tag: 'sequence-index' as const, feedback: 'Check the order: the first number is the first term $a_1$, the second is the amount added each time.' },
+          { answer: `${numStr(c0)}|${numStr(d)}`, tag: 'sequence-index' as const, feedback: 'The constant term of the explicit formula is the value at $n = 0$, not the first term. Substitute $n = 1$.' },
+        ].filter((mc) => mc.answer !== `${numStr(a1)}|${numStr(d)}`),
+      });
+    }
     // explicit from recursive
     const formula = explicitPlain(a1, d);
     return makeProblem({
@@ -321,6 +491,14 @@ export const genSeqRecursive: GeneratorDef = {
       const others = a.options.filter((o) => o.id !== a.correct).map((o) => parseRec(o.label.replace(/^\$|\$$/g, '')));
       if (others.some((o) => o && [1, 2, 3, 4].every((n) => iterate(o.a1, o.d, n).eq(ts[n - 1])))) return ['a distractor also fits'];
       return [];
+    }
+    if (/^a_n = /.test(mb.tex) && a.kind === 'sequence-terms') {
+      // explicit -> recursive: a_1 from n = 1, d from consecutive terms of the explicit formula
+      const poly = toPoly(parseExpression(texToExpr(mb.tex.replace(/^a_n = /, ''))));
+      const v1 = poly.evaluate({ n: Q(1) });
+      const dd = poly.evaluate({ n: Q(2) }).sub(v1);
+      if (!dd.eq(poly.evaluate({ n: Q(7) }).sub(poly.evaluate({ n: Q(6) })))) return ['not arithmetic'];
+      return a.values.length === 2 && Rational.parse(a.values[0]).eq(v1) && Rational.parse(a.values[1]).eq(dd) ? [] : ['recursive parts mismatch'];
     }
     const r = parseRec(mb.tex);
     if (!r) return ['cannot parse recursive formula'];

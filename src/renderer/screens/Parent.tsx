@@ -4,7 +4,7 @@
  * process on every protected call.
  */
 import { useEffect, useState } from 'react';
-import type { ParentDashboard, ProfileSummary, ResultsView, WeeklyReport, BackupInfo, AppStatus } from '../../shared/api';
+import type { ParentDashboard, ProfileSummary, ResultsView, WeeklyReport, BackupInfo, AppStatus, StandardProgress } from '../../shared/api';
 import { api, errorMessage, saveBackupFile, pickBackupFile, openDataFolder, printPage, isDesktop } from '../api';
 import { AVATAR_EMOJI, STAGE_LABEL, fmtDate, fmtMinutes } from '../labels';
 import { Results } from '../components/Results';
@@ -103,11 +103,12 @@ function PinGate(props: { onOk: (pin: string) => void; onCancel: () => void }) {
   );
 }
 
-type Tab = 'overview' | 'grades' | 'mastery' | 'assessments' | 'time' | 'report' | 'students' | 'data';
+type Tab = 'overview' | 'grades' | 'mastery' | 'standards' | 'assessments' | 'time' | 'report' | 'students' | 'data';
 const TABS: Array<[Tab, string]> = [
   ['overview', 'Overview'],
   ['grades', 'Grades'],
   ['mastery', 'Mastery'],
+  ['standards', 'Standards'],
   ['assessments', 'Assessments'],
   ['time', 'Time & support'],
   ['report', 'Weekly report'],
@@ -176,6 +177,7 @@ function ParentHome(props: { pin: string; onExit: () => void; onRestored: () => 
       {d && tab === 'overview' && <Overview d={d} />}
       {d && tab === 'grades' && <Grades d={d} />}
       {d && tab === 'mastery' && <MasteryTab d={d} />}
+      {d && tab === 'standards' && pid !== null && <StandardsTab pin={pin} pid={pid} />}
       {d && tab === 'assessments' && <Assessments d={d} pin={pin} />}
       {d && tab === 'time' && <TimeSupport d={d} />}
       {d && tab === 'report' && pid !== null && <Report pin={pin} pid={pid} />}
@@ -394,6 +396,96 @@ function MasteryTab({ d }: { d: ParentDashboard }) {
         </section>
       ))}
     </div>
+  );
+}
+
+const LESSON_STATUS_LABEL: Record<string, string> = { completed: 'done', tested_out: 'tested out', in_progress: 'in progress', available: 'next', locked: 'later', coming_soon: 'coming soon' };
+
+/** Every Georgia expectation: its text, where the course teaches, reviews and assesses it, and this student's progress. */
+function StandardsTab({ pin, pid }: { pin: string; pid: number }) {
+  const [rows, setRows] = useState<StandardProgress[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [idea, setIdea] = useState('all');
+  useEffect(() => {
+    setRows(null);
+    api.getStandardsProgress(pin, pid).then(setRows, (e) => setError(errorMessage(e)));
+  }, [pin, pid]);
+  if (error)
+    return (
+      <div className="error-box" role="alert">
+        {error}
+      </div>
+    );
+  if (!rows) return <p className="loading">Loading…</p>;
+  const ideas = [...new Set(rows.map((r) => r.bigIdea))];
+  const needle = q.trim().toLowerCase();
+  const shown = rows.filter((r) => (idea === 'all' || r.bigIdea === idea) && (!needle || `${r.code} ${r.text} ${r.skills.map((s) => s.name).join(' ')}`.toLowerCase().includes(needle)));
+  const list = (ls: StandardProgress['taught']) =>
+    ls.length ? (
+      ls.map((l, i) => (
+        <span key={l.id}>
+          {i > 0 && ', '}
+          {l.title} <span className="sub">({LESSON_STATUS_LABEL[l.status] ?? l.status})</span>
+        </span>
+      ))
+    ) : (
+      <span className="sub">spaced review inside lessons</span>
+    );
+  return (
+    <section className="card wide" aria-label="Georgia standards">
+      <h2>Georgia Algebra: Concepts &amp; Connections standards</h2>
+      <p className="sub">
+        {rows.length} expectations from the 2021 Georgia standards. The Mathematical Practices apply in every lesson. Progress is the share of each expectation's skills at Proficient or Mastered.
+      </p>
+      <div className="row-buttons">
+        <label className="field inline">
+          <span>Search</span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="A.FGR.7.3, slope, outliers…" />
+        </label>
+        <label className="field inline">
+          <span>Big idea</span>
+          <select value={idea} onChange={(e) => setIdea(e.target.value)}>
+            <option value="all">All</option>
+            {ideas.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <ul className="standards-list">
+        {shown.map((r) => (
+          <li key={r.code} className="standard-row">
+            <details>
+              <summary>
+                <b>{r.code}</b> <span className="sub">Unit {r.units.join(', ')}</span> <span className="standard-text">{r.text}</span>
+                <span className="standard-progress">{r.percentProficient}% proficient</span>
+              </summary>
+              <dl className="standard-detail">
+                <dt>Skills</dt>
+                <dd>
+                  {r.skills.map((s, i) => (
+                    <span key={s.skillId}>
+                      {i > 0 && ' '}
+                      {s.name} <span className={`stage stage-${s.stage}`}>{STAGE_LABEL[s.stage]}</span>
+                    </span>
+                  ))}
+                </dd>
+                <dt>Taught in</dt>
+                <dd>{list(r.taught)}</dd>
+                <dt>Reviewed in</dt>
+                <dd>{list(r.reviewed)}</dd>
+                <dt>Assessed in</dt>
+                <dd>{list(r.assessed)} <span className="sub">and every lesson quiz</span></dd>
+              </dl>
+            </details>
+          </li>
+        ))}
+      </ul>
+      {shown.length === 0 && <p>No standards match.</p>}
+    </section>
   );
 }
 

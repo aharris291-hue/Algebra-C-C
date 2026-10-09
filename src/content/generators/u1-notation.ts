@@ -174,12 +174,17 @@ export const genSolveFxGraph: GeneratorDef = {
         misconceptions: numberMisconceptions(Q(xs[i]), [{ value: wrongCol, tag: 'graph-reading', feedback: `That's $${f}(${c})$, the output when the input is $${c}$. Here $${c}$ is the output. Look for it in the $${f}(x)$ column.` }]),
       });
     }
-    const m = difficulty === 3 ? Q(rng.pick([1, -1, 3, -3]), 2) : Q(rng.nonzeroInt(-3, 3));
-    const b = Q(rng.int(-4, 4));
+    let m = Q(1);
+    let b = Q(0);
     const candidates: number[] = [];
-    for (let x = -6; x <= 6; x++) {
-      const y = m.mul(x).add(b);
-      if (y.isInteger() && Math.abs(y.toNumber()) <= 7 && x !== 0 && !y.eq(x)) candidates.push(x);
+    // y = x (slope 1, intercept 0) has no input that differs from its output, so pick the line again
+    while (!candidates.length) {
+      m = difficulty === 3 ? Q(rng.pick([1, -1, 3, -3]), 2) : Q(rng.nonzeroInt(-3, 3));
+      b = Q(rng.int(-4, 4));
+      for (let x = -6; x <= 6; x++) {
+        const y = m.mul(x).add(b);
+        if (y.isInteger() && Math.abs(y.toNumber()) <= 7 && x !== 0 && !y.eq(x)) candidates.push(x);
+      }
     }
     const a = rng.pick(candidates);
     const c = m.mul(a).add(b);

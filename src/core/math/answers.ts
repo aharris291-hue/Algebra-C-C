@@ -81,8 +81,8 @@ export type AnswerSpec =
   | { kind: 'point'; x: string; y: string }
   /** Any point that satisfies every constraint (inequalities in x and y) is correct; `example` is one such point. */
   | { kind: 'region-point'; constraints: string[]; example: { x: string; y: string }; wholeNumbers?: boolean }
-  | { kind: 'solutions'; values: string[]; variable?: string; roundTo?: number }
-  | { kind: 'interval'; value: string } // interval notation, set-builder or inequality accepted
+  | { kind: 'solutions'; values: string[]; variable?: string; roundTo?: number; display?: 'set' }
+  | { kind: 'interval'; value: string; form?: 'any' | 'set-builder' } // interval notation, set-builder or inequality accepted; 'set-builder' asks for {x | ...}
   | { kind: 'choice'; options: { id: string; label: string }[]; correct: string }
   | { kind: 'sequence-terms'; values: string[] };
 
@@ -1119,7 +1119,10 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
     case 'interval': {
       const got = parseInterval(rawInput);
       const target = parseInterval(spec.value);
-      if (intervalsEqual(got, target)) return ok();
+      if (intervalsEqual(got, target)) {
+        if (spec.form === 'set-builder' && !/^\s*\{.*\}\s*$/.test(rawInput)) return form('That is the right set. Now write it in set-builder notation, like {x | x >= 2}.');
+        return ok();
+      }
       const sameEnds =
         ((got.lo === null && target.lo === null) || (got.lo !== null && target.lo !== null && got.lo.eq(target.lo))) &&
         ((got.hi === null && target.hi === null) || (got.hi !== null && target.hi !== null && got.hi.eq(target.hi)));
@@ -1230,6 +1233,7 @@ export function answerToText(spec: AnswerSpec): string {
     case 'region-point':
       return `any point that makes ${spec.constraints.join(' and ')} true${spec.wholeNumbers ? ' (whole numbers)' : ''}, for example (${spec.example.x}, ${spec.example.y})`;
     case 'solutions':
+      if (spec.display === 'set') return `{${spec.values.join(', ')}}`;
       return spec.values.length === 0 ? 'no real solutions' : spec.values.map((v) => `${spec.variable ?? 'x'} = ${v}`).join(' or ');
     case 'interval':
       return spec.value;

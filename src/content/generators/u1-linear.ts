@@ -3,15 +3,15 @@
  * intercepts and key features.
  * S1.07 write linear functions, S1.08 convert forms, S1.09 intercepts, S1.10 key features.
  */
-import type { GeneratorDef, Rng, Difficulty } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, Difficulty, Block, GraphSpec, Problem } from '../../core/curriculum/types';
 import type { Misconception } from '../../core/math/answers';
 import { parseRelation, equationsEquivalent, parseInterval } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
 import { linearTex, linearPlain, decTex, polyTex } from '../../core/math/format';
 import { Poly, toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
-import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr } from './util';
-import { buildContext, DECREASING_KEYS } from './u1-contexts';
+import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr, numberMisconceptions } from './util';
+import { buildContext, DECREASING_KEYS, type LinearContext } from './u1-contexts';
 
 /** "y = mx + b" in parser syntax */
 const yEq = (m: Rational, b: Rational) => `y = ${linearPlain(m, b)}`;
@@ -189,6 +189,162 @@ export const genWriteTwoPoints: GeneratorDef = {
 };
 
 // ---------------------------------------------------------------------------
+// Graphs of real situations (labeled axes, only the inputs that make sense)
+// ---------------------------------------------------------------------------
+
+const AXIS_LABELS: Record<string, [string, string]> = {
+  tank: ['time (minutes)', 'water left (gallons)'],
+  battery: ['time (hours)', 'battery level (%)'],
+  candle: ['time (hours)', 'candle height (cm)'],
+  gym: ['time (months)', 'total cost (dollars)'],
+  savings: ['time (weeks)', 'savings (dollars)'],
+  hike: ['time (hours)', 'elevation (feet)'],
+};
+const GRAPH_KEYS = Object.keys(AXIS_LABELS);
+
+/** Grid step giving at most about 10 grid lines. */
+function gridStep(range: number): number {
+  for (const st of [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000]) if (range / st <= 10) return st;
+  return 2000;
+}
+
+/**
+ * A situation with two marked lattice points on its graph: (0, b) and (X, f(X)). For a
+ * draining situation X is where the amount reaches 0, and the graph stops there.
+ * Returns null when that point is not a whole number (the caller picks another situation).
+ */
+function contextGraph(rng: Rng, ctx: LinearContext): { block: Block; X: Rational; Y: Rational } | null {
+  const draining = ctx.m.isNegative();
+  const X = draining ? ctx.b.neg().div(ctx.m) : Q(rng.int(3, 6));
+  if (!X.isInteger()) return null;
+  const Y = ctx.m.mul(X).add(ctx.b);
+  const xs = gridStep(X.toNumber() * 1.25);
+  const xMax = Math.ceil((X.toNumber() * 1.25) / xs) * xs;
+  const top = Math.max(ctx.b.toNumber(), ctx.m.mul(xMax).add(ctx.b).toNumber());
+  const ys = gridStep(top * 1.15);
+  const yMax = Math.ceil((top * 1.15) / ys) * ys;
+  const [xLabel, yLabel] = AXIS_LABELS[ctx.key];
+  const spec: GraphSpec = {
+    xMin: 0,
+    xMax,
+    yMin: 0,
+    yMax,
+    xStep: xs,
+    yStep: ys,
+    xLabel,
+    yLabel,
+    functions: [{ expr: linearPlain(ctx.m, ctx.b), domain: [0, draining ? X.toNumber() : xMax] }],
+    points: [
+      { x: 0, y: ctx.b.toNumber(), label: `(0, ${ctx.b.toString()})` },
+      { x: X.toNumber(), y: Y.toNumber(), label: `(${X.toString()}, ${Y.toString()})` },
+    ],
+    ariaLabel: `A line graph with ${xLabel} across and ${yLabel} up, starting at (0, ${ctx.b.toString()}) and passing through (${X.toString()}, ${Y.toString()}).`,
+  };
+  return { block: { t: 'graph', spec }, X, Y };
+}
+
+/** Pick a graphable situation whose marked points are whole numbers. */
+function graphableContext(rng: Rng, keys: string[]): { ctx: LinearContext; g: { block: Block; X: Rational; Y: Rational } } {
+  for (let i = 0; i < 30; i++) {
+    const ctx = buildContext(rng, keys);
+    const g = contextGraph(rng, ctx);
+    if (g) return { ctx, g };
+  }
+  throw new Error('no graphable situation');
+}
+
+/** The two labeled points on a context graph, read back from the spec. */
+function markedPoints(spec: GraphSpec): Array<{ x: Rational; y: Rational }> {
+  return (spec.points ?? []).map((pt) => {
+    const mm = /^\((-?[\d.]+), (-?[\d.]+)\)$/.exec(pt.label ?? '');
+    return mm ? { x: Rational.parse(mm[1]), y: Rational.parse(mm[2]) } : { x: Q(pt.x), y: Q(pt.y) };
+  });
+}
+
+/** Numbers in a sentence, in order (dollar signs and percent signs ignored). */
+function numbersInOrder(s: string): string[] {
+  return [...s.replace(/\\\$/g, '').matchAll(/-?\d+(?:\.\d+)?/g)].map((mm) => Rational.parse(mm[0]).toString());
+}
+
+/** "What does the point (0, 480) mean?" for a graph of a real situation. */
+function pointMeaningProblem(rng: Rng): Problem {
+  const { ctx, g } = graphableContext(rng, DECREASING_KEYS);
+  const startPt = rng.bool();
+  const [px, py] = startPt ? [Q(0), ctx.b] : [g.X, Q(0)];
+  const ptTex = `(${px.toTex()}, ${py.toTex()})`;
+  const correct = ctx.says(ctx.inWord(px), ctx.outWord(py));
+  const swapped = ctx.says(ctx.inWord(py), ctx.outWord(px));
+  const rateWrong = `The amount goes down by ${ctx.outWord(startPt ? py : px)} every ${ctx.inUnit}.`;
+  const answer = makeChoice(rng, correct, [swapped, rateWrong]);
+  const idOf = (label: string) => answer.options.find((o) => o.label === label)!.id;
+  return makeProblem({
+    skillId: 'S1.09',
+    tags: ['real-world', 'graph'],
+    prompt: [p(`${ctx.topic} The graph shows ${ctx.outputDesc}.`), g.block, p(`What does the point $${ptTex}$ on the graph mean in this situation?`)],
+    answer,
+    hints: [
+      'Read the axis labels first: the horizontal axis is the input, the vertical axis is the output.',
+      `In $${ptTex}$, the first number is the input and the second is the output.`,
+      `So $${px.toTex()}$ is measured in ${ctx.inUnits}, and $${py.toTex()}$ is measured in the units of the vertical axis.`,
+      startPt ? 'A point on the vertical axis is where the input is 0: the start of the situation.' : 'A point on the horizontal axis is where the output is 0: the moment the amount runs out.',
+    ],
+    solution: [
+      { text: 'Match each coordinate to an axis.', tex: `${ctx.v} = ${px.toTex()}, \\quad ${ctx.f}(${ctx.v}) = ${py.toTex()}`, why: 'Ordered pairs list the input (horizontal axis) first and the output (vertical axis) second.' },
+      { text: 'Put it into words with units.', why: `${correct} ${startPt ? `This is the vertical intercept: ${ctx.startMeaning}.` : 'This is the horizontal intercept: the amount has run out.'}` },
+    ],
+    misconceptions: [
+      { answer: idOf(swapped), tag: 'graph-reading', feedback: 'Check the order: the first coordinate is the input on the horizontal axis.' },
+      { answer: idOf(rateWrong), tag: 'graph-reading', feedback: 'A single point gives one input and its output, not a rate. A rate compares two points.' },
+    ],
+  });
+}
+
+/** Graph of a situation -> write the rule. */
+function graphRuleProblem(rng: Rng): Problem {
+  const { ctx, g } = graphableContext(rng, GRAPH_KEYS);
+  const { f, v, m, b } = ctx;
+  const rule = linearPlain(m, b, v);
+  const rise = g.Y.sub(b);
+  return makeProblem({
+    skillId: 'S1.07',
+    tags: ['real-world', 'graph'],
+    prompt: [p(`${ctx.topic} The graph shows ${ctx.outputDesc}.`), g.block, p(`Write a rule for $${f}(${v})$.`)],
+    answer: { kind: 'expression', value: rule, variables: [v] },
+    inputHint: `Type the rule using ${v}, like ${linearPlain(Q(-20), Q(480), v)}. You can start with ${f}(${v}) = if you like.`,
+    hints: [
+      'A linear rule is (rate) $\\times$ (input) $+$ (starting value). Both can be read from the two marked points.',
+      'The starting value is the output where the graph meets the vertical axis (input 0).',
+      `The rate is the change in output divided by the change in input between the two marked points. ${m.isNegative() ? 'The graph goes down, so the rate is negative.' : 'The graph goes up, so the rate is positive.'}`,
+      `Use $\\dfrac{${g.Y.toTex()} - ${sub(b)}}{${g.X.toTex()} - 0}$ for the rate, then write the rule with $${v}$ as the input.`,
+    ],
+    solution: [
+      { text: 'Read the starting value.', tex: `b = ${decTex(b)}`, why: `The graph starts at $(0, ${decTex(b)})$: ${ctx.startMeaning}.` },
+      { text: 'Find the rate from the two marked points.', tex: `m = \\dfrac{${g.Y.toTex()} - ${sub(b)}}{${g.X.toTex()} - 0} = \\dfrac{${rise.toTex()}}{${g.X.toTex()}} = ${decTex(m)}`, why: `${ctx.rateMeaning[0].toUpperCase()}${ctx.rateMeaning.slice(1)}: ${decTex(m)} ${ctx.rateUnit}.` },
+      { text: 'Write the rule.', tex: `${f}(${v}) = ${linearTex(m, b, v, true)}`, why: 'Rate times the input, plus the starting value.' },
+    ],
+    misconceptions: stringMisc(rule, [
+      { answer: linearPlain(m.neg(), b, v), tag: 'sign-error', feedback: 'Does the graph go up or down from left to right? Check the sign of the rate.' },
+      { answer: linearPlain(b, m, v), tag: 'equation-setup', feedback: 'The starting value is not multiplied by the input; the rate is.' },
+      ...(rise.isZero() ? [] : [{ answer: linearPlain(g.X.div(rise), b, v), tag: 'rise-run-swap' as const, feedback: 'Check the rate: the change in output goes on top and the change in input on the bottom.' }]),
+      { answer: linearPlain(m, g.X, v), tag: 'graph-reading', feedback: 'The starting value is where the graph meets the vertical axis, the output at input 0.' },
+    ]),
+  });
+}
+
+function stringMisc(key: string, list: Misconception[]): Misconception[] {
+  const k = toPoly(parseExpression(key));
+  const seen = [k];
+  const out: Misconception[] = [];
+  for (const mc of list) {
+    const q = toPoly(parseExpression(mc.answer));
+    if (seen.some((x) => x.equals(q))) continue;
+    seen.push(q);
+    out.push(mc);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // S1.07: write the rule for a situation
 // ---------------------------------------------------------------------------
 
@@ -201,6 +357,7 @@ export const genWriteContext: GeneratorDef = {
   skillId: 'S1.07',
   description: 'Write the linear function rule for a real-world situation.',
   generate(rng, difficulty) {
+    if (difficulty === 3 && rng.int(0, 2) === 0) return graphRuleProblem(rng);
     const keys = difficulty === 1 ? ['gym', 'savings', 'hike'] : difficulty === 2 ? ['rideshare', 'gym', 'savings', 'hike', ...DECREASING_KEYS] : ['carwash', ...DECREASING_KEYS, 'rideshare'];
     const ctx = buildContext(rng, keys);
     const { f, v, m, b } = ctx;
@@ -235,6 +392,23 @@ export const genWriteContext: GeneratorDef = {
     if (pr.answer.kind !== 'expression') return ['wrong kind'];
     const v = pr.answer.variables![0];
     const poly = toPoly(parseExpression(pr.answer.value));
+    const graph = pr.prompt.find((b) => b.t === 'graph') as { spec: GraphSpec } | undefined;
+    if (graph) {
+      // two-point route: the line through the marked points, compared at several inputs
+      const pts = markedPoints(graph.spec);
+      if (pts.length !== 2) return ['needs two marked points'];
+      const [P, R] = pts;
+      const slope = R.y.sub(P.y).div(R.x.sub(P.x));
+      const drawn = toPoly(parseExpression(graph.spec.functions![0].expr));
+      const errs: string[] = [];
+      for (const x of [0, 1, 5, 9].map((n) => Q(n))) {
+        const want = P.y.add(slope.mul(x.sub(P.x)));
+        if (!poly.evaluate({ [v]: x }).eq(want)) errs.push(`rule wrong at ${x}`);
+        if (!drawn.evaluate({ x }).eq(want)) errs.push('drawn line misses the marked points');
+      }
+      if (!graph.spec.xLabel || !graph.spec.yLabel) errs.push('context graph needs axis labels');
+      return errs;
+    }
     const m = poly.coeff(v, 1);
     const b = poly.evaluate({ [v]: Q(0) });
     const nums = numbersIn((pr.prompt[0] as { text: string }).text);
@@ -503,6 +677,7 @@ export const genInterceptsContext: GeneratorDef = {
   skillId: 'S1.09',
   description: 'Find and interpret an intercept of a real-world linear function.',
   generate(rng, difficulty) {
+    if (difficulty === 1 && rng.int(0, 2) === 0) return pointMeaningProblem(rng);
     const vertical = difficulty === 1;
     const ctx = buildContext(rng, vertical ? ['gym', 'savings', 'hike', 'tank', 'battery'] : [...DECREASING_KEYS, 'carwash']);
     const { f, v, m, b } = ctx;
@@ -527,6 +702,34 @@ export const genInterceptsContext: GeneratorDef = {
       });
     }
     const zero = b.neg().div(m);
+    if (ctx.key === 'carwash' && !zero.isInteger()) {
+      // cars come in whole numbers: the break-even point itself is not a possible count, so ask for the least whole number of cars
+      const need = Q(Math.ceil(zero.toNumber()));
+      const below = need.sub(1);
+      const rule = linearTex(m, b, v, true);
+      return makeProblem({
+        skillId: 'S1.09',
+        tags: ['real-world', 'word'],
+        prompt: [p(story), p(`The band breaks even when the profit is \\$0. What is the least whole number of cars the band must wash so that it breaks even or makes a profit?`)],
+        answer: { kind: 'number', value: numStr(need), unit: ctx.inUnits },
+        inputHint: `Type a whole number of ${ctx.inUnits}.`,
+        hints: [
+          'Breaking even means the profit is 0: that is the horizontal intercept of the profit function.',
+          `Set the rule equal to 0: $${rule} = 0$, and solve for $${v}$.`,
+          'The solution is not a whole number, but the band can only wash whole cars.',
+          'Round to a whole number in the direction that makes the profit at least \\$0, then check that number and the one just below it in the rule.',
+        ],
+        solution: [
+          { text: 'Set the profit equal to 0.', tex: `${rule} = 0`, why: 'Breaking even means the money brought in equals the cost of supplies, so the profit is 0.' },
+          { text: `Add $${decTex(b.abs())}$, then divide by $${decTex(m)}$.`, tex: `${v} = \\dfrac{${decTex(b.abs())}}{${decTex(m)}} = ${decTex(zero)}`, why: 'Undo the subtraction, then undo the multiplication.' },
+          { text: 'Choose a whole number of cars.', tex: `${f}(${decTex(below)}) = ${decTex(m.mul(below).add(b))} < 0, \\quad ${f}(${decTex(need)}) = ${decTex(m.mul(need).add(b))} \\ge 0`, why: `A fraction of a car is not possible. With ${decTex(below)} cars the band is still losing money, so it must wash ${decTex(need)} cars. Here you always round up, even when the decimal part is less than one half.` },
+        ],
+        misconceptions: numberMisconceptions(need, [
+          { value: below, tag: 'other', feedback: 'Check the profit for that many cars: it is still below \\$0. Round so that the band does not lose money.' },
+          { value: b.abs(), tag: 'graph-reading', feedback: 'That is the cost of supplies, the starting value. Find how many cars make the profit reach 0.' },
+        ]),
+      });
+    }
     const zeroText = ctx.key === 'carwash' ? 'the band breaks even (profit is \\$0)' : `${ctx.outputDesc.replace(/,? (after|for a) .*/, '')} reaches 0`;
     return makeProblem({
       skillId: 'S1.09',
@@ -552,6 +755,24 @@ export const genInterceptsContext: GeneratorDef = {
     });
   },
   verify(pr) {
+    const graph = pr.prompt.find((b) => b.t === 'graph') as { spec: GraphSpec } | undefined;
+    if (graph) {
+      if (pr.answer.kind !== 'choice') return ['wrong kind'];
+      const ask = (pr.prompt[2] as { text: string }).text;
+      const pm = /the point \$\((-?[\d.]+), (-?[\d.]+)\)\$/.exec(ask);
+      if (!pm) return ['cannot parse point'];
+      const [px, py] = [Rational.parse(pm[1]), Rational.parse(pm[2])];
+      const drawn = toPoly(parseExpression(graph.spec.functions![0].expr));
+      const errs: string[] = [];
+      if (!drawn.evaluate({ x: px }).eq(py)) errs.push('point is not on the graph');
+      if (!graph.spec.xLabel || !graph.spec.yLabel) errs.push('context graph needs axis labels');
+      if (px.isNegative() || py.isNegative()) errs.push('point outside the situation');
+      // the right statement names the input then the output, as a single moment (no "every")
+      const fits = pr.answer.options.filter((o) => !/\bevery\b/.test(o.label) && numbersInOrder(o.label).join(',') === `${px},${py}`);
+      if (fits.length !== 1) errs.push(`${fits.length} statements fit the point`);
+      else if (fits[0].id !== pr.answer.correct) errs.push('keyed statement does not fit the point');
+      return errs;
+    }
     if (pr.answer.kind !== 'number') return ['wrong kind'];
     const story = (pr.prompt[0] as { text: string }).text;
     const rm = /\$([A-Z])\(([a-z])\) = (.+?)\$ gives/.exec(story);
@@ -560,6 +781,14 @@ export const genInterceptsContext: GeneratorDef = {
     const ans = Rational.parse(pr.answer.value);
     const ask = (pr.prompt[1] as { text: string }).text;
     if (ask.includes('vertical intercept')) return poly.evaluate({ [rm[2]]: Q(0) }).eq(ans) ? [] : ['f(0) mismatch'];
+    if (ask.includes('least whole number')) {
+      // independent check: the answer is a whole number with profit >= 0, and one fewer gives a loss
+      const errs: string[] = [];
+      if (!ans.isInteger() || ans.isNegative()) errs.push('not a whole number');
+      if (poly.evaluate({ [rm[2]]: ans }).isNegative()) errs.push('profit still negative');
+      if (!poly.evaluate({ [rm[2]]: ans.sub(1) }).isNegative()) errs.push('a smaller count already breaks even');
+      return errs;
+    }
     if (!poly.evaluate({ [rm[2]]: ans }).isZero()) return ['f(answer) is not 0'];
     return ans.isNegative() ? ['negative input'] : [];
   },
@@ -569,11 +798,146 @@ export const genInterceptsContext: GeneratorDef = {
 // S1.10: increasing / decreasing, positive / negative intervals
 // ---------------------------------------------------------------------------
 
+const LETTERS = ['A', 'B', 'C', 'D'] as const;
+
+/** "Which graph shows y = mx + b?": four labeled line graphs, one of them right. */
+function whichGraphProblem(rng: Rng): Problem {
+  const m = Q(rng.nonzeroInt(-3, 3));
+  let b = Q(rng.nonzeroInt(-4, 4));
+  if (b.abs().eq(m.abs())) b = b.isNegative() ? b.sub(1) : b.add(1);
+  if (b.abs().gt(4)) b = b.isNegative() ? Q(-1) : Q(1);
+  if (b.abs().eq(m.abs())) b = b.isNegative() ? b.sub(1) : b.add(1);
+  // the right line plus three common mix-ups (all four are different lines)
+  const lines: Array<{ m: Rational; b: Rational; feedback: string }> = [
+    { m, b, feedback: '' },
+    { m: m.neg(), b, feedback: 'That line crosses the $y$-axis in the right place, but check the direction: a positive slope rises from left to right, and a negative slope falls.' },
+    { m, b: b.neg(), feedback: 'That line has the right steepness, but check where it crosses the $y$-axis. The $y$-intercept is the constant term, sign included.' },
+    { m: b, b: m, feedback: 'That line has the slope and the $y$-intercept switched. The number multiplying $x$ is the slope.' },
+  ];
+  const order = rng.shuffle([0, 1, 2, 3]);
+  const graphs: Block[] = order.map((k, pos) => {
+    const l = lines[k];
+    const spec: GraphSpec = {
+      xMin: -6,
+      xMax: 6,
+      yMin: -5,
+      yMax: 5,
+      xLabel: 'x',
+      yLabel: 'y',
+      functions: [{ expr: linearPlain(l.m, l.b) }],
+      ariaLabel: `Graph ${LETTERS[pos]}: a line crossing the y-axis at (0, ${l.b.toString()}) and passing through (1, ${l.m.add(l.b).toString()}).`,
+    };
+    return { t: 'graph', spec, caption: `Graph ${LETTERS[pos]}` };
+  });
+  const correct = LETTERS[order.indexOf(0)];
+  const rule = linearTex(m, b);
+  return makeProblem({
+    skillId: 'S1.10',
+    tags: ['graph'],
+    prompt: [p(`Which graph shows $y = ${rule}$?`), ...graphs],
+    answer: { kind: 'choice', options: LETTERS.map((L) => ({ id: L, label: `Graph ${L}` })), correct },
+    hints: [
+      'Use the two numbers in $y = mx + b$: $b$ tells you where the line crosses the $y$-axis, and $m$ tells you how steep it is and which way it goes.',
+      `Find the $y$-intercept: the line must pass through $(0, ${b.toTex()})$. Cross out any graph that does not.`,
+      `Now check the slope $${m.toTex()}$: from the $y$-intercept, move 1 to the right and ${m.isNegative() ? 'down' : 'up'} ${m.abs().toTex()}.`,
+      'Check one more point on your choice: substitute its $x$-value into the equation and compare with the graph.',
+    ],
+    solution: [
+      { text: 'Read the slope and the $y$-intercept from the equation.', tex: `m = ${m.toTex()}, \\quad b = ${b.toTex()}`, why: 'In $y = mx + b$, the coefficient of $x$ is the slope and the constant is the $y$-intercept.' },
+      { text: `Look for a line through $(0, ${b.toTex()})$ that ${m.isNegative() ? 'falls' : 'rises'} ${m.abs().toTex()} for every 1 step right.`, tex: `(0, ${b.toTex()}) \\to (1, ${m.add(b).toTex()})`, why: `When $x = 1$, $y = ${m.toTex()}(1) ${b.isNegative() ? '-' : '+'} ${b.abs().toTex()} = ${m.add(b).toTex()}$.` },
+      { text: `Graph ${correct} is the only graph through both points.`, why: 'The other graphs have the wrong slope sign, the wrong intercept, or the slope and intercept switched.' },
+    ],
+    misconceptions: order
+      .map((k, pos) => ({ k, id: LETTERS[pos] }))
+      .filter((o) => o.k !== 0)
+      .map((o) => ({ answer: o.id, tag: o.k === 3 ? ('formula-error' as const) : o.k === 1 ? ('sign-error' as const) : ('graph-reading' as const), feedback: lines[o.k].feedback })),
+  });
+}
+
+/** End behavior of a non-constant line: as x -> +/- infinity, f(x) -> +/- infinity. */
+function endBehaviorProblem(rng: Rng): Problem {
+  const m = Q(rng.nonzeroInt(-5, 5));
+  const b = Q(rng.nonzeroInt(-9, 9));
+  const right = rng.bool();
+  const up = right !== m.isNegative();
+  const xTo = right ? '\\infty' : '-\\infty';
+  const opts = { up: '$f(x) \\to \\infty$', down: '$f(x) \\to -\\infty$', b: `$f(x) \\to ${b.toTex()}$`, zero: '$f(x) \\to 0$' };
+  const answer = makeChoice(rng, up ? opts.up : opts.down, [up ? opts.down : opts.up, opts.b, opts.zero]);
+  const idOf = (label: string) => answer.options.find((o) => o.label === label)!.id;
+  const rule = linearTex(m, b);
+  return makeProblem({
+    skillId: 'S1.10',
+    tags: [],
+    prompt: [p(`End behavior describes what happens to the outputs at the far ends of the graph. For $f(x) = ${rule}$, as $x \\to ${right ? '\\infty' : '-\\infty'}$, what happens to $f(x)$?`)],
+    answer,
+    hints: [
+      `"$x \\to ${right ? '\\infty' : '-\\infty'}$" means $x$ keeps getting ${right ? 'larger (moving right forever)' : 'more negative (moving left forever)'}.`,
+      'For a line, only the slope matters far away. The constant term is quickly outweighed.',
+      `The slope is $${m.toTex()}$, so the line ${m.isNegative() ? 'falls' : 'rises'} as you move right${right ? '' : ', which means it does the opposite as you move left'}.`,
+      `Try a big input: substitute $x = ${right ? '1000' : '-1000'}$ and look at the sign and size of the output.`,
+    ],
+    solution: [
+      { text: 'Find the slope.', tex: `m = ${m.toTex()}`, why: `A ${m.isNegative() ? 'negative' : 'positive'} slope means the line ${m.isNegative() ? 'falls' : 'rises'} from left to right.` },
+      { text: 'Test a far-away input.', tex: `f(${right ? '1000' : '-1000'}) = ${m.toTex()}(${right ? '1000' : '-1000'}) ${b.isNegative() ? '-' : '+'} ${b.abs().toTex()} = ${m.mul(right ? 1000 : -1000).add(b).toTex()}`, why: 'Farther out, the output only gets bigger in size with the same sign; the line never levels off.' },
+      { text: 'State the end behavior.', tex: `\\text{As } x \\to ${xTo},\\ f(x) \\to ${up ? '\\infty' : '-\\infty'}` },
+    ],
+    misconceptions: [
+      { answer: idOf(up ? opts.down : opts.up), tag: 'sign-error', feedback: `Check the direction: is $x$ moving left or right, and does the line rise or fall that way?` },
+      { answer: idOf(opts.b), tag: 'graph-reading', feedback: 'That is the $y$-intercept, the output when $x = 0$. Far from 0, a line keeps going up or down forever.' },
+      { answer: idOf(opts.zero), tag: 'graph-reading', feedback: 'A non-horizontal line never levels off toward a number. Substitute a very large input and look at the output.' },
+    ],
+  });
+}
+
+/** Maximum or minimum of a linear function on a closed interval. */
+function maxMinProblem(rng: Rng): Problem {
+  const den = rng.pick([1, 1, 2]);
+  let num = rng.nonzeroInt(-4, 4);
+  while (den === 2 && num % 2 === 0) num = rng.nonzeroInt(-5, 5);
+  const m = Q(num, den);
+  const b = Q(rng.int(-6, 6));
+  const lo = den * rng.int(-4, 0);
+  const hi = lo + den * rng.int(2, 4);
+  const askMax = rng.bool();
+  const [fLo, fHi] = [m.mul(lo).add(b), m.mul(hi).add(b)];
+  const best = askMax ? (fLo.gt(fHi) ? fLo : fHi) : fLo.lt(fHi) ? fLo : fHi;
+  const atX = best.eq(fLo) ? lo : hi;
+  const otherVal = best.eq(fLo) ? fHi : fLo;
+  const word = askMax ? 'maximum' : 'minimum';
+  const bracket = rng.bool();
+  const ivTex = bracket ? `the interval $[${lo}, ${hi}]$` : `the interval $${lo} \\le x \\le ${hi}$`;
+  const rule = linearTex(m, b);
+  return makeProblem({
+    skillId: 'S1.10',
+    tags: ['multi-step'],
+    prompt: [p(`The function $f(x) = ${rule}$ is used only on ${ivTex}. What is the ${word} value of $f(x)$ on this interval?`)],
+    answer: { kind: 'number', value: numStr(best) },
+    hints: [
+      `A line always rises or falls steadily (or stays flat), so its ${word} on a closed interval happens at one of the two endpoints.`,
+      `Is the slope $${m.toTex()}$ positive or negative? That tells you whether $f$ is increasing or decreasing on the interval.`,
+      `Evaluate $f(${lo})$ and $f(${hi})$.`,
+      `The ${word} value is the ${askMax ? 'larger' : 'smaller'} of those two outputs. Give the output, not the $x$-value.`,
+    ],
+    solution: [
+      { text: 'Decide which way the line goes.', tex: `m = ${m.toTex()}`, why: `The slope is ${m.isNegative() ? 'negative, so $f$ is decreasing: the largest output is at the left end and the smallest at the right end' : 'positive, so $f$ is increasing: the smallest output is at the left end and the largest at the right end'}.` },
+      { text: 'Evaluate both endpoints.', tex: `f(${lo}) = ${fLo.toTex()}, \\quad f(${hi}) = ${fHi.toTex()}`, why: 'Every other input in the interval gives an output between these two.' },
+      { text: `The ${word} value is $${best.toTex()}$, at $x = ${atX}$.`, tex: `\\text{${word}} = ${best.toTex()}`, why: `It is the ${askMax ? 'larger' : 'smaller'} endpoint output.` },
+    ],
+    misconceptions: numberMisconceptions(best, [
+      { value: otherVal, tag: 'graph-reading', feedback: `That is the output at the other endpoint. Check whether $f$ is increasing or decreasing, and which end gives the ${askMax ? 'largest' : 'smallest'} output.` },
+      { value: Q(atX), tag: 'graph-reading', feedback: `That is the $x$-value where the ${word} happens. The question asks for the ${word} **value** of $f(x)$, the output.` },
+    ]),
+  });
+}
+
 export const genKeyFeatures: GeneratorDef = {
   id: 'u1.key-features',
   skillId: 'S1.10',
-  description: 'Decide whether a linear function is increasing, decreasing or constant; find where it is positive or negative.',
+  description: 'Decide whether a linear function is increasing, decreasing or constant; match an equation to its graph; find where it is positive or negative; describe end behavior; find a maximum or minimum on an interval.',
   generate(rng, difficulty) {
+    if (difficulty === 1 && rng.bool()) return whichGraphProblem(rng);
+    if (difficulty === 2 && rng.int(0, 2) === 0) return endBehaviorProblem(rng);
+    if (difficulty === 3 && rng.int(0, 2) === 0) return maxMinProblem(rng);
     if (difficulty === 1) {
       const kind = rng.pick(['inc', 'dec', 'inc', 'dec', 'const'] as const);
       const m = kind === 'const' ? Q(0) : Q(rng.int(1, 4)).mul(kind === 'dec' ? -1 : 1);
@@ -651,6 +1015,45 @@ export const genKeyFeatures: GeneratorDef = {
   },
   verify(pr) {
     const text = (pr.prompt[0] as { text: string }).text;
+    const wg = /^Which graph shows \$y = (.+?)\$\?$/.exec(text);
+    if (wg) {
+      if (pr.answer.kind !== 'choice') return ['wrong kind'];
+      const target = toPoly(parseExpression(texToExpr(wg[1])));
+      const graphs = pr.prompt.filter((b) => b.t === 'graph') as Array<{ spec: GraphSpec; caption?: string }>;
+      if (graphs.length !== 4) return ['needs four graphs'];
+      const same = (expr: string) => {
+        const g = toPoly(parseExpression(expr));
+        return [-2, 0, 3].every((x) => g.evaluate({ x: Q(x) }).eq(target.evaluate({ x: Q(x) })));
+      };
+      const matches = graphs.filter((g) => same(g.spec.functions![0].expr)).map((g) => (g.caption ?? '').replace('Graph ', ''));
+      if (matches.length !== 1) return [`${matches.length} graphs match`];
+      return matches[0] === pr.answer.correct ? [] : ['keyed graph does not match'];
+    }
+    const eb = /For \$f\(x\) = (.+?)\$, as \$x \\to (-?)\\infty\$/.exec(text);
+    if (eb) {
+      if (pr.answer.kind !== 'choice') return ['wrong kind'];
+      const poly = toPoly(parseExpression(texToExpr(eb[1])));
+      const far = Q(eb[2] === '-' ? -1000000 : 1000000);
+      const v = poly.evaluate({ x: far });
+      const v2 = poly.evaluate({ x: far.mul(2) });
+      // growing without bound in one direction: the output keeps moving away from 0 with the same sign
+      const goesUp = v.gt(0) && v2.gt(v);
+      const goesDown = v.lt(0) && v2.lt(v);
+      if (!goesUp && !goesDown) return ['no end behavior to infinity'];
+      const label = choiceLabel(pr.answer);
+      return label === (goesUp ? '$f(x) \\to \\infty$' : '$f(x) \\to -\\infty$') ? [] : ['end behavior mismatch'];
+    }
+    const mm2 = /\$f\(x\) = (.+?)\$ is used only on the interval \$(?:\[(-?\d+), (-?\d+)\]|(-?\d+) \\le x \\le (-?\d+))\$\. What is the (maximum|minimum)/.exec(text);
+    if (mm2) {
+      if (pr.answer.kind !== 'number') return ['wrong kind'];
+      const poly = toPoly(parseExpression(texToExpr(mm2[1])));
+      const lo = Q(mm2[2] ?? mm2[4]);
+      const hi = Q(mm2[3] ?? mm2[5]);
+      // sample the whole interval (13 evenly spaced inputs) and take the extreme output
+      const outs = Array.from({ length: 13 }, (_, i) => poly.evaluate({ x: lo.add(hi.sub(lo).mul(i).div(12)) }));
+      const best = outs.reduce((a, c) => (mm2[6] === 'maximum' ? (c.gt(a) ? c : a) : c.lt(a) ? c : a));
+      return best.eq(Rational.parse(pr.answer.value)) ? [] : [`expected ${best}`];
+    }
     if (pr.answer.kind === 'choice') {
       const g = pr.prompt.find((b) => b.t === 'graph') as { spec: { functions: Array<{ expr: string }> } };
       const poly = toPoly(parseExpression(g.spec.functions[0].expr));

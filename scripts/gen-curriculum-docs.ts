@@ -2,7 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { LESSONS, SKILLS, UNITS, SKILL_BY_ID, UNIT_BY_ID } from '../src/content/catalog';
-import { STANDARDS, EXPECTATIONS, BIG_IDEAS } from '../src/content/standards';
+import { STANDARDS } from '../src/content/standards';
+import { standardsCoverage } from '../src/content/coverage';
 
 const docs = path.resolve(__dirname, '..', 'docs');
 fs.mkdirSync(docs, { recursive: true });
@@ -37,13 +38,8 @@ let cov = `# Standards Coverage Matrix\n\n_Generated from curriculum data by \`s
 cov += `Source: GaDOE 2021 Algebra: Concepts & Connections standards; GaDOE HS Algebra Curriculum Map (NEW 2023). See STANDARDS_SOURCES.md.\n\n`;
 cov += `Mathematical Practices (A.MP.1-8) and Mathematical Modeling (A.MM.1) are integrated across all units per the GaDOE curriculum map.\n\n`;
 cov += `| Standard | Big idea | Unit | Taught in | Reviewed in | Assessed in |\n|---|---|---|---|---|---|\n`;
-for (const e of EXPECTATIONS) {
-  const skillIds = SKILLS.filter((s) => s.standards.includes(e.code)).map((s) => s.id);
-  const taught = LESSONS.filter((l) => l.kind === 'lesson' && (l.standards.includes(e.code) || l.skillsTaught.some((s) => skillIds.includes(s))));
-  const reviewed = LESSONS.filter((l) => !taught.includes(l) && (l.reviewSkills.some((s) => skillIds.includes(s)) || (['unit-review', 'checkpoint', 'cumulative-review', 'semester-review'].includes(l.kind) && (l.standards.includes(e.code) || l.skillsAssessed.some((s) => skillIds.includes(s))))));
-  const assessed = LESSONS.filter((l) => ['unit-assessment', 'semester-assessment', 'capstone'].includes(l.kind) && (l.standards.includes(e.code) || l.skillsAssessed.some((s) => skillIds.includes(s))));
-  const units = [...new Set(taught.map((l) => UNIT_BY_ID.get(l.unitId)!.number))].join(', ');
-  cov += `| **${e.code}** | ${BIG_IDEAS[e.bigIdea]} | ${units} | ${taught.map((l) => l.id).join(', ')} | ${reviewed.map((l) => l.id).join(', ') || 'spaced review'} | ${assessed.map((l) => l.id).join(', ') || '-'} + lesson quizzes |\n`;
+for (const c of standardsCoverage()) {
+  cov += `| **${c.code}** | ${c.bigIdea} | ${c.units.join(', ')} | ${c.taught.join(', ')} | ${c.reviewed.join(', ') || 'spaced review'} | ${c.assessed.join(', ') || '-'} + lesson quizzes |\n`;
 }
 cov += `\n## Standard text\n\n`;
 for (const s of STANDARDS) cov += `- **${s.code}**: ${s.text}\n`;

@@ -10,7 +10,7 @@ import { isCompletelyFactored, isExpandedForm } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { polyTex, polyPlain } from '../../core/math/format';
-import { p, makeProblem, makeChoice, choiceLabel, texToExpr } from './util';
+import { p, makeProblem, makeChoice, choiceLabel, texToExpr, Q } from './util';
 import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, mathOf, gcd, gcdAll, factorPairs, pairLabel } from './u4-common';
 
 const EXPANDED_HINT = 'Type an answer like 2x^2 - 5x + 3.';
@@ -75,7 +75,28 @@ const CTX_LABELS = {
   speed: 'The upward speed of the ball, in feet per second, when it is thrown',
   max: 'The greatest height the ball reaches',
   time: 'The number of seconds until the ball hits the ground',
+  gravity: 'The effect of gravity, which pulls the ball back down faster and faster',
 };
+type CtxKey = keyof typeof CTX_LABELS;
+const CTX_OTHERS: Record<'start' | 'speed' | 'gravity', CtxKey[]> = { start: ['speed', 'gravity', 'max'], speed: ['start', 'gravity', 'time'], gravity: ['start', 'speed', 'max'] };
+
+/** Meanings of the parts of a revenue model R(p) = p(N - mp) (unit word filled in). */
+const REV_LABELS = (u: string) => ({
+  sold: `The number of ${u} sold per day at a price of $p$ dollars`,
+  price: `The price of one of the ${u}, in dollars`,
+  drop: `How many fewer ${u} are sold per day for each \\$1 increase in price`,
+  free: `The number of ${u} that would be given out per day at a price of \\$0`,
+  revenue: 'The total money taken in per day, in dollars',
+});
+type RevKey = keyof ReturnType<typeof REV_LABELS>;
+/** Meanings of the parts of an area model A(x) = (x + a)(x + b). */
+const AREA_LABELS = (a: number, b: number) => ({
+  sideA: `The length, in feet, of the side that was made $${a}$ feet longer`,
+  sideB: `The length, in feet, of the side that was made $${b}$ feet longer`,
+  orig: 'The side length, in feet, of the original square garden',
+  area: 'The area, in square feet, of the new garden',
+});
+type AreaKey = keyof ReturnType<typeof AREA_LABELS>;
 
 function partValue(poly: Poly, part: Part): number {
   switch (part) {
@@ -98,13 +119,82 @@ export const genInterpretParts: GeneratorDef = {
   description: 'Name the terms, coefficients, constant term, degree and factors of a quadratic expression, including in context.',
   generate(rng, difficulty) {
     if (difficulty === 3) {
+      const roll = rng.int(0, 3);
+      if (roll === 2) {
+        // revenue R(p) = p(N - mp): interpret each factor and number
+        const m = rng.pick([2, 3, 4, 5, 10]);
+        const N = m * rng.pick([10, 12, 15, 20, 24, 30]);
+        const [item, u] = rng.pick([['phone cases', 'cases'], ['smoothies', 'smoothies'], ['custom stickers', 'sticker packs'], ['tacos', 'tacos'], ['tickets to a school play', 'tickets']] as const);
+        const ask = rng.pick<RevKey>(['sold', 'sold', 'price', 'drop', 'free']);
+        const shown = ask === 'sold' ? `${N} - ${m}p` : ask === 'price' ? 'p' : ask === 'drop' ? String(m) : String(N);
+        const L = REV_LABELS(u);
+        const others = (Object.keys(L) as RevKey[]).filter((k) => k !== ask && !(ask === 'sold' && k === 'free') && !(ask === 'free' && k === 'sold'));
+        const answer = makeChoice(rng, L[ask], rng.shuffle(others).slice(0, 3).map((k) => L[k]));
+        const tex = `R(p) = p\\left(${N} - ${m}p\\right)`;
+        return makeProblem({
+          skillId: 'S4.01',
+          tags: ['real-world'],
+          prompt: [p(`A student business sells ${item}. When each one costs $p$ dollars, the daily revenue in dollars is modeled by`), { t: 'math', tex }, p(`What does the **$${shown}$** in the model represent?`)],
+          answer,
+          hints: [
+            'Revenue is (price of one item) times (number of items sold).',
+            `The model is a product of two factors: $p$ and $${N} - ${m}p$. Match each factor to price or number sold.`,
+            `Try a price: at $p = 1$, the second factor is $${N - m}$; at $p = 2$ it is $${N - 2 * m}$. What changes as the price goes up?`,
+            ask === 'free' || ask === 'drop' ? `In $${N} - ${m}p$, the $${N}$ is the value when $p = 0$, and the $${m}$ is how much the factor drops each time $p$ goes up by $1$.` : 'The factor that is not the price must be the number sold.',
+          ],
+          solution: [
+            { text: 'Read the model as price times quantity.', tex: `R(p) = \\underbrace{p}_{\\text{price}} \\cdot \\underbrace{\\left(${N} - ${m}p\\right)}_{\\text{number sold}}`, why: 'Revenue means total money taken in, which is price times the number sold.' },
+            {
+              text: `So $${shown}$ is: ${L[ask].charAt(0).toLowerCase() + L[ask].slice(1)}.`,
+              why:
+                ask === 'sold'
+                  ? `It is the number sold, and it goes down by $${m}$ for every \\$1 the price goes up.`
+                  : ask === 'price'
+                    ? '$p$ is the input: the price of each item in dollars.'
+                    : ask === 'drop'
+                      ? `Each time $p$ goes up by $1$, $${N} - ${m}p$ goes down by $${m}$, so $${m}$ fewer are sold.`
+                      : `At $p = 0$ the number sold would be $${N} - ${m}(0) = ${N}$.`,
+            },
+          ],
+          misconceptions: [],
+        });
+      }
+      if (roll === 3) {
+        // area A(x) = (x + a)(x + b) of a square garden made into a rectangle
+        const a = rng.int(1, 6);
+        let b = rng.int(2, 9);
+        if (b === a) b += 1;
+        const ask = rng.pick<AreaKey>(['sideA', 'sideB', 'orig']);
+        const shown = ask === 'sideA' ? `x + ${a}` : ask === 'sideB' ? `x + ${b}` : 'x';
+        const L = AREA_LABELS(a, b);
+        const others = (Object.keys(L) as AreaKey[]).filter((k) => k !== ask);
+        const answer = makeChoice(rng, L[ask], others.map((k) => L[k]));
+        const tex = `A(x) = (x + ${a})(x + ${b})`;
+        return makeProblem({
+          skillId: 'S4.01',
+          tags: ['real-world'],
+          prompt: [p(`A square garden is $x$ feet on each side. It is made into a rectangle by making one side $${a}$ feet longer and the other side $${b}$ feet longer. The area of the new garden, in square feet, is`), { t: 'math', tex }, p(`What does the factor **$${shown}$** represent?`)],
+          answer,
+          hints: [
+            'The area of a rectangle is (one side) times (the other side).',
+            'The model is a product of two factors. Each factor is one side of the new garden.',
+            `For example, adding $${ask === 'sideA' ? b : a}$ to $x$ makes a side $${ask === 'sideA' ? b : a}$ feet longer than the original side $x$.`,
+            ask === 'orig' ? 'The variable $x$ by itself was defined in the first sentence.' : 'Match the number added in the factor to the side that grew by that much.',
+          ],
+          solution: [
+            { text: 'Read the model as one side times the other side.', tex: `A(x) = \\underbrace{(x + ${a})}_{\\text{side made } ${a} \\text{ ft longer}} \\cdot \\underbrace{(x + ${b})}_{\\text{side made } ${b} \\text{ ft longer}}`, why: 'Area of a rectangle is length times width, and each side started at $x$ feet.' },
+            { text: `So $${shown}$ is: ${L[ask].charAt(0).toLowerCase() + L[ask].slice(1)}.`, why: ask === 'orig' ? 'The problem defines $x$ as the side of the original square.' : 'It is a length in feet, not an area: it is one factor of the area.' },
+          ],
+          misconceptions: [],
+        });
+      }
       const v = rng.pick([32, 48, 64, 80]);
       const h0 = rng.pick([3, 4, 5, 6, 8, 10]);
-      const askStart = rng.bool();
-      const asked = askStart ? h0 : v;
+      const askK = rng.pick(['start', 'speed', 'gravity'] as const);
+      const asked = askK === 'start' ? h0 : askK === 'speed' ? v : -16;
       const tex = `h(t) = -16t^{2} + ${v}t + ${h0}`;
-      const correct = askStart ? CTX_LABELS.start : CTX_LABELS.speed;
-      const answer = makeChoice(rng, correct, Object.values(CTX_LABELS).filter((l) => l !== correct));
+      const correct = CTX_LABELS[askK];
+      const answer = makeChoice(rng, correct, CTX_OTHERS[askK].map((k) => CTX_LABELS[k]));
       return makeProblem({
         skillId: 'S4.01',
         tags: ['real-world'],
@@ -113,12 +203,18 @@ export const genInterpretParts: GeneratorDef = {
         hints: [
           'Each term of the function means something about the ball.',
           'Try substituting $t = 0$, the moment the ball is thrown. Which terms are left?',
-          'The term with $t$ to the first power is the part that grows steadily with time, like a speed times a time.',
+          'The term with $t$ to the first power is the part that grows steadily with time, like a speed times a time. The $t^{2}$ term grows faster and faster.',
           'The greatest height and the landing time come from solving or graphing, not from reading one number.',
         ],
-        solution: askStart
-          ? [{ text: 'Substitute $t = 0$.', tex: `h(0) = -16(0)^{2} + ${v}(0) + ${h0} = ${h0}`, why: `At the moment the ball is thrown its height is ${h0} feet, so the constant term is the starting height.` }]
-          : [{ text: `The term $${v}t$ is (feet per second) times (seconds).`, why: `So $${v}$ is the upward speed, in feet per second, at the moment the ball is thrown. The $-16t^{2}$ term is gravity slowing it down.` }],
+        solution:
+          askK === 'start'
+            ? [{ text: 'Substitute $t = 0$.', tex: `h(0) = -16(0)^{2} + ${v}(0) + ${h0} = ${h0}`, why: `At the moment the ball is thrown its height is ${h0} feet, so the constant term is the starting height.` }]
+            : askK === 'speed'
+              ? [{ text: `The term $${v}t$ is (feet per second) times (seconds).`, why: `So $${v}$ is the upward speed, in feet per second, at the moment the ball is thrown. The $-16t^{2}$ term is gravity slowing it down.` }]
+              : [
+                  { text: 'The term $-16t^{2}$ is negative and grows like $t^{2}$.', why: 'It subtracts more height each second than the second before, which is how gravity pulls a thrown ball back down faster and faster.' },
+                  { text: 'So $-16$ is the effect of gravity.', why: 'In feet and seconds, gravity speeds a falling object up by $32$ feet per second every second, and the model uses half of that, $16$. It is negative because gravity pulls down.' },
+                ],
         misconceptions: [],
       });
     }
@@ -196,13 +292,49 @@ export const genInterpretParts: GeneratorDef = {
     const key = choiceLabel(pr.answer);
     if (tex.startsWith('h(t)')) {
       const h = toPoly(parseExpression(texToExpr(tex.split('=')[1])));
-      const asked = Number(/the \*\*(\d+)\*\*/.exec(texts[1])![1]);
+      const asked = Number(/the \*\*(-?\d+)\*\*/.exec(texts[1])![1]);
       const h0 = h.coeff('t', 0).toInt();
       const v = h.coeff('t', 1).toInt();
-      if (h0 === v) return ['ambiguous number'];
+      const g = h.coeff('t', 2).toInt();
+      if (new Set([h0, v, g]).size !== 3) return ['ambiguous number'];
       if (asked === h0) return key === CTX_LABELS.start ? [] : ['wrong key (start)'];
       if (asked === v) return key === CTX_LABELS.speed ? [] : ['wrong key (speed)'];
+      if (asked === g && g === -16) return key === CTX_LABELS.gravity ? [] : ['wrong key (gravity)'];
       return ['asked number not in function'];
+    }
+    if (tex.startsWith('R(p)')) {
+      // R(p) = p(N - mp): price times number sold
+      const m = /^R\(p\) = p\\left\((\d+) - (\d+)p\\right\)$/.exec(tex);
+      const sm = /\*\*\$(.+?)\$\*\*/.exec(texts[1]);
+      const um = /sells (.+?)\. When/.exec(texts[0]);
+      if (!m || !sm || !um) return ['cannot read revenue model'];
+      const [N, mm] = [Number(m[1]), Number(m[2])];
+      const R = toPoly(parseExpression(`p*(${N} - ${mm}*p)`));
+      if (!R.equals(toPoly(parseExpression(texToExpr(tex.split('=')[1]))))) return ['model mismatch'];
+      const unitWord = /The number of ([^|]+?) sold per day/.exec(pr.answer.options.map((o) => o.label).join('|'))?.[1] ?? /price of one of the ([^|]+?), in/.exec(pr.answer.options.map((o) => o.label).join('|'))?.[1];
+      if (!unitWord) return ['cannot read unit'];
+      const L = REV_LABELS(unitWord);
+      const shown = toPoly(parseExpression(texToExpr(sm[1])));
+      let want: RevKey;
+      if (shown.equals(toPoly(parseExpression(`${N} - ${mm}*p`)))) want = 'sold';
+      else if (shown.equals(toPoly(parseExpression('p')))) want = 'price';
+      else if (shown.isConstant() && shown.constantValue().eq(mm)) want = 'drop';
+      else if (shown.isConstant() && shown.constantValue().eq(N)) want = 'free';
+      else return ['asked part not in model'];
+      if (N === mm) return ['ambiguous numbers'];
+      return key === L[want] ? [] : [`expected ${want}`];
+    }
+    if (tex.startsWith('A(x)')) {
+      const m = /one side \$(\d+)\$ feet longer and the other side \$(\d+)\$ feet longer/.exec(texts[0]);
+      const sm = /\*\*\$(.+?)\$\*\*/.exec(texts[1]);
+      if (!m || !sm) return ['cannot read area story'];
+      const [a, b] = [Number(m[1]), Number(m[2])];
+      if (!texPoly(tex.split('=')[1]).equals(toPoly(parseExpression(`(x + ${a})*(x + ${b})`)))) return ['model does not match the story'];
+      const L = AREA_LABELS(a, b);
+      const shown = toPoly(parseExpression(texToExpr(sm[1])));
+      const want: AreaKey | null = shown.equals(toPoly(parseExpression(`x + ${a}`))) ? 'sideA' : shown.equals(toPoly(parseExpression(`x + ${b}`))) ? 'sideB' : shown.equals(toPoly(parseExpression('x'))) ? 'orig' : null;
+      if (!want || a === b) return ['asked part not in model'];
+      return key === L[want] ? [] : [`expected ${want}`];
     }
     const poly = texPoly(tex);
     if (texts[0].includes('factor')) {
@@ -470,10 +602,11 @@ function irreducibleQuad(rng: Rng): [number, number, number] {
 export const genFactorGcf: GeneratorDef = {
   id: 'u4.factor-gcf',
   skillId: 'S4.05',
-  description: 'Factor the greatest common factor out of a polynomial.',
+  description: 'Factor the greatest common factor (possibly negative) out of a polynomial of degree at most 2.',
   generate(rng, difficulty) {
+    // Every expression has degree at most 2 (A.PAR.6.2 limits polynomial work to degree 2).
     let g = rng.int(2, 9);
-    let k = 0; // power of x in the GCF
+    let k = 0; // power of x in the GCF (0 or 1)
     let inner: Poly;
     if (difficulty === 1) {
       let a = rng.int(1, 6);
@@ -484,38 +617,76 @@ export const genFactorGcf: GeneratorDef = {
         if (a === 1 && g === 1) a = 2;
       }
       inner = lin(a, b);
-    } else {
+    } else if (difficulty === 2) {
       const [a, b, c] = irreducibleQuad(rng);
       inner = X([c, b, a]);
-      if (difficulty === 3) k = rng.int(1, 2);
-      if (difficulty === 3 && rng.bool()) g = rng.int(1, 4) * 2;
+    } else if (rng.bool()) {
+      // negative leading coefficient: take out -g from a trinomial
+      const [a, b, c] = irreducibleQuad(rng);
+      inner = X([c, b, a]);
+      g = -rng.pick([2, 3, 4, 5, 6, 8]);
+    } else {
+      // negative leading coefficient with x in every term: take out -gx from a binomial
+      let a = rng.int(1, 7);
+      let b = nz(rng, -9, 9);
+      while (gcd(a, b) !== 1) b = nz(rng, -9, 9);
+      if (a === 1 && rng.bool()) a = rng.pick([2, 3, 5]);
+      while (gcd(a, b) !== 1) b = nz(rng, -9, 9);
+      inner = lin(a, b);
+      k = 1;
+      g = -rng.int(2, 9);
     }
-    const xk = k === 0 ? Poly.const(1) : X(k === 1 ? [0, 1] : [0, 0, 1]);
+    const xk = k === 0 ? Poly.const(1) : X([0, 1]);
     const full = inner.mul(xk).scale(toPoly(parseExpression(String(g))).constantValue());
-    const gcfPlain = `${g}${k === 0 ? '' : k === 1 ? 'x' : 'x^2'}`;
-    const gcfTex = `${g}${k === 0 ? '' : k === 1 ? 'x' : 'x^{2}'}`;
+    const gcfPlain = `${g}${k === 0 ? '' : 'x'}`;
+    const gcfTex = gcfPlain;
     const answer = `${gcfPlain}(${pPlain(inner)})`;
     const tex = pTex(full);
+    const neg = g < 0;
+    const misconceptions: Misconception[] = [];
+    if (neg) {
+      // a sign slip inside after taking out a negative GCF: only the leading sign flipped
+      const lead = inner.coeff('x', inner.degreeIn('x'));
+      const wrongInner = inner.scale(Q(-1)).add(X(inner.degreeIn('x') === 2 ? [0, 0, 2 * lead.toInt()] : [0, 2 * lead.toInt()]));
+      misconceptions.push({ answer: `${gcfPlain}(${pPlain(wrongInner)})`, tag: 'sign-error', feedback: 'Dividing every term by a negative number flips the sign of **every** term inside, not just the first one. Multiply back out to check.' });
+    }
     return makeProblem({
       skillId: 'S4.05',
       tags: [],
-      prompt: [p('Factor out the greatest common factor (GCF).'), { t: 'math', tex }],
+      prompt: [p(neg ? 'Factor out the greatest common factor (GCF). The leading coefficient is negative, so take out a negative GCF.' : 'Factor out the greatest common factor (GCF).'), { t: 'math', tex }],
       answer: { kind: 'expression', value: answer, form: 'factored' },
       inputHint: FACTORED_HINT,
       hints: [
         'The GCF is the largest number (and power of $x$) that divides **every** term.',
         'Find the GCF of the coefficients first, then the lowest power of $x$ that appears in every term.',
-        'Divide each term by the GCF. The results go inside the parentheses.',
+        neg ? 'Use the negative of that GCF, so the leading term inside the parentheses is positive. Dividing by a negative flips every sign.' : 'Divide each term by the GCF. The results go inside the parentheses.',
         'Check by multiplying back out: you should get the original expression.',
       ],
       solution: [
-        { text: 'Find the GCF of all the terms.', tex: `\\text{GCF} = ${gcfTex}`, why: `$${g}$ is the largest number dividing every coefficient${k ? `, and $${k === 1 ? 'x' : 'x^{2}'}$ is the lowest power of $x$ in every term` : ''}.` },
-        { text: 'Divide each term by the GCF and write the result in parentheses.', tex: `${tex} = ${gcfTex}\\left(${pTex(inner)}\\right)`, why: 'Multiplying back out gives the original expression, and the terms inside have no common factor left.' },
+        { text: 'Find the GCF of all the terms.', tex: `\\text{GCF} = ${gcfTex}`, why: `$${Math.abs(g)}$ is the largest number dividing every coefficient${k ? ', and $x$ is the lowest power of $x$ in every term' : ''}${neg ? '. The leading coefficient is negative, so we take out the negative GCF' : ''}.` },
+        { text: 'Divide each term by the GCF and write the result in parentheses.', tex: `${tex} = ${gcfTex}\\left(${pTex(inner)}\\right)`, why: neg ? 'Dividing each term by a negative number changes every sign. Multiplying back out gives the original expression, and the terms inside have no common factor left.' : 'Multiplying back out gives the original expression, and the terms inside have no common factor left.' },
       ],
-      misconceptions: [],
+      misconceptions,
     });
   },
-  verify: (pr) => verifySameAndForm(pr),
+  verify: (pr) => {
+    const errs = verifySameAndForm(pr);
+    const tex = mathOf(pr);
+    if (tex && texPoly(tex).degreeIn('x') > 2) errs.push('degree above 2');
+    if (pr.answer.kind === 'expression' && /negative GCF/.test((pr.prompt[0] as { text: string }).text)) {
+      // the factor outside must be negative and the leading coefficient inside positive
+      const m = /^(-\d+)(x?)\((.+)\)$/.exec(pr.answer.value.replace(/\s+/g, ''));
+      if (!m) errs.push('key does not start with a negative GCF');
+      else {
+        const inside = plainPoly(m[3]);
+        if (!inside.coeff('x', inside.degreeIn('x')).gt(0)) errs.push('leading coefficient inside is not positive');
+        // GCF is really the greatest: the coefficients inside share no factor
+        const cs = inside.coeffsIn('x').map((c) => Math.abs(c.toInt()));
+        if (gcdAll(cs) !== 1) errs.push('GCF not greatest');
+      }
+    }
+    return errs;
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -168,6 +168,15 @@ export const U6L02: LessonContent = {
     },
     { t: 'callout', variant: 'tip', title: 'A graphing routine', text: '(1) Draw the asymptote $y = k$ as a dashed line. (2) Plot the $y$-intercept $(0, a + k)$. (3) Plot two or three more points, such as $x = -1, 1, 2$. (4) Draw a smooth curve through them that flattens toward the asymptote at one end.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'A hot drink cools toward room temperature, and a phone battery charges toward $100\\%$. Each curve levels off at a horizontal asymptote, the value it approaches but never quite reaches.' },
+
+    { t: 'p', text: '### Matching an equation to its graph' },
+    { t: 'p', text: 'To pick the graph of $f(x) = -2(0.5)^x + 3$ from several choices, find three features from the equation and check each graph for all three:' },
+    { t: 'list', ordered: true, items: [
+      '**Asymptote:** the number added at the end, $y = 3$. A graph whose dashed line is at $y = -3$ is wrong.',
+      '**$y$-intercept:** $f(0) = -2(1) + 3 = 1$, the point $(0, 1)$.',
+      '**Direction:** $b = 0.5$ makes $(0.5)^x$ fall, and the negative $a$ flips that, so $f$ **increases**: $f(1) = -2(0.5) + 3 = 2$.',
+    ] },
+    { t: 'callout', variant: 'tip', title: 'One feature is not enough', text: 'The graphs of $2(0.5)^x + 3$ and $2(2)^x + 3$ share the asymptote $y = 3$ and the $y$-intercept $(0, 5)$. Only the direction (or a second point, like $x = 1$) tells them apart.' },
   ],
   examples: [
     {

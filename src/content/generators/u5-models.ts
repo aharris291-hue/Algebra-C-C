@@ -4,10 +4,11 @@
  * (S5.06). verify() re-reads the printed model, story numbers, table or graph and re-derives the
  * answer exactly (values are checked as exact rationals, money is checked before rounding).
  */
-import type { GeneratorDef, Rng, ProblemStep, Block, SolutionStep } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, ProblemStep, Block, SolutionStep, GraphSpec } from '../../core/curriculum/types';
 import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { parseRelation, checkAnswer, fixedPlaces } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
+import { evalNumeric } from '../../core/math/evaluate';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
 import { texToParser, exactRational, expPlain, expTex, dTex, commas, pct, textOf } from './u5-common';
@@ -253,11 +254,98 @@ function yAt(a: Rational, b: Rational, x: number) {
   return a.mul(b.pow(x));
 }
 
+/** "Which graph correctly shows the model?" for exponential growth or decay (A.PAR.8.3: labels, scales, domain). */
+function graphChoiceExp(rng: Rng) {
+  const ctx = rng.pick([
+    { who: 'A new video channel has', unit: 'subscribers', what: 'the number of subscribers', per: 'week', a: rng.pick([40, 50, 80, 100]), b: Q(3, 2) },
+    { who: 'A biologist starts with', unit: 'bacteria', what: 'the number of bacteria', per: 'hour', a: rng.pick([20, 30, 50, 60]), b: Q(2) },
+    { who: 'A patient is given', unit: 'milligrams of a medicine', what: 'the milligrams of the medicine left in the body', per: 'hour', a: rng.pick([96, 128, 160, 200]), b: Q(1, 2) },
+    { who: 'A new car is worth', unit: 'thousand dollars', what: 'the value in thousands of dollars', per: 'year', a: rng.pick([24, 30, 36]), b: Q(3, 4) },
+  ]);
+  const N = ctx.b.gt(1) ? (ctx.b.eq(2) ? 4 : 5) : 6;
+  const a = Q(ctx.a);
+  const b = ctx.b;
+  const yOf = (x: number) => a.mul(b.pow(x)).toNumber();
+  const top = Math.max(yOf(0), yOf(N));
+  const step = top > 400 ? 100 : top > 160 ? 40 : top > 80 ? 20 : 10;
+  const yMax = Math.ceil((top * 1.1) / step) * step;
+  const xName = `time x (${ctx.per}s)`;
+  const yName = `y (${ctx.unit})`;
+  const expr = (aa: Rational, bb: Rational) => `${numStr(aa)}*(${numStr(bb)})^x`;
+  const base = (e: string): GraphSpec => ({ xMin: 0, xMax: N + 1, yMin: 0, yMax, xStep: 1, yStep: step, xLabel: xName, yLabel: yName, functions: [{ expr: e, domain: [0, N] }], points: [{ x: 0, y: a.toNumber(), label: `(0, ${numStr(a)})` }], ariaLabel: '' });
+  const correct = base(expr(a, b));
+  correct.ariaLabel = `An exponential curve starting at (0, ${numStr(a)}) and ${b.gt(1) ? 'rising faster and faster' : 'falling, more slowly each step'}, drawn from x = 0 to x = ${N}, with labeled axes.`;
+  const swapped = base(expr(a, b));
+  swapped.xLabel = yName;
+  swapped.yLabel = xName;
+  swapped.ariaLabel = 'The same curve, but the horizontal axis is labeled with the output and the vertical axis with time.';
+  const step1 = a.mul(b).sub(a);
+  const linear = base(`${numStr(a)}+(${numStr(step1)})*x`);
+  linear.ariaLabel = `A straight line starting at (0, ${numStr(a)}) that changes by the same amount each ${ctx.per}, with labeled axes.`;
+  if (b.lt(1)) {
+    // keep the line above 0 on the window so it looks plausible
+    linear.functions = [{ expr: `${numStr(a)}+(${numStr(step1)})*x`, domain: [0, Math.min(N, a.div(step1.neg()).toNumber())] }];
+  }
+  // a curve with the wrong factor: decay instead of growth, or decay that is too fast
+  const flip = b.gt(1) ? b.inv() : b.mul(b);
+  const other = base(expr(a, flip));
+  other.ariaLabel = `An exponential curve starting at (0, ${numStr(a)}) that falls ${b.gt(1) ? '' : 'faster '}each step, with labeled axes.`;
+  const cands = rng.shuffle([correct, swapped, linear, other]);
+  const letters = ['A', 'B', 'C', 'D'];
+  const slot = cands.indexOf(correct);
+  const blocks: Block[] = cands.map((spec, i) => ({ t: 'graph', spec, caption: `Graph ${letters[i]}` }));
+  const fx = `y = ${numStr(a)}\\left(${dTex(b)}\\right)^{x}`;
+  return makeProblem({
+    skillId: 'S5.03',
+    tags: ['real-world', 'graph'],
+    prompt: [
+      p(`${ctx.who} $${numStr(a)}$ ${ctx.unit}. The model below gives ${ctx.what} after $x$ ${ctx.per}s.`),
+      { t: 'math', tex: fx },
+      p(`Which graph correctly shows this model for $0 \\le x \\le ${N}$, with correctly labeled axes?`),
+      ...blocks,
+    ],
+    answer: { kind: 'choice' as const, options: letters.map((L, i) => ({ id: 'abcd'[i], label: `Graph ${L}` })), correct: 'abcd'[slot] },
+    hints: [
+      'Check each graph for three things: the shape of the curve, where it starts, and the axis labels.',
+      `Time (the input $x$) goes on the horizontal axis; ${ctx.unit} (the output) go on the vertical axis.`,
+      `At $x = 0$ the model gives $${numStr(a)}$. Each ${ctx.per} the output is **multiplied** by $${dTex(b)}$, so the graph is a curve, not a line.`,
+      `Check one more point: at $x = 1$ the output should be $${numStr(a.mul(b))}$, and at $x = 2$ it should be $${numStr(a.mul(b).mul(b))}$.`,
+    ],
+    solution: [
+      { text: 'Make a short table from the model.', tex: [0, 1, 2, 3].map((x) => `x = ${x}: y = ${numStr(a.mul(b.pow(x)))}`).join(',\\ '), why: `Multiply by $${dTex(b)}$ each ${ctx.per}.` },
+      { text: 'Rule out the wrong graphs.', why: `One graph swaps the axis labels. One is a straight line, which adds the same amount each ${ctx.per} (linear), instead of multiplying. One uses the factor $${dTex(flip)}$ instead of $${dTex(b)}$${b.gt(1) ? ', so it decays instead of growing' : ', so it falls too fast'}: at $x = 1$ it gives $${numStr(a.mul(flip))}$, not $${numStr(a.mul(b))}$.` },
+      { text: `The correct graph is Graph ${letters[slot]}.`, why: `It starts at $(0, ${numStr(a)})$, passes through $(1, ${numStr(a.mul(b))})$ and $(2, ${numStr(a.mul(b).mul(b))})$, is drawn for $0 \\le x \\le ${N}$, and has time on the horizontal axis and ${ctx.unit} on the vertical axis.` },
+    ],
+    misconceptions: [],
+  });
+}
+
+function verifyGraphChoiceExp(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+  const md = readModel(mathBlocks(pr)[0]);
+  if (!md) return ['cannot read model'];
+  const N = Number(/\\le x \\le (\d+)\$/.exec(textOf(pr))?.[1]);
+  if (!N) return ['cannot read domain'];
+  const graphs = pr.prompt.filter((b): b is Extract<Block, { t: 'graph' }> => b.t === 'graph');
+  const ok = graphs.map((g) => {
+    const fn = g.spec.functions?.[0];
+    if (!fn) return false;
+    const node = parseExpression(fn.expr);
+    const same = [0, 1, 2, 3].every((x) => Math.abs(evalNumeric(node, { x }) - md.a.mul(md.b.pow(x)).toNumber()) < 1e-9);
+    const dom = !!fn.domain && fn.domain[0] === 0 && fn.domain[1] === N;
+    const labels = /^time/.test(g.spec.xLabel ?? '') && /^y \(/.test(g.spec.yLabel ?? '');
+    return same && dom && labels;
+  });
+  if (ok.filter(Boolean).length !== 1) return [`${ok.filter(Boolean).length} graphs are correct`];
+  return graphs[ok.indexOf(true)].caption === choiceLabel(pr.answer) ? [] : ['wrong key'];
+}
+
 export const genWriteExponential: GeneratorDef = {
   id: 'u5.write-exponential',
   skillId: 'S5.03',
-  description: 'Write y = a(b)^x from words, a table, a graph or two points.',
+  description: 'Write y = a(b)^x from words, a table, a graph or two points, and choose the correctly labeled graph of a model.',
   generate(rng, difficulty) {
+    if (difficulty === 2 && rng.int(0, 2) === 0) return graphChoiceExp(rng);
     let a: Rational;
     let b: Rational;
     let prompt: Block[];
@@ -370,6 +458,7 @@ export const genWriteExponential: GeneratorDef = {
     });
   },
   verify(pr) {
+    if (pr.answer.kind === 'choice') return verifyGraphChoiceExp(pr);
     if (pr.answer.kind !== 'equation') return ['unexpected kind'];
     const rel = parseRelation(pr.answer.value);
     const rhs = rel.rhs;
@@ -698,6 +787,54 @@ function amount(P: Rational, r: Rational, n: number, t: number): Rational {
   return P.mul(Q(1).add(r.div(n)).pow(n * t));
 }
 
+/** What each part of a compound interest formula with numbers means (A.PAR.8.1). */
+type CPart = 'periods' | 'periodRate' | 'factor' | 'principal';
+const CPART_LABEL: Record<CPart | 'years' | 'yearRate', string> = {
+  periods: 'The number of times interest is added in $t$ years',
+  periodRate: 'The interest rate for each compounding period, as a decimal',
+  factor: 'The number the balance is multiplied by each compounding period',
+  principal: 'The amount deposited at the start',
+  years: 'The number of years the money is in the account',
+  yearRate: 'The yearly interest rate, as a decimal',
+};
+
+function interpretCompound(rng: Rng, P: Rational, r: Rational, name: string) {
+  const o = rng.pick(COMPOUND.slice(1));
+  const part = rng.pick<CPart>(['periods', 'periods', 'periodRate', 'factor', 'principal']);
+  const rTex = dTex(r);
+  const fx = `A = ${numStr(P)}\\left(1 + \\frac{${rTex}}{${o.n}}\\right)^{${o.n}t}`;
+  const shown: Record<CPart, string> = { periods: `${o.n}t`, periodRate: `\\frac{${rTex}}{${o.n}}`, factor: `1 + \\frac{${rTex}}{${o.n}}`, principal: numStr(P) };
+  const pool: Array<CPart | 'years' | 'yearRate'> = part === 'periods' ? ['years', 'periodRate', 'principal'] : part === 'periodRate' ? ['yearRate', 'factor', 'periods'] : part === 'factor' ? ['periodRate', 'yearRate', 'periods'] : ['factor', 'periods', 'years'];
+  const answer = makeChoice(rng, CPART_LABEL[part], pool.map((k) => CPART_LABEL[k]));
+  const why: Record<CPart, string> = {
+    periods: `Interest is added ${o.word}, which is $${o.n}$ times a year, so in $t$ years it is added $${o.n} \\cdot t$ times. That is the number of times the balance is multiplied.`,
+    periodRate: `The yearly rate $${rTex}$ is split into $${o.n}$ equal parts because interest is added ${o.word}, so each period pays $\\frac{${rTex}}{${o.n}}$ of the balance.`,
+    factor: `Each period the balance keeps all of itself ($1$) and gains $\\frac{${rTex}}{${o.n}}$ more, so it is multiplied by $1 + \\frac{${rTex}}{${o.n}}$.`,
+    principal: `At $t = 0$ the exponent is $0$, so $A = ${numStr(P)} \\cdot 1 = ${numStr(P)}$: the starting deposit.`,
+  };
+  return makeProblem({
+    skillId: 'S5.06',
+    tags: ['real-world'],
+    prompt: [
+      p(`${name} deposits ${moneyText(P)} in an account that pays ${pct(r)}% interest compounded ${o.word}. No other money is added or taken out. The balance after $t$ years is`),
+      { t: 'math', tex: fx },
+      p(`What does the **$${shown[part]}$** in the formula represent?`),
+    ],
+    answer,
+    hints: [
+      'Compare with the general formula $A = P\\left(1 + \\frac{r}{n}\\right)^{nt}$.',
+      `Compounded ${o.word} means $n = ${o.n}$: interest is added $${o.n}$ times a year.`,
+      '$\\frac{r}{n}$ is the rate for one period, $1 + \\frac{r}{n}$ is what the balance is multiplied by each period, and the exponent counts the periods.',
+      'Try $t = 1$: how many times is interest added in one year?',
+    ],
+    solution: [
+      { text: 'Match the formula to $A = P\\left(1 + \\frac{r}{n}\\right)^{nt}$.', tex: `P = ${numStr(P)},\\ r = ${rTex},\\ n = ${o.n}`, why: `The yearly rate ${pct(r)}% is $${rTex}$ as a decimal, and ${o.word} means $${o.n}$ times a year.` },
+      { text: `So $${shown[part]}$ is: ${CPART_LABEL[part].charAt(0).toLowerCase() + CPART_LABEL[part].slice(1)}.`, why: why[part] },
+    ],
+    misconceptions: [],
+  });
+}
+
 export const genCompoundInterest: GeneratorDef = {
   id: 'u5.compound-interest',
   skillId: 'S5.06',
@@ -708,6 +845,7 @@ export const genCompoundInterest: GeneratorDef = {
     const t = rng.int(2, 10);
     const name = rng.pick(['Maya', 'Jordan', 'Luis', 'Priya', 'Sam', 'Aaliyah', 'Chris', 'Kenji']);
     const formula = 'A = P\\left(1 + \\frac{r}{n}\\right)^{nt}';
+    if (difficulty === 2 && rng.int(0, 2) === 0) return interpretCompound(rng, P, r, name);
     if (difficulty === 3 && rng.bool()) {
       // compare two accounts
       let o1 = rng.pick(COMPOUND);
@@ -765,6 +903,19 @@ export const genCompoundInterest: GeneratorDef = {
   },
   verify(pr) {
     const text = textOf(pr);
+    if (/in the formula represent/.test(text)) {
+      if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+      const fm = /^A = (\d+)\\left\(1 \+ \\frac\{([\d.]+)\}\{(\d+)\}\\right\)\^\{(\d+)t\}$/.exec(mathBlocks(pr)[0]);
+      const am = /pays ([\d.]+)% interest compounded (\w+)/.exec(text);
+      const sm = /\*\*\$(.+?)\$\*\*/.exec(text);
+      if (!fm || !am || !sm) return ['cannot read formula'];
+      const n = COMPOUND.find((c) => c.word === am[2])?.n;
+      if (!n || Number(fm[3]) !== n || Number(fm[4]) !== n || !Q(fm[2]).eq(Q(am[1]).div(100))) return ['formula does not match the story'];
+      const shown = sm[1];
+      const want: CPart | null = shown === `${n}t` ? 'periods' : shown === `\\frac{${fm[2]}}{${n}}` ? 'periodRate' : shown === `1 + \\frac{${fm[2]}}{${n}}` ? 'factor' : shown === fm[1] ? 'principal' : null;
+      if (!want) return ['asked part not in formula'];
+      return choiceLabel(pr.answer) === CPART_LABEL[want] ? [] : [`expected ${want}`];
+    }
     const accts = [...text.matchAll(/pays ([\d.]+)% interest compounded (\w+)/g)];
     const P = Q(/\\\$([\d,]+)/.exec(text)![1].replace(/,/g, ''));
     const t = Number(/(?:for|in|after) (\d+) years/.exec(text)![1]);

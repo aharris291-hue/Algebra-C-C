@@ -5,13 +5,13 @@
  * re-derives the answer exactly: vertex from -b/(2a), zeros by substitution, transformations by
  * composing polynomials.
  */
-import type { GeneratorDef, Rng, ProblemStep, Problem, GraphSpec } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, ProblemStep, Problem, GraphSpec, Block } from '../../core/curriculum/types';
 import type { Misconception } from '../../core/math/answers';
 import { parseInterval, intervalsEqual } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
-import { p, makeProblem, makeChoice, choiceLabel, numStr, Q } from './util';
+import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
 import {
   X, pTex, pPlain, texPoly, checkSolutions, quadRoots, ev, vertexOf, vtxTex, vtxPlain, vtxPoly, factTex, factPoly, rhsPoly, mathBlocks, promptText, graphOf, substituteTex, joinNums, tailTex, coefTex,
 } from './u4-common';
@@ -43,11 +43,57 @@ function windowFor(xs: number[], ys: number[], padX = 2, padY = 2): Pick<GraphSp
 // S4.14: evaluate and interpret quadratic functions
 // ---------------------------------------------------------------------------
 
+/** Evaluate, or solve f(x) = y, using a table of a quadratic function (A.FGR.7.1). */
+function evalFromTable(rng: Rng, difficulty: 1 | 2): Problem {
+  const a = rng.pick([1, 2, -1, -2, 3]);
+  const h = rng.int(-2, 3);
+  const k = rng.int(-8, 8);
+  const f = vtxPoly(a, h, k);
+  const xs = [-3, -2, -1, 0, 1, 2, 3].map((d) => h + d);
+  const table = { t: 'table' as const, headers: ['$x$', '$f(x)$'], rows: xs.map((x) => [`$${x}$`, `$${ev(f, x).toTex()}$`]) };
+  if (difficulty === 1) {
+    const x0 = rng.pick(xs.filter((x) => x !== h));
+    const val = ev(f, x0);
+    return makeProblem({
+      skillId: 'S4.14',
+      tags: [],
+      prompt: [p('The table shows some values of a quadratic function $f$.'), table, p(`What is $f(${x0})$?`)],
+      answer: numSpec(val),
+      hints: [`$f(${x0})$ means the output when the input is $${x0}$.`, 'Inputs are in the $x$ column; outputs are in the $f(x)$ column.', `Find the row where $x = ${x0}$.`, 'Read across that row to the output.'],
+      solution: [{ text: `Find the row with $x = ${x0}$.`, why: 'A table pairs each input with its output.' }, { text: 'Read the output.', tex: `f(${x0}) = ${val.toTex()}` }],
+      misconceptions: numberMisconceptions(val, [{ value: Q(x0), tag: 'graph-reading', feedback: 'That is the input. $f(' + x0 + ')$ is the output in the same row.' }]),
+    });
+  }
+  const d = rng.int(1, 3);
+  const y = ev(f, h + d);
+  const others = xs.filter((x) => ev(f, x).eq(y));
+  const sols = others.map((x) => Q(x));
+  return makeProblem({
+    skillId: 'S4.14',
+    tags: [],
+    prompt: [p('The table shows some values of a quadratic function $f$.'), table, p(`Use the table to find every value of $x$ for which $f(x) = ${y.toTex()}$.`)],
+    answer: solSpec(sols),
+    inputHint: 'Type every value, separated by a comma, like 3, -1.',
+    hints: [
+      `$f(x) = ${y.toTex()}$ asks for the **inputs** whose output is $${y.toTex()}$.`,
+      `Look down the $f(x)$ column for $${y.toTex()}$.`,
+      `A parabola is symmetric about its vertex, here at $x = ${h}$, so an output usually appears twice.`,
+      'Read the input in each row where the output matches.',
+    ],
+    solution: [
+      { text: `Find every row with output $${y.toTex()}$.`, tex: sols.map((x) => `f(${x.toTex()}) = ${y.toTex()}`).join(',\\quad '), why: `The outputs are symmetric about $x = ${h}$, where the ${a < 0 ? 'largest' : 'smallest'} output, $${k}$, appears.` },
+      { text: 'List the inputs.', tex: `x = ${sols.map((x) => x.toTex()).join(' \\text{ or } x = ')}`, why: 'A quadratic function takes each output (other than the vertex value) at two inputs, and both are in the table.' },
+    ],
+    misconceptions: [{ answer: sols[0].toString(), tag: 'missing-solution', feedback: 'That input works, but the output appears in another row too. A parabola is symmetric.' }],
+  });
+}
+
 export const genEvaluateQuadratic: GeneratorDef = {
   id: 'u4.evaluate-quadratic',
   skillId: 'S4.14',
   description: 'Evaluate a quadratic function, or find the inputs that give an output.',
   generate(rng, difficulty) {
+    if (difficulty < 3 && rng.int(0, 2) === 0) return evalFromTable(rng, difficulty as 1 | 2);
     if (difficulty === 3) {
       const sqrtMode = rng.bool();
       let f: Poly;
@@ -169,6 +215,28 @@ export const genEvaluateQuadratic: GeneratorDef = {
     });
   },
   verify(pr) {
+    const tblE = (pr.prompt as Block[]).find((b) => b.t === 'table') as Extract<Block, { t: 'table' }> | undefined;
+    if (tblE) {
+      const rows = tblE.rows.map((r) => [Q(r[0].replace(/\$/g, '')), Q(r[1].replace(/\$/g, ''))] as [Rational, Rational]);
+      const d1 = rows.slice(1).map((r, i) => r[1].sub(rows[i][1]));
+      const d2 = d1.slice(1).map((x, i) => x.sub(d1[i]));
+      if (rows.some((r, i) => i > 0 && !r[0].sub(rows[i - 1][0]).eq(1)) || d2.some((x) => !x.eq(d2[0])) || d2[0].isZero()) return ['table is not a quadratic'];
+      const text = promptText(pr);
+      if (pr.answer.kind === 'number') {
+        const m = /What is \$f\((-?\d+)\)\$/.exec(text);
+        const row = m && rows.find((r) => r[0].eq(Number(m[1])));
+        if (!row) return ['input not in table'];
+        return Q(pr.answer.value).eq(row[1]) ? [] : ['wrong value'];
+      }
+      if (pr.answer.kind !== 'solutions') return ['unexpected kind'];
+      const m = /f\(x\) = (-?\d+)\$\./.exec(text);
+      if (!m) return ['cannot read target'];
+      const hits = rows.filter((r) => r[1].eq(Number(m[1]))).map((r) => r[0]);
+      // a quadratic takes a value at most twice, so two hits in the table are all of them
+      if (hits.length !== 2) return ['target should appear exactly twice'];
+      const got = pr.answer.values.map((v) => Q(v));
+      return got.length === 2 && hits.every((x) => got.some((g) => g.eq(x))) ? [] : ['wrong inputs'];
+    }
     if (pr.answer.kind === 'solutions') {
       const f = rhsPoly(mathBlocks(pr)[0]);
       const m = /f\(x\) = (-?\d+)\$\?/.exec(promptText(pr));
@@ -736,6 +804,103 @@ export const genGraphFeatures: GeneratorDef = {
 // S4.16: domain and range
 // ---------------------------------------------------------------------------
 
+/** Domain of a function given only by a table of whole-number inputs (A.FGR.7.1). */
+function discreteDomain(rng: Rng): Problem {
+  const games = rng.bool();
+  const n0 = rng.int(2, 4);
+  const count = rng.int(4, 6);
+  const ns = Array.from({ length: count }, (_, i) => n0 + i);
+  const out = (n: number) => (games ? n * (n - 1) : (n * (n - 1)) / 2);
+  const set = (xs: number[]) => `$\\{${xs.join(', ')}\\}$`;
+  const correct = set(ns);
+  const wrong = [set(ns.map(out)), `Every real number from $${ns[0]}$ to $${ns[ns.length - 1]}$`, 'All real numbers'];
+  const story = games
+    ? `In a league, every team plays every other team twice. A coach made the table below of the number of games $G(n)$ for leagues with $n$ teams. The table lists all of the coach's data.`
+    : `In a group of $n$ students, everyone shakes hands once with everyone else. A class made the table below of the number of handshakes $H(n)$. The table lists all of the class's data.`;
+  const fn = games ? 'G' : 'H';
+  return makeProblem({
+    skillId: 'S4.16',
+    tags: ['real-world'],
+    prompt: [
+      p(story),
+      { t: 'table', headers: ['$n$', `$${fn}(n)$`], rows: ns.map((n) => [`$${n}$`, `$${out(n)}$`]) },
+      p(`What is the domain of the function shown in the table?`),
+    ],
+    answer: makeChoice(rng, correct, wrong),
+    hints: [
+      'The domain is the set of **inputs**.',
+      'In the table, the inputs are in the first column; the outputs are in the second.',
+      `The number of ${games ? 'teams' : 'students'} must be a whole number, so values between the rows (like $2.5$) do not make sense.`,
+      'A function given only by a table has exactly the listed inputs as its domain.',
+    ],
+    solution: [
+      { text: 'Read the inputs from the first column.', tex: ns.join(',\\ '), why: 'The domain is the set of input values.' },
+      { text: 'Write them as a set.', tex: `\\{${ns.join(', ')}\\}`, why: `The function is only defined for these whole numbers of ${games ? 'teams' : 'students'}: it is a discrete domain, not an interval. The second column, ${set(ns.map(out))}, is the range.` },
+    ],
+    misconceptions: [],
+  });
+}
+
+/** Domain and range of a dropped object, read from its graph (A.FGR.7.1, A.FGR.7.4). */
+function droppedGraph(rng: Rng): Problem {
+  const T = rng.pick([Q(1), Q(3, 2), Q(2), Q(5, 2), Q(3)]);
+  const H = T.mul(T).mul(16);
+  const thing = rng.pick(['phone', 'stick', 'water balloon', 'paintbrush', 'tennis ball']);
+  const from = rng.pick(H.le(36) ? ['a balcony', 'a tree house', 'the top of a tall ladder'] : H.le(100) ? ['a bridge', 'the roof of a parking garage', 'a hotel balcony'] : ['a tall bridge', 'the edge of a cliff']);
+  const askDomain = rng.bool();
+  const f = Poly.fromCoeffs('x', [H, Q(0), Q(-16)]);
+  const step = H.gt(80) ? 20 : H.gt(40) ? 10 : 4;
+  const spec: GraphSpec = {
+    xMin: 0,
+    xMax: Math.ceil(T.toNumber()) + 1,
+    yMin: 0,
+    yMax: Math.ceil((H.toNumber() * 1.15) / step) * step,
+    xStep: T.isInteger() ? 1 : 0.5,
+    yStep: step,
+    xLabel: 'time t (seconds)',
+    yLabel: 'height h (feet)',
+    functions: [{ expr: gexpr(f), label: 'h(t)', domain: [0, T.toNumber()] }],
+    points: [
+      { x: 0, y: H.toNumber(), label: `(0, ${H.toString()})` },
+      { x: T.toNumber(), y: 0, label: `(${numStr(T)}, 0)` },
+    ],
+    ariaLabel: `A curve starting at (0, ${H.toString()}) and falling to (${numStr(T)}, 0), drawn only from t = 0 to t = ${numStr(T)}.`,
+  };
+  const value = askDomain ? `[0, ${numStr(T)}]` : `[0, ${H.toString()}]`;
+  return makeProblem({
+    skillId: 'S4.16',
+    tags: ['real-world', 'graph'],
+    prompt: [
+      p(`A ${thing} is dropped from ${from}. The graph shows its height $h$, in feet, $t$ seconds after it is dropped, from the moment it is dropped until it hits the ground.`),
+      { t: 'graph', spec },
+      p(`What is the ${askDomain ? 'domain' : 'range'} of the function shown in the graph?`),
+    ],
+    answer: { kind: 'interval', value },
+    inputHint: askDomain ? 'Like [0, 4] or 0 <= t <= 4' : 'Like [0, 64] or 0 <= h <= 64',
+    hints: askDomain
+      ? ['The domain is the set of inputs: here, the times shown on the horizontal axis.', 'Find the leftmost and rightmost points of the graph.', 'The graph starts when the object is dropped and stops when it hits the ground.', 'Both endpoints are on the graph, so use brackets.']
+      : ['The range is the set of outputs: here, the heights shown on the vertical axis.', 'Find the lowest and highest points of the graph.', 'The highest point is where it starts; the lowest is the ground.', 'Both endpoints are on the graph, so use brackets.'],
+    solution: askDomain
+      ? [
+          { text: 'Read the inputs from left to right.', why: `The graph starts at $t = 0$ (the drop) and ends at the labeled point $(${numStr(T)}, 0)$, when the ${thing} hits the ground.` },
+          { text: 'Write the domain.', tex: `0 \\le t \\le ${T.toTex()}`, why: 'Every time in between is on the graph, and both endpoints are included.' },
+        ]
+      : [
+          { text: 'Read the outputs from bottom to top.', why: `The highest point is the start, $(0, ${H.toString()})$, and the lowest is the ground, height $0$.` },
+          { text: 'Write the range.', tex: `0 \\le h \\le ${H.toString()}`, why: `The ${thing} passes through every height in between as it falls.` },
+        ],
+    misconceptions: askDomain
+      ? [
+          { answer: `[0, ${H.toString()}]`, tag: 'interval-endpoint', feedback: 'Those are the heights (outputs). The domain is the set of times (inputs).' },
+          { answer: '(-inf, inf)', tag: 'interval-endpoint', feedback: 'The formula works for any number, but the graph, and the situation, only go from the drop to the ground.' },
+        ]
+      : [
+          { answer: `[0, ${numStr(T)}]`, tag: 'interval-endpoint', feedback: 'Those are the times (inputs). The range is the set of heights (outputs).' },
+          { answer: `(-inf, ${H.toString()}]`, tag: 'interval-endpoint', feedback: 'The graph stops at the ground, so the height is never negative.' },
+        ],
+  });
+}
+
 export const genDomainRange: GeneratorDef = {
   id: 'u4.domain-range',
   skillId: 'S4.16',
@@ -821,6 +986,9 @@ export const genDomainRange: GeneratorDef = {
         steps,
       });
     }
+    const roll = rng.int(0, 2);
+    if (difficulty === 1 && roll === 0) return discreteDomain(rng);
+    if (difficulty === 2 && roll === 0) return droppedGraph(rng);
     const a = rng.pick([1, 2, 3, -1, -2, -3]);
     const h = nz(rng, -6, 6);
     let k = rng.int(-9, 9);
@@ -865,9 +1033,41 @@ export const genDomainRange: GeneratorDef = {
     });
   },
   verify(pr) {
+    const text = promptText(pr);
+    const tbl0 = (pr.prompt as Block[]).find((b) => b.t === 'table') as Extract<Block, { t: 'table' }> | undefined;
+    if (tbl0) {
+      if (pr.answer.kind !== 'choice') return ['unexpected kind'];
+      const ins = tbl0.rows.map((r) => Number(r[0].replace(/\$/g, '')));
+      const outs = tbl0.rows.map((r) => Q(r[1].replace(/\$/g, '')));
+      const d1 = outs.slice(1).map((o, i) => o.sub(outs[i]));
+      if (d1.slice(1).some((d, i) => !d.sub(d1[i]).eq(d1[1].sub(d1[0])))) return ['table is not quadratic'];
+      const m = /^\$\\\{(.+)\\\}\$$/.exec(choiceLabel(pr.answer));
+      if (!m) return ['key is not a set'];
+      const vals = m[1].split(',').map((x) => Number(x.trim()));
+      return vals.length === ins.length && vals.every((v, i) => v === ins[i]) ? [] : ['key is not the set of inputs'];
+    }
+    const spec0 = graphOf(pr);
+    if (spec0) {
+      if (pr.answer.kind !== 'interval') return ['unexpected kind'];
+      const fn = spec0.functions![0];
+      const g = toPoly(parseExpression(fn.expr));
+      const [d0, dEnd] = fn.domain!;
+      // the graph runs from the drop to the ground: it ends where the height is 0
+      if (d0 !== 0 || Math.abs(ev(g, Q(String(dEnd))).toNumber()) > 1e-9) return ['graph does not end on the ground'];
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = 0; i <= 1000; i++) {
+        const y = ev(g, Q(String(d0 + ((dEnd - d0) * i) / 1000))).toNumber();
+        lo = Math.min(lo, y);
+        hi = Math.max(hi, y);
+      }
+      const got = parseInterval(pr.answer.value);
+      const want = /What is the domain/.test(text) ? [d0, dEnd] : [lo, hi];
+      if (!got.lo || !got.hi || !got.loClosed || !got.hiClosed) return ['endpoints should be included'];
+      return Math.abs(got.lo.toNumber() - want[0]) < 1e-9 && Math.abs(got.hi.toNumber() - want[1]) < 1e-6 ? [] : ['wrong interval'];
+    }
     if (pr.answer.kind !== 'interval') return ['unexpected kind'];
     const blocks = mathBlocks(pr);
-    const text = promptText(pr);
     const got = parseInterval(pr.answer.value);
     if (/domain/.test(text) && !/reasonable/.test(text)) return got.lo === null && got.hi === null ? [] : ['domain should be all reals'];
     const v = /h\(t\)/.test(blocks[0]) ? 't' : 'x';

@@ -18,6 +18,9 @@ export interface SysContext {
   moneyWhat: string;
   /** what the count is */
   countWhat: string;
+  /** singular forms of xNoun and yNoun, used for a count of exactly 1 */
+  xOne: string;
+  yOne: string;
   a: [number, number];
   b: [number, number];
   n: [number, number];
@@ -31,6 +34,8 @@ export const SYS_CONTEXTS: SysContext[] = [
   {
     key: 'bake-sale',
     xNoun: 'cookies',
+    xOne: 'cookie',
+    yOne: 'brownie',
     yNoun: 'brownies',
     countOp: '<=',
     moneyOp: '>=',
@@ -45,6 +50,8 @@ export const SYS_CONTEXTS: SysContext[] = [
   {
     key: 'prizes',
     xNoun: 'small prizes',
+    xOne: 'small prize',
+    yOne: 'large prize',
     yNoun: 'large prizes',
     countOp: '>=',
     moneyOp: '<=',
@@ -59,6 +66,8 @@ export const SYS_CONTEXTS: SysContext[] = [
   {
     key: 'jobs',
     xNoun: 'hours lifeguarding',
+    xOne: 'hour lifeguarding',
+    yOne: 'hour tutoring',
     yNoun: 'hours tutoring',
     countOp: '<=',
     moneyOp: '>=',
@@ -73,6 +82,8 @@ export const SYS_CONTEXTS: SysContext[] = [
   {
     key: 'theater',
     xNoun: 'student tickets',
+    xOne: 'student ticket',
+    yOne: 'adult ticket',
     yNoun: 'adult tickets',
     countOp: '<=',
     moneyOp: '>=',
@@ -87,6 +98,8 @@ export const SYS_CONTEXTS: SysContext[] = [
   {
     key: 'snacks',
     xNoun: 'granola bars',
+    xOne: 'granola bar',
+    yOne: 'fruit cup',
     yNoun: 'fruit cups',
     countOp: '>=',
     moneyOp: '<=',
@@ -99,6 +112,17 @@ export const SYS_CONTEXTS: SysContext[] = [
     moneyText: (a, b, t) => `Coach Lee is buying granola bars for ${a} each and fruit cups for ${b} each for the team. She can spend **at most** ${t}.`,
   },
 ];
+
+/** "$n$ noun" with the singular noun when n is 1 or -1 ("$1$ hour tutoring", "$3$ hours tutoring"). */
+export function countOf(ctx: SysContext, which: 'x' | 'y', n: string | number): string {
+  const one = String(n) === '1' || String(n) === '-1';
+  return `$${n}$ ${which === 'x' ? (one ? ctx.xOne : ctx.xNoun) : one ? ctx.yOne : ctx.yNoun}`;
+}
+
+/** "If there are $n$ noun" / "If there is $1$ noun" for a count of the x item. */
+export function ifThereAre(ctx: SysContext, n: number): string {
+  return `If there ${n === 1 ? 'is' : 'are'} ${countOf(ctx, 'x', n)}`;
+}
 
 export interface SysInstance {
   ctx: SysContext;

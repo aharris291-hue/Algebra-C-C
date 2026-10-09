@@ -128,6 +128,10 @@ export const U7L05: LessonContent = {
     ] },
     { t: 'callout', variant: 'vocab', title: 'Statistical investigative questions', text: 'A question like "Do Brand A phones tend to have longer battery life than Brand B phones?" is answered in four stages: **ask** the question, **collect** data from both groups, **analyze** with a display and the right measures, and **interpret** the results in context. Data from a small or unusual sample only supports a cautious answer.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Comparing two phone plans\' download speeds, two teams\' scores, prices at two stores or study habits of two grades all use the same idea: compare a typical value **and** how much the values vary.' },
+
+    { t: 'p', text: '### Comparing from summaries, and more than two groups' },
+    { t: 'p', text: 'Sometimes you only get the numbers. Class A has mean $78$ and standard deviation $4$; Class B has mean $78$ and standard deviation $11$ (both roughly symmetric). Same mean, so the typical score is the same; Class A has the smaller standard deviation, so its scores are **more consistent**: they are typically only about $4$ points from $78$, while Class B\'s are typically about $11$ points away.' },
+    { t: 'p', text: 'With three or more box plots, compare the same measures one group at a time. To find the greatest IQR, subtract $Q_3 - Q_1$ for each box. Do not be fooled by long whiskers: a group can have the greatest **range** but a narrow box, so its middle half is not the most spread out.' },
   ],
   examples: [
     {

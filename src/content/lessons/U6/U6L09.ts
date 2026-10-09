@@ -211,6 +211,40 @@ export const U6L09: LessonContent = {
       ],
       answer: '(a) $x = 13$ ($194.62 > 179$). (b) After that, $e$ multiplies by $1.5$ each step while $q$ multiplies by about $1.15$ or less, so $e$ stays ahead and pulls away.',
     },
+
+    {
+      title: 'A graph, an equation and a description',
+      kind: 'intermediate',
+      problem: [
+        { t: 'p', text: 'The function $f$ is graphed below. $g(x) = 5(1.5)^x + 1$. The function $h$ has an output of $100$ when $x = 0$, and its output increases by $20$ each time $x$ increases by $1$. (a) Which has the greater $y$-intercept, $f$ or $g$? (b) Which has the greater growth factor, $f$ or $g$? (c) Which is greater at $x = 4$, $f$ or $h$?' },
+        {
+          t: 'graph',
+          caption: 'The graph of f, with its asymptote y = 0 dashed.',
+          spec: {
+            xMin: -3,
+            xMax: 4,
+            yMin: -2,
+            yMax: 18,
+            yStep: 2,
+            functions: [{ expr: '3*2^x' }, { expr: '0', dashed: true, color: '#888888' }],
+            points: [
+              { x: -1, y: 1.5, label: '(-1, 1.5)' },
+              { x: 0, y: 3, label: '(0, 3)' },
+              { x: 1, y: 6, label: '(1, 6)' },
+              { x: 2, y: 12, label: '(2, 12)' },
+            ],
+            ariaLabel: 'An increasing exponential curve through (-1, 1.5), (0, 3), (1, 6) and (2, 12), approaching the x-axis on the left.',
+          },
+        },
+      ],
+      steps: [
+        { text: '(a) Find each $y$-intercept.', tex: 'f(0) = 3, \\qquad g(0) = 5(1.5)^0 + 1 = 5 + 1 = 6', why: 'Read the labeled point on the $y$-axis for $f$; substitute $x = 0$ for $g$. Any nonzero number to the $0$ power is $1$, but the $+1$ still counts.' },
+        { text: '(b) Find each growth factor.', tex: 'f: \\frac{6}{3} = \\frac{12}{6} = 2, \\qquad g: 1.5', why: 'On the graph (asymptote $y = 0$), each step of $1$ in $x$ multiplies the output by $2$. In the equation, the factor is the base.' },
+        { text: '(c) Find each value at $x = 4$.', tex: 'f(4) = 3(2)^4 = 48, \\qquad h(4) = 100 + 20(4) = 180', why: 'The graph gives $f(x) = 3(2)^x$ (start $3$, factor $2$). The description is linear: start at $100$ and add $20$ four times.' },
+        { text: 'Compare.', why: '$6 > 3$, so $g$ has the greater $y$-intercept; $2 > 1.5$, so $f$ has the greater growth factor; $180 > 48$, so $h$ is greater at $x = 4$. The exponential $f$ does pass $h$ later: $f(6) = 192 < h(6) = 220$, but $f(7) = 384 > h(7) = 240$.' },
+      ],
+      answer: '(a) $g$ ($6$ versus $3$). (b) $f$ (factor $2$ versus $1.5$). (c) $h$ ($180$ versus $48$), although $f$ passes $h$ at $x = 7$.',
+    },
   ],
   teachMeAgain: [
     {

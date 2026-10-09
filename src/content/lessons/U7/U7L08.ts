@@ -172,6 +172,8 @@ export const U7L08: LessonContent = {
     },
     { t: 'callout', variant: 'why', title: 'Why extrapolation is risky', text: 'The data only show what happens between the smallest and largest $x$-values. Outside that range, nothing guarantees the pattern continues, and real quantities often level off, turn around or hit limits (no negative times or amounts, no percents over $100$). So: inside the range plus a strong $r$ means a reasonable prediction; far outside the range, or an impossible value, means do not trust it.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Phone makers predict battery life from battery age, streaming services predict watch time from past viewing, and sports analysts predict points from minutes played. They all use regression lines, and they all have to be careful about predicting too far beyond their data.' },
+
+    { t: 'callout', variant: 'tip', title: 'The graphing tool and rounding', text: 'The app\'s graphing tool works like Desmos: enter the table, run the linear regression, and read $a$ (or $m$), $b$ and $r$. Round only the final answer. For $x = 1, 2, 3, 4, 5, 6$ and $y = 3, 5, 6, 9, 10, 12$, the output is $\\hat{y} = 1.8x + 1.2$ with $r \\approx 0.993$. Do not find the slope from just two of the points: the line of best fit uses every point.' },
   ],
   examples: [
     {

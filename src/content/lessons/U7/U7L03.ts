@@ -98,6 +98,13 @@ export const U7L03: LessonContent = {
     { t: 'p', text: 'Students in a club stream a mean of $70$ minutes a day with $\\sigma = 8$ minutes. Values **within one standard deviation of the mean** are between $70 - 8 = 62$ and $70 + 8 = 78$ minutes: the interval $[62, 78]$. For many data sets, most of the values (often around two thirds) land in this interval.' },
     { t: 'p', text: 'If every student streams $5$ more minutes a day, every value moves up $5$. The mean moves up to $75$, but every value is still the same distance from the mean, so $\\sigma$ **stays $8$**. Adding a constant slides the whole dot plot over without spreading it out.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Factories use standard deviation to keep products consistent: a soda machine with a tiny $\\sigma$ fills every bottle almost exactly the same. Coaches use it too: a pitcher whose speeds have a small $\\sigma$ is consistent from pitch to pitch.' },
+
+    { t: 'p', text: '### From MAD to standard deviation' },
+    { t: 'p', text: 'In 6th grade you measured spread with the **mean absolute deviation (MAD)**: the average distance of the values from the mean. For $2, 4, 6, 8$ the mean is $5$, the distances are $3, 1, 1, 3$, and' },
+    { t: 'math', tex: '\\text{MAD} = \\frac{3 + 1 + 1 + 3}{4} = \\frac{8}{4} = 2' },
+    { t: 'p', text: 'The standard deviation uses the **same deviations** but squares them before averaging, then takes the square root at the end:' },
+    { t: 'math', tex: '\\sigma = \\sqrt{\\frac{9 + 1 + 1 + 9}{4}} = \\sqrt{5} \\approx 2.24' },
+    { t: 'p', text: 'So $\\sigma$ means the same kind of thing as the MAD: **a typical distance of the values from the mean**. They are close but not equal. Squaring gives the far-away values ($2$ and $8$) extra weight, so $\\sigma$ is a little larger. In fact $\\sigma$ is never smaller than the MAD, and the two are equal only when every value is the same distance from the mean (like $2, 2, 8, 8$, where both are $3$).' },
   ],
   examples: [
     {
@@ -169,6 +176,19 @@ export const U7L03: LessonContent = {
         { text: 'New interval.', tex: '[75 - 8, \\; 75 + 8] = [67, 83]', why: 'The interval slides up $5$ but keeps the same width, $16$ minutes.' },
       ],
       answer: '(a) $[62, 78]$ minutes. (b) Mean $75$ minutes, standard deviation still $8$ minutes, interval $[67, 83]$.',
+    },
+
+    {
+      title: 'MAD and standard deviation side by side',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: 'For the data $2, 4, 6, 8$, find the MAD and the standard deviation $\\sigma$. Which is larger, and what do both numbers tell you?' }],
+      steps: [
+        { text: 'Find the mean and the deviations.', tex: '\\bar{x} = \\frac{20}{4} = 5; \\quad -3, -1, 1, 3', why: 'Both measures of spread start from the deviations from the mean.' },
+        { text: 'MAD: average the distances.', tex: '\\frac{3 + 1 + 1 + 3}{4} = 2', why: 'The MAD ignores the signs and averages how far each value is from the mean.' },
+        { text: 'σ: average the squared deviations, then take the root.', tex: '\\sqrt{\\frac{9 + 1 + 1 + 9}{4}} = \\sqrt{5} \\approx 2.24', why: 'Squaring turns the distance $3$ into $9$ but $1$ stays $1$, so the far values count more.' },
+        { text: 'Compare and interpret.', tex: '\\sigma \\approx 2.24 > \\text{MAD} = 2', why: 'Both say a typical value is about $2$ units from the mean of $5$. σ is a little larger because of the extra weight on $2$ and $8$.' },
+      ],
+      answer: 'MAD $= 2$ and $\\sigma = \\sqrt{5} \\approx 2.24$. Both describe a typical distance from the mean; σ is slightly larger.',
     },
   ],
   teachMeAgain: [

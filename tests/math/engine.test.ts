@@ -2,7 +2,7 @@ import { Rational } from '../../src/core/math/rational';
 import { parseExpression } from '../../src/core/math/parser';
 import { toPoly, Poly } from '../../src/core/math/poly';
 import { toSurd, Surd } from '../../src/core/math/surd';
-import { checkAnswer, AnswerSpec, parseInterval, intervalsEqual, isCompletelyFactored, isVertexForm, isExpandedForm } from '../../src/core/math/answers';
+import { checkAnswer, answerToText, AnswerSpec, parseInterval, intervalsEqual, isCompletelyFactored, isVertexForm, isExpandedForm } from '../../src/core/math/answers';
 import { fiveNumber, iqr, stdDev, variance, outliers, linearRegression } from '../../src/core/math/stats';
 import { polyTex, linearTex, quadTex, vertexFormTex, polyPlain } from '../../src/core/math/format';
 
@@ -260,6 +260,23 @@ describe('checkAnswer: equations and inequalities', () => {
     expect(st(forY, 'y <= 12 - 0.6x')).toBe('correct');
     expect(st(forY, '3x + 5y <= 60')).toBe('wrong-form');
     expect(st(forY, 'x <= 20 - 5/3y')).toBe('wrong-form');
+  });
+  it('intervals: a set-builder question needs set-builder notation', () => {
+    const sb: AnswerSpec = { kind: 'interval', value: '{x | x >= -2}', form: 'set-builder' };
+    expect(st(sb, '{x | x >= -2}')).toBe('correct');
+    expect(st(sb, '{x : -2 <= x}')).toBe('correct');
+    expect(st(sb, '[-2, inf)')).toBe('wrong-form');
+    expect(st(sb, 'x >= -2')).toBe('wrong-form');
+    expect(st(sb, '{x | x > -2}')).toBe('incorrect');
+    const any: AnswerSpec = { kind: 'interval', value: '{x | x >= -2}' };
+    expect(st(any, '[-2, inf)')).toBe('correct');
+  });
+  it('solutions: a discrete domain is accepted as a set and shown as one', () => {
+    const d: AnswerSpec = { kind: 'solutions', values: ['10', '20', '30'], variable: 'n', display: 'set' };
+    expect(st(d, '{10, 20, 30}')).toBe('correct');
+    expect(st(d, '30, 10, 20')).toBe('correct');
+    expect(st(d, '{10, 20}')).not.toBe('correct');
+    expect(answerToText(d)).toBe('{10, 20, 30}');
   });
   it('region points: any point satisfying every constraint is correct', () => {
     const spec: AnswerSpec = { kind: 'region-point', constraints: ['y <= 2x + 1', 'y > -x + 3'], example: { x: '3', y: '2' } };

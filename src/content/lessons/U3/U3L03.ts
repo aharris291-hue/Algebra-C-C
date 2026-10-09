@@ -9,7 +9,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U3L03: LessonContent = {
   lessonId: 'U3L03',
-  goal: 'Add, subtract and multiply radical expressions, like $\\sqrt{12} + \\sqrt{27} = 5\\sqrt{3}$ and $(3 + \\sqrt{2})(3 - \\sqrt{2}) = 7$, and simplify radicals that contain variables.',
+  goal: 'Add, subtract and multiply radical expressions, like $\\sqrt{12} + \\sqrt{27} = 5\\sqrt{3}$, $\\sqrt[3]{54} + 4\\sqrt[3]{2} = 7\\sqrt[3]{2}$ and $(3 + \\sqrt{2})(3 - \\sqrt{2}) = 7$, and simplify radicals that contain variables.',
   needToKnow: [
     { t: 'p', text: 'This lesson uses three things you already know:' },
     {
@@ -43,6 +43,11 @@ export const U3L03: LessonContent = {
     { t: 'p', text: 'With coefficients, multiply **outside times outside** and **inside times inside**:' },
     { t: 'math', tex: '(2\\sqrt{5})(3\\sqrt{10}) = (2 \\cdot 3)\\sqrt{5 \\cdot 10} = 6\\sqrt{50} = 6 \\cdot 5\\sqrt{2} = 30\\sqrt{2}' },
     { t: 'callout', variant: 'tip', title: 'Adding and multiplying follow different rules', text: 'To **add**, the radicals must be like, and the radicand stays the same: $2\\sqrt{3} + 5\\sqrt{3} = 7\\sqrt{3}$. To **multiply**, any two square roots work, and the radicands multiply: $\\sqrt{2} \\cdot \\sqrt{7} = \\sqrt{14}$.' },
+    { t: 'p', text: '### Cube roots follow the same rules' },
+    { t: 'p', text: 'Like cube roots combine just like like square roots, and the product rule works for cube roots too: $\\sqrt[3]{a} \\cdot \\sqrt[3]{b} = \\sqrt[3]{ab}$. The only change is that you look for perfect **cubes** ($8, 27, 64, 125, \\ldots$) instead of perfect squares.' },
+    { t: 'math', tex: '\\sqrt[3]{54} + 4\\sqrt[3]{2} = \\sqrt[3]{27}\\sqrt[3]{2} + 4\\sqrt[3]{2} = 3\\sqrt[3]{2} + 4\\sqrt[3]{2} = 7\\sqrt[3]{2}' },
+    { t: 'math', tex: '\\sqrt[3]{4} \\cdot \\sqrt[3]{6} = \\sqrt[3]{24} = \\sqrt[3]{8} \\cdot \\sqrt[3]{3} = 2\\sqrt[3]{3}' },
+    { t: 'callout', variant: 'warning', title: 'Cube roots need perfect cubes', text: '$54 = 9 \\cdot 6$, but $9$ is a perfect **square**, not a perfect cube, so it does not come out of a cube root. Use $54 = 27 \\cdot 2$ instead. Also, $\\sqrt{2}$ and $\\sqrt[3]{2}$ are **not** like radicals: they have different indexes.' },
     { t: 'p', text: '### The distributive property and FOIL' },
     { t: 'p', text: 'Distribute exactly as you would with variables:' },
     { t: 'math', tex: '\\sqrt{2}(3 + \\sqrt{6}) = 3\\sqrt{2} + \\sqrt{12} = 3\\sqrt{2} + 2\\sqrt{3}' },
@@ -108,6 +113,19 @@ export const U3L03: LessonContent = {
         { text: 'Check with decimals.', tex: '(4.464)(-2.268) \\approx -10.12, \\quad 2 - 7(1.732) \\approx -10.12', why: 'Using $\\sqrt{3} \\approx 1.732$, both forms give the same value.' },
       ],
       answer: '$2 - 7\\sqrt{3}$',
+    },
+    {
+      title: 'Adding and multiplying cube roots',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: 'Simplify (a) $\\sqrt[3]{16} - 5\\sqrt[3]{2}$ and (b) $(2\\sqrt[3]{5})(3\\sqrt[3]{25})$.' }],
+      steps: [
+        { text: '(a) Simplify $\\sqrt[3]{16}$.', tex: '\\sqrt[3]{16} = \\sqrt[3]{8} \\cdot \\sqrt[3]{2} = 2\\sqrt[3]{2}', why: '$8 = 2^3$ is the largest perfect cube that divides $16$.' },
+        { text: '(a) Combine the like cube roots.', tex: '2\\sqrt[3]{2} - 5\\sqrt[3]{2} = -3\\sqrt[3]{2}', why: 'Both terms are cube roots of $2$, so subtract the coefficients: $2 - 5 = -3$.' },
+        { text: '(b) Multiply outside times outside and inside times inside.', tex: '(2 \\cdot 3)\\sqrt[3]{5 \\cdot 25} = 6\\sqrt[3]{125}', why: 'The product rule $\\sqrt[3]{a} \\cdot \\sqrt[3]{b} = \\sqrt[3]{ab}$ works for cube roots just as it does for square roots.' },
+        { text: '(b) Take the cube root.', tex: '6\\sqrt[3]{125} = 6 \\cdot 5 = 30', why: '$5 \\cdot 5 \\cdot 5 = 125$, so $\\sqrt[3]{125} = 5$ and the product is rational.' },
+        { text: 'Check (a) with decimals.', tex: '\\sqrt[3]{16} - 5\\sqrt[3]{2} \\approx 2.520 - 6.300 = -3.780, \\quad -3\\sqrt[3]{2} \\approx -3.780', why: 'Using $\\sqrt[3]{2} \\approx 1.260$, both forms agree.' },
+      ],
+      answer: '(a) $-3\\sqrt[3]{2}$; (b) $30$.',
     },
     {
       title: 'A radical with variables',
@@ -270,6 +288,7 @@ export const U3L03: LessonContent = {
     '$\\sqrt{a} + \\sqrt{b}$ is **not** $\\sqrt{a + b}$: $\\sqrt{9} + \\sqrt{16} = 7$, but $\\sqrt{25} = 5$.',
     'To multiply, coefficients multiply with coefficients and radicands with radicands, then simplify. Use the distributive property or FOIL for sums: $(3 + \\sqrt{2})(3 - \\sqrt{2}) = 7$.',
     'With positive variables, a square root halves even exponents ($\\sqrt{x^6} = x^3$) and leaves one factor inside for odd ones ($\\sqrt{18x^5} = 3x^2\\sqrt{2x}$). A cube root takes out multiples of 3.',
+    'Cube roots follow the same rules with perfect **cubes**: $\\sqrt[3]{54} + 4\\sqrt[3]{2} = 7\\sqrt[3]{2}$ and $\\sqrt[3]{4} \\cdot \\sqrt[3]{6} = \\sqrt[3]{24} = 2\\sqrt[3]{3}$.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },
 };

@@ -637,11 +637,78 @@ function valueTex(r: Rational): string {
   return r.isInteger() ? r.toTex() : r.toTex();
 }
 
+/** Growth/decay stories: the student creates the exponential equation and solves it (A.PAR.8.2). */
+const EXP_STORIES = [
+  { what: 'The number of bacteria in a dish', thing: 'bacteria', unit: 'hour', grow: true },
+  { what: 'The number of students who have heard a rumor', thing: 'students', unit: 'day', grow: true },
+  { what: 'The number of people who have shared a video', thing: 'people', unit: 'day', grow: true },
+  { what: 'The amount of a medicine in a patient\'s body', thing: 'milligrams', unit: 'hour', grow: false },
+  { what: 'The mass of a radioactive sample', thing: 'grams', unit: 'year', grow: false },
+] as const;
+const VERB: Record<string, { word: string; b: number }> = { doubles: { word: 'doubles', b: 2 }, triples: { word: 'triples', b: 3 }, half: { word: 'is cut in half', b: 1 / 2 } };
+
+function contextExponential(rng: Rng) {
+  const st = rng.pick(EXP_STORIES);
+  const verbKey = st.grow ? rng.pick(['doubles', 'doubles', 'triples']) : 'half';
+  const b = verbKey === 'triples' ? 3 : 2;
+  const n = verbKey === 'triples' ? rng.int(2, 4) : rng.int(3, 7);
+  const per = st.grow ? rng.pick([1, 1, 2, 3, 4]) : rng.pick(st.unit === 'year' ? [5, 10, 30, 50] : [2, 3, 4, 6, 8]);
+  let start: number;
+  let target: number;
+  if (st.grow) {
+    start = rng.pick([3, 4, 5, 6, 10, 12, 25]);
+    target = start * b ** n;
+  } else {
+    target = rng.pick([2, 3, 5, 10]);
+    start = target * 2 ** n;
+  }
+  const T = n * per;
+  const perText = per === 1 ? st.unit : `$${per}$ ${st.unit}s`;
+  const verb = VERB[verbKey].word;
+  const bTex = st.grow ? String(b) : '\\frac{1}{2}';
+  const expTex = per === 1 ? 't' : `\\frac{t}{${per}}`;
+  const eqTex = `${start}\\left(${bTex}\\right)^{${expTex}} = ${target}`;
+  const ratioTex = st.grow ? String(target / start) : `\\frac{1}{${start / target}}`;
+  const ask = st.grow ? `After how many ${st.unit}s will there be $${target}$ ${st.thing}?` : `After how many ${st.unit}s will $${target}$ ${st.thing} remain?`;
+  return makeProblem({
+    skillId: 'S5.04',
+    tags: ['real-world', 'multi-step'],
+    prompt: [
+      p(`${st.what} starts at $${start}$${st.grow ? '' : ` ${st.thing}`} and ${verb} every ${perText}.`),
+      p(`Write an exponential equation for this situation and solve it. ${ask}`),
+    ],
+    answer: { kind: 'number', value: String(T), unit: `${st.unit}s` },
+    inputHint: `Type a number of ${st.unit}s, like 12.`,
+    hints: [
+      `Let $t$ be the number of ${st.unit}s. The amount is the start times the factor once for each ${per === 1 ? st.unit : `${per}-${st.unit} period`}: $${start}\\left(${bTex}\\right)^{${expTex}}$.`,
+      `Set that equal to $${target}$ and divide both sides by $${start}$.`,
+      `Write $${ratioTex}$ as a power of $${bTex}$, then set the exponents equal.`,
+      per === 1 ? `The exponent you find is the number of ${st.unit}s.` : `The exponent counts ${per}-${st.unit} periods, so multiply it by $${per}$ to get ${st.unit}s.`,
+    ],
+    solution: [
+      { text: 'Write the equation.', tex: eqTex, why: `The amount starts at $${start}$ and is multiplied by $${bTex}$ every ${perText}, so after $t$ ${st.unit}s it has been multiplied ${per === 1 ? '$t$ times' : `$\\frac{t}{${per}}$ times`}.` },
+      { text: `Divide both sides by $${start}$.`, tex: `\\left(${bTex}\\right)^{${expTex}} = ${ratioTex}`, why: 'Undo the multiplication before working with the exponent.' },
+      { text: `Write the right side as a power of $${bTex}$.`, tex: `${ratioTex} = \\left(${bTex}\\right)^{${n}}`, why: `$${bTex}$ multiplied by itself $${n}$ times is $${ratioTex}$.` },
+      { text: 'Same base, so the exponents are equal. Solve.', tex: per === 1 ? `t = ${n}` : `\\frac{t}{${per}} = ${n} \\Rightarrow t = ${T}`, why: `Check: ${per === 1 ? '' : `$${T}$ ${st.unit}s is $${n}$ periods, and `}$${start} \\cdot \\left(${bTex}\\right)^{${n}} = ${target}$.` },
+    ],
+    misconceptions: numberMisconceptions(Q(T), [
+      { value: per === 1 ? null : Q(n), tag: 'units', feedback: `That is the number of ${per}-${st.unit} periods. The question asks for ${st.unit}s.` },
+      { value: st.grow ? Q(target).div(start).mul(per) : null, tag: 'growth-decay', feedback: 'Dividing the amounts does not give the time. Write the ratio as a power of the factor and use the exponent.' },
+      { value: st.grow ? Q(target - start).div(start).mul(per) : null, tag: 'growth-decay', feedback: 'That treats the change as adding the same amount each period. Exponential change multiplies by the same factor each period.' },
+    ]),
+    steps: [
+      { prompt: [p(`How many times must $${start}$ be ${st.grow ? (b === 2 ? 'doubled' : 'tripled') : 'cut in half'} to reach $${target}$?`)], answer: { kind: 'number', value: String(n) }, hints: [`Divide: $${target} \\div ${start}$.`, `Write that as a power of $${bTex}$.`, 'Count the factors.', 'That count is the exponent.'], explanation: `$${start}\\left(${bTex}\\right)^{${n}} = ${target}$, so $${n}$ times.` },
+      { prompt: [p(`Each of those takes ${per === 1 ? `one ${st.unit}` : perText}. ${ask}`)], answer: { kind: 'number', value: String(T), unit: `${st.unit}s` }, hints: [`Multiply the number of periods by the length of each period.`, `Each period is ${perText}.`, `$${n} \\times ${per}$.`, 'Include units in your head: the answer is a time.'], explanation: `$${n} \\times ${per} = ${T}$ ${st.unit}s.` },
+    ],
+  });
+}
+
 export const genSolveExponential: GeneratorDef = {
   id: 'u5.solve-exponential',
   skillId: 'S5.04',
   description: 'Solve exponential equations by rewriting both sides as powers of a common base.',
   generate(rng, difficulty) {
+    if (difficulty === 3 && rng.int(0, 2) === 0) return contextExponential(rng);
     let tex = '';
     let x0 = Q(0);
     let hints: Hints;
@@ -810,6 +877,23 @@ export const genSolveExponential: GeneratorDef = {
   },
   verify(pr) {
     if (pr.answer.kind !== 'number') return ['unexpected kind'];
+    if (!mathBlocks(pr).length) {
+      // story: simulate period by period (a different route from logarithms or exponents)
+      const text = pr.prompt.map((b) => (b.t === 'p' ? b.text : '')).join(' ');
+      const m = /starts at \$(\d+)\$(?: [a-z]+)? and (doubles|triples|is cut in half) every (?:\$(\d+)\$ )?([a-z]+?)s?\./.exec(text);
+      const tm = /will (?:there be )?\$(\d+)\$/.exec(text);
+      if (!m || !tm) return ['cannot read story'];
+      const factor = m[2] === 'doubles' ? Q(2) : m[2] === 'triples' ? Q(3) : Q(1, 2);
+      const per = m[3] ? Number(m[3]) : 1;
+      let amount = Q(m[1]);
+      let time = 0;
+      while (!amount.eq(Number(tm[1])) && time < 10000) {
+        amount = amount.mul(factor);
+        time += per;
+      }
+      if (!amount.eq(Number(tm[1]))) return ['target never reached'];
+      return Q(pr.answer.value).eq(time) ? [] : [`expected ${time}`];
+    }
     const [l, r] = mathBlocks(pr)[0].split(' = ');
     const L = parseExpression(texToParser(l));
     const R = parseExpression(texToParser(r));

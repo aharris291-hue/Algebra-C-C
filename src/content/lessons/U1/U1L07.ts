@@ -117,6 +117,28 @@ export const U1L07: LessonContent = {
       answer: '$12, 7, 2, -3, -8$; $a_n = 12 + (n - 1)(-5) = 17 - 5n$',
     },
     {
+      title: 'Explicit to recursive',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: 'A sequence has explicit formula $a_n = 6n - 1$. Write a recursive formula for it.' }],
+      steps: [
+        { text: 'Find the first term by substituting $n = 1$.', tex: 'a_1 = 6(1) - 1 = 5', why: 'A recursive formula must start from the actual first term. The constant $-1$ is **not** $a_1$; it would be the value at $n = 0$.' },
+        { text: 'Find the common difference.', tex: 'a_2 = 6(2) - 1 = 11, \\quad a_2 - a_1 = 11 - 5 = 6', why: 'Each time $n$ goes up by 1, $6n$ goes up by 6, so the coefficient of $n$ is the common difference.' },
+        { text: 'Write the recursive formula.', tex: 'a_1 = 5, \\quad a_n = a_{n-1} + 6', why: 'Start at 5, and add 6 to each term to get the next. Check: $5, 11, 17$ matches $6n - 1$ for $n = 1, 2, 3$.' },
+      ],
+      answer: '$a_1 = 5,\\ a_n = a_{n-1} + 6$',
+    },
+    {
+      title: 'Seats in a theater',
+      kind: 'real-world',
+      problem: [{ t: 'p', text: 'Row 1 of a theater has 22 seats, and each row after that has 4 more seats than the row before it. Write an explicit formula for $a_n$, the number of seats in row $n$, and find the number of seats in row 15.' }],
+      steps: [
+        { text: 'Identify the first term and the common difference.', tex: 'a_1 = 22, \\quad d = 4', why: 'The rows start at 22 seats and grow by the same 4 seats each row, so the seat counts form an arithmetic sequence.' },
+        { text: 'Write the explicit formula.', tex: 'a_n = 22 + (n - 1)(4) = 22 + 4n - 4 = 4n + 18', why: 'Row $n$ is $n - 1$ rows after row 1, so 4 seats are added $n - 1$ times.' },
+        { text: 'Find row 15.', tex: 'a_{15} = 4(15) + 18 = 60 + 18 = 78', why: 'Check by counting jumps: $22 + 14 \\cdot 4 = 22 + 56 = 78$.' },
+      ],
+      answer: '$a_n = 4n + 18$; row 15 has 78 seats.',
+    },
+    {
       title: 'Saving for a new phone',
       kind: 'real-world',
       problem: [{ t: 'p', text: 'You have \\$40 saved at the end of week 1 and add \\$15 every week after that. Write a recursive and an explicit formula for your savings at the end of week $n$. How much will you have at the end of week 12? In which week will you first have at least \\$300?' }],
@@ -204,6 +226,7 @@ export const U1L07: LessonContent = {
       { generator: 'u1.seq-explicit', difficulty: 3, weight: 1 },
       { generator: 'u1.seq-recursive', difficulty: 1, weight: 1 },
       { generator: 'u1.seq-recursive', difficulty: 2, weight: 2 },
+      { generator: 'u1.seq-recursive', difficulty: 3, weight: 1 },
       { generator: 'u1.slope-table', difficulty: 1, weight: 1 },
       { generator: 'u1.eval-linear', difficulty: 2, weight: 1 },
     ],
@@ -221,7 +244,8 @@ export const U1L07: LessonContent = {
   summary: [
     'An **arithmetic sequence** adds the same number $d$ each time. Find $d$ by subtracting a term minus the term before it.',
     'Explicit formula: $a_n = a_1 + (n - 1)d$. Use $n - 1$ because there are $n - 1$ jumps from the first term to the $n$th.',
-    'Recursive formula: give $a_1$, then $a_n = a_{n-1} + d$. To convert to explicit, put $a_1$ and $d$ into the explicit formula.',
+    'Recursive formula: give $a_1$, then $a_n = a_{n-1} + d$. To convert to explicit, put $a_1$ and $d$ into the explicit formula. To go from explicit to recursive, find $a_1$ by substituting $n = 1$, and use the coefficient of $n$ as $d$.',
+    'In a real situation (seats per row, cost per extra day), the first value is $a_1$ and the amount added each time is $d$.',
     'To find **which term** has a value, set the formula equal to that value and solve for $n$. The answer is a position, not a value.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },

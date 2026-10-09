@@ -118,6 +118,7 @@ export const U5L06: LessonContent = {
         '$t$: the number of years.',
       ],
     },
+    { t: 'callout', variant: 'tip', title: 'Reading a formula with the numbers filled in', text: 'In $A = 1000\\left(1 + \\frac{0.06}{12}\\right)^{12t}$: $1000$ is the deposit, $\\frac{0.06}{12} = 0.005$ is the interest rate for **one month**, $1 + \\frac{0.06}{12} = 1.005$ is what the balance is multiplied by each month, and $12t$ is the **number of monthly compounding periods** in $t$ years (in $5$ years, $12 \\cdot 5 = 60$ periods). Each factor of the formula has its own meaning in the situation.' },
     { t: 'p', text: 'Here is \\$1,000 at $6\\%$ for $10$ years, compounded four different ways:' },
     {
       t: 'table',

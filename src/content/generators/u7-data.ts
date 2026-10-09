@@ -444,12 +444,88 @@ function niceDeviations(rng: Rng): number[] {
   return [-3, -1, -1, -1, 0, 0, 2, 4];
 }
 
+
+// ---------- MAD and standard deviation (A.DSR.10.1) ----------
+const madOf = (xs: Rational[]) => mean(xs.map((x) => x.sub(mean(xs)).abs()));
+const SIGMA_VS_MAD = ['σ is greater than the MAD', 'σ is equal to the MAD', 'σ is less than the MAD'];
+
+/** Data with a whole-number mean and a MAD that terminates within two decimals. */
+function madData(rng: Rng, c: Ctx, equal: boolean): Rational[] {
+  for (let t = 0; t < 400; t++) {
+    if (equal) {
+      const d = rng.int(2, Math.max(2, Math.floor((c.hi - c.lo) / 4)));
+      const m = rng.int(c.lo + d, c.hi - d);
+      const j = rng.int(2, 3);
+      return rng.shuffle([...Array(j).fill(m - d), ...Array(j).fill(m + d)].map((x) => Q(x)));
+    }
+    const xs = randomData(rng, rng.int(4, 6), c.lo, c.hi);
+    const m = mean(xs);
+    if (!m.isInteger() || !madOf(xs).mul(100).isInteger() || madOf(xs).isZero()) continue;
+    const ds = xs.map((x) => x.sub(m).abs());
+    if (ds.every((d) => d.eq(ds[0]))) continue;
+    return xs;
+  }
+  return R([2, 4, 6, 8]);
+}
+
+function madCompare(rng: Rng, c: Ctx) {
+  const xs = madData(rng, c, rng.int(0, 3) === 0);
+  const n = xs.length;
+  const m = mean(xs);
+  const d = madOf(xs);
+  const v = variance(xs);
+  const sd = Math.sqrt(v.toNumber());
+  const cmp = v.gt(d.mul(d)) ? 0 : v.eq(d.mul(d)) ? 1 : 2;
+  const correct = SIGMA_VS_MAD[cmp];
+  const sdTex = v.isInteger() && Number.isInteger(sd) ? `= ${sd}` : `= \\sqrt{${v.mul(100).isInteger() ? numStr(v) : v.toTex()}} \\approx ${sd.toFixed(2)}`;
+  return makeProblem({
+    skillId: 'S7.03',
+    tags: ['real-world'],
+    prompt: [p(`The data show the ${c.what} for ${n} ${c.who}. The mean is $${numStr(m)}$ and the mean absolute deviation (MAD) is $${numStr(d)}$. Find the standard deviation σ (divide by $n$). How does σ compare with the MAD?`), dataBlock(xs)],
+    answer: makeChoice(rng, correct, SIGMA_VS_MAD.filter((o) => o !== correct)),
+    hints: ['Both the MAD and σ start from the deviations: value minus mean.', 'The MAD averages the distances. σ squares the deviations, averages the squares, then takes the square root.', 'Find σ: square each deviation, add, divide by $n$, take the square root.', 'Compare your σ with the MAD given.'],
+    solution: [
+      { text: 'Find the deviations from the mean.', tex: xs.map((x) => numStr(x.sub(m))).join(',\\ '), why: 'Both measures of spread start from how far each value is from the mean.' },
+      { text: 'The MAD is the mean of the distances (ignore the signs).', tex: `\\text{MAD} = \\frac{${xs.map((x) => numStr(x.sub(m).abs())).join(' + ')}}{${n}} = ${numStr(d)}` },
+      { text: 'For σ, average the squared deviations and take the square root.', tex: `\\sigma = \\sqrt{\\frac{${xs.map((x) => numStr(x.sub(m).mul(x.sub(m)))).join(' + ')}}{${n}}} ${sdTex}`, why: 'Squaring first gives far-away values extra weight.' },
+      { text: `So ${correct}.`, why: cmp === 1 ? 'Every value is the same distance from the mean, so both measures equal that distance.' : 'σ is never smaller than the MAD. It is larger when some values are farther from the mean than others, because squaring counts the far values more.' },
+    ],
+    misconceptions: [],
+  });
+}
+
+const MAD_MEANING = 'Both describe how far the values typically are from the mean. σ is a little larger because squaring gives values far from the mean more weight.';
+function madMeaning(rng: Rng, c: Ctx) {
+  const xs = madData(rng, c, false);
+  const m = mean(xs);
+  const d = madOf(xs);
+  const sd = Math.sqrt(variance(xs).toNumber());
+  return makeProblem({
+    skillId: 'S7.03',
+    tags: ['real-world'],
+    prompt: [p(`The data show the ${c.what} for ${xs.length} ${c.who}. The mean is $${numStr(m)}$, the mean absolute deviation (MAD) is $${numStr(d)}$ and the standard deviation is σ ≈ $${sd.toFixed(1)}$. Which statement about the MAD and σ is true?`), dataBlock(xs)],
+    answer: makeChoice(rng, MAD_MEANING, [
+      'Both describe the center of the data, so they should be equal. One of them was calculated wrong.',
+      'The MAD describes spread, but σ describes the typical value of the data.',
+      'σ is larger, so the values are actually farther from the mean than the data show.',
+    ]),
+    hints: ['Recall what the MAD measured in 6th grade: the average distance from the mean.', 'σ is built from the same deviations from the mean.', 'Neither one is a measure of center.', 'Squaring makes big deviations count more, which pushes σ up a little.'],
+    solution: [
+      { text: `The MAD, $${numStr(d)}$, is the average distance of the values from the mean $${numStr(m)}$.`, why: 'It averages the distances without squaring.' },
+      { text: `σ ≈ $${sd.toFixed(1)}$ is also a typical distance from the mean, in the same units.`, why: 'It squares the deviations, averages them and takes the square root.' },
+      { text: MAD_MEANING, why: 'Squaring counts the values far from the mean more heavily, so σ is at least as large as the MAD.' },
+    ],
+    misconceptions: [],
+  });
+}
+
 export const genStdDev: GeneratorDef = {
   id: 'u7.std-dev',
   skillId: 'S7.03',
   description: 'Calculate the (population) standard deviation of small data sets and interpret standard deviation.',
   generate(rng, difficulty) {
     const c = rng.pick(CTX);
+    if (difficulty === 2 && rng.int(0, 2) === 0) return madCompare(rng, c);
     if (difficulty <= 2) {
       let xs: Rational[];
       if (difficulty === 1) {
@@ -488,7 +564,8 @@ export const genStdDev: GeneratorDef = {
         ]),
       });
     }
-    const kind = rng.pick(['compare', 'within', 'shift'] as const);
+    const kind = rng.pick(['compare', 'within', 'shift', 'mad'] as const);
+    if (kind === 'mad') return madMeaning(rng, c);
     if (kind === 'compare') {
       const center = rng.int(5, 15);
       const base = Array.from({ length: rng.int(7, 9) }, () => rng.int(-3, 3));
@@ -556,6 +633,21 @@ export const genStdDev: GeneratorDef = {
   },
   verify(pr) {
     const text = textAll(pr);
+    if (/mean absolute deviation \(MAD\) is/.test(text)) {
+      // recompute the mean, the MAD (mean of |x - mean|) and sigma^2 from the data list
+      const xs = dataOf(pr);
+      if (!xs || pr.answer.kind !== 'choice') return ['cannot read'];
+      const m = vMean(xs);
+      const mad = vMean(xs.map((x) => (x.lt(m) ? m.sub(x) : x.sub(m))));
+      const st = /The mean is \$([\d.]+)\$.*\(MAD\) is \$([\d.]+)\$/.exec(text);
+      if (!st || !Rational.parse(st[1]).eq(m) || !Rational.parse(st[2]).eq(mad)) return ['stated mean or MAD wrong'];
+      const v = vVar(xs);
+      const label = choiceLabel(pr.answer);
+      if (/How does σ compare/.test(text)) return label === (v.gt(mad.mul(mad)) ? 'σ is greater than the MAD' : v.eq(mad.mul(mad)) ? 'σ is equal to the MAD' : 'σ is less than the MAD') ? [] : ['comparison wrong'];
+      const sg = /σ ≈ \$([\d.]+)\$/.exec(text);
+      if (!sg || Math.abs(Number(sg[1]) - Math.sqrt(v.toNumber())) > 0.05 + 1e-9) return ['stated sigma wrong'];
+      return label.startsWith('Both describe how far the values typically are from the mean') && v.gt(mad.mul(mad)) ? [] : ['meaning wrong'];
+    }
     if (/bonus points/.test(text)) {
       const k = Number(/adds (\d+) bonus/.exec(text)![1]);
       const xs = R([60, 70, 75, 90]);
@@ -785,11 +877,108 @@ const GROUPS = [
   { a: 'Class 1', b: 'Class 2', what: 'scores on the same quiz', more: 'scored higher', unit: 'points', lo: 50, hi: 100 },
 ];
 
+
+// ---------- comparing with mean and standard deviation, and three box plots (A.DSR.10.1) ----------
+/** Group names like "9th graders" are plural. */
+const plural = (who: string) => /s$/.test(who);
+const has = (who: string) => (plural(who) ? 'have' : 'has');
+const is = (who: string) => (plural(who) ? 'are' : 'is');
+const poss = (who: string) => (plural(who) ? `${who}'` : `${who}'s`);
+const centerPhrase = (ma: number, mb: number, a: string, b: string) => (ma === mb ? `${a} and ${b} have the same mean` : `${ma > mb ? a : b} ${has(ma > mb ? a : b)} the greater mean`);
+const spreadPhrase = (who: string) => `${who} ${is(who)} more consistent (smaller standard deviation)`;
+
+function summaryCompare(rng: Rng) {
+  const g = rng.pick(GROUPS);
+  const ma = rng.int(g.lo + 8, g.hi - 8);
+  const mb = rng.bool() ? ma : ma + rng.nonzeroInt(-6, 6);
+  const span = g.hi - g.lo;
+  const sds = rng.shuffle(pickTwo(rng, 2, Math.max(6, Math.round(span / 5))));
+  const [sa, sb] = sds;
+  const tight = sa < sb ? g.a : g.b;
+  const loose = sa < sb ? g.b : g.a;
+  const center = centerPhrase(ma, mb, g.a, g.b);
+  // name a group that does NOT have the greater mean, so this distractor is false, not just badly reasoned
+  const lowerMean = ma === mb ? loose : ma > mb ? g.b : g.a;
+  const correct = `${center}, and ${spreadPhrase(tight)}.`;
+  const wrongCenter = ma === mb ? `${((w: string) => `${w} ${has(w)}`)(rng.pick([g.a, g.b]))} the greater mean` : rng.bool() ? `${g.a} and ${g.b} have the same mean` : `${ma > mb ? g.b : g.a} ${has(ma > mb ? g.b : g.a)} the greater mean`;
+  return makeProblem({
+    skillId: 'S7.05',
+    tags: ['real-world'],
+    prompt: [
+      p(`The table summarizes the ${g.what} for ${g.a} and ${g.b} (in ${g.unit}). Both distributions are roughly symmetric with no outliers. Which conclusion is supported by the summaries?`),
+      { t: 'table', headers: ['Group', 'Mean', 'Standard deviation'], rows: [[g.a, String(ma), String(sa)], [g.b, String(mb), String(sb)]] },
+    ],
+    answer: makeChoice(rng, correct, [`${center}, and ${loose} ${is(loose)} more consistent (larger standard deviation).`, `${wrongCenter}, and ${spreadPhrase(tight)}.`, `${lowerMean} ${has(lowerMean)} the greater mean, because ${plural(lowerMean) ? 'their' : 'its'} standard deviation is larger.`]),
+    hints: ['Compare centers with the means.', 'Compare spreads with the standard deviations.', 'A smaller standard deviation means the values stay closer to the mean.', 'Values that stay close together are more consistent.'],
+    solution: [
+      { text: 'Compare the means.', tex: `${ma} \\text{ vs } ${mb}`, why: ma === mb ? 'The means are equal, so the typical values are the same.' : 'The greater mean is the higher typical value.' },
+      { text: 'Compare the standard deviations.', tex: `${sa} \\text{ vs } ${sb}`, why: 'The standard deviation is a typical distance from the mean.' },
+      { text: correct, why: `${poss(tight)} values are typically only ${Math.min(sa, sb)} ${g.unit} from the mean, while ${poss(loose)} are typically ${Math.max(sa, sb)} ${g.unit} away.` },
+    ],
+    misconceptions: [],
+  });
+}
+function pickTwo(rng: Rng, lo: number, hi: number): [number, number] {
+  const a = rng.int(lo, hi);
+  let b = rng.int(lo, hi);
+  while (b === a) b = rng.int(lo, hi);
+  return [a, b];
+}
+
+const THREE = [
+  { names: ['Period 1', 'Period 2', 'Period 3'], what: 'quiz scores (out of 100)', lo: 30, hi: 100 },
+  { names: ['Store A', 'Store B', 'Store C'], what: 'daily sales of a video game', lo: 0, hi: 90 },
+  { names: ['Team 1', 'Team 2', 'Team 3'], what: 'minutes of practice per day', lo: 10, hi: 120 },
+];
+function threeBoxes(rng: Rng) {
+  for (let t = 0; t < 500; t++) {
+    const g = rng.pick(THREE);
+    const boxes = g.names.map((label) => {
+      const med = 5 * rng.int(Math.ceil((g.lo + 25) / 5), Math.floor((g.hi - 25) / 5));
+      const q1 = med - 5 * rng.int(1, 4);
+      const q3 = med + 5 * rng.int(1, 4);
+      return { label, min: q1 - 5 * rng.int(1, 4), q1, median: med, q3, max: q3 + 5 * rng.int(1, 4) };
+    });
+    const iqrs = boxes.map((b) => b.q3 - b.q1);
+    const ranges = boxes.map((b) => b.max - b.min);
+    const best = iqrs.indexOf(Math.max(...iqrs));
+    if (iqrs.filter((v) => v === iqrs[best]).length > 1) continue;
+    // the widest overall spread belongs to a different group, so the whiskers are a trap
+    const wide = ranges.indexOf(Math.max(...ranges));
+    if (ranges.filter((v) => v === ranges[wide]).length > 1 || wide === best) continue;
+    const lo = Math.min(...boxes.map((b) => b.min));
+    const hi = Math.max(...boxes.map((b) => b.max));
+    if (lo < g.lo || hi > g.hi) continue;
+    const ax = axisFor(lo, hi);
+    if (!boxReadable(boxes, ax)) continue;
+    const correct = g.names[best];
+    return makeProblem({
+      skillId: 'S7.05',
+      tags: ['graph', 'real-world'],
+      prompt: [p(`The box plots compare the ${g.what} for three groups. Which group has the greatest interquartile range (IQR)?`), { t: 'dataplot', spec: { kind: 'box', ...ax, axisLabel: g.what, boxes, ariaLabel: `Three box plots. ${boxes.map((b) => `${b.label}: ${b.min}, ${b.q1}, ${b.median}, ${b.q3}, ${b.max}`).join('. ')}.` } }],
+      answer: makeChoice(rng, correct, [...g.names.filter((x) => x !== correct), 'They all have the same IQR']),
+      hints: ['The IQR is $Q_3 - Q_1$: the width of the box.', 'Do not use the whiskers. They show the whole range, not the middle half.', 'Read $Q_1$ and $Q_3$ for each group from the axis.', 'Subtract for each group and compare.'],
+      solution: [
+        { text: 'Find each IQR.', tex: boxes.map((b) => `\\text{${b.label}: } ${b.q3} - ${b.q1} = ${b.q3 - b.q1}`).join(',\\quad '), why: 'The IQR is the spread of the middle half of the data.' },
+        { text: `${correct} has the greatest IQR.`, why: `${g.names[wide]} has the longest whiskers (the greatest range), but its box is narrower. Range and IQR measure different spreads.` },
+      ],
+      misconceptions: [],
+    });
+  }
+  throw new Error('threeBoxes');
+}
+
 export const genCompare: GeneratorDef = {
   id: 'u7.compare',
   skillId: 'S7.05',
   description: 'Compare the center and spread of two groups from box plots, dot plots and summaries, choosing appropriate measures.',
   generate(rng, difficulty) {
+    if (difficulty === 2 && rng.int(0, 2) === 0) return summaryCompare(rng);
+    if (difficulty === 3) {
+      const k = rng.int(0, 2);
+      if (k === 0) return threeBoxes(rng);
+      if (k === 1) return summaryCompare(rng);
+    }
     const g = rng.pick(GROUPS);
     // halves of odd size give whole-number quartiles; a narrow window keeps every value on a labeled tick
     const n = rng.pick([7, 11, 15]);
@@ -930,8 +1119,23 @@ export const genCompare: GeneratorDef = {
       }
       return label.startsWith('Mean and standard deviation') ? [] : ['measures wrong'];
     }
+    const table = pr.prompt.find((x) => x.t === 'table');
+    if (table && table.t === 'table' && table.headers[2] === 'Standard deviation') {
+      const [ra, rb] = table.rows;
+      const [ma, sa, mb, sb] = [Number(ra[1]), Number(ra[2]), Number(rb[1]), Number(rb[2])];
+      if (sa === sb) return ['standard deviations tie'];
+      const centerOk = ma === mb ? label.startsWith(`${ra[0]} and ${rb[0]} have the same mean,`) : label.startsWith(`${ma > mb ? ra[0] : rb[0]} ${/s$/.test(ma > mb ? ra[0] : rb[0]) ? 'have' : 'has'} the greater mean,`);
+      return centerOk && label.endsWith(`and ${sa < sb ? ra[0] : rb[0]} ${/s$/.test(sa < sb ? ra[0] : rb[0]) ? 'are' : 'is'} more consistent (smaller standard deviation).`) ? [] : ['summary conclusion wrong'];
+    }
     const plot = plots[0];
     if (!plot || plot.t !== 'dataplot' || plot.spec.kind !== 'box') return ['no box plot'];
+    if (plot.spec.boxes.length === 3) {
+      if (!boxReadable(plot.spec.boxes, { ...plot.spec, step: plot.spec.step ?? 1 })) return ['box plot values are not on labeled ticks'];
+      const iq = plot.spec.boxes.map((x) => x.q3 - x.q1);
+      const top = Math.max(...iq);
+      if (iq.filter((v) => v === top).length !== 1) return ['IQR tie'];
+      return label === plot.spec.boxes[iq.indexOf(top)].label ? [] : ['greatest IQR wrong'];
+    }
     const [a, b] = plot.spec.boxes;
     if (/The dot is an outlier/.test(text)) {
       if (!(a.outliers ?? []).length) return ['no outlier drawn'];

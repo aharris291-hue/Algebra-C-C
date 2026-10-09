@@ -5,7 +5,7 @@
  * verify() re-reads the printed numbers and re-derives the answer by a different route:
  * repeated multiplication or addition instead of the closed formulas the generators use.
  */
-import type { GeneratorDef, Rng, Block } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, Block, GraphSpec, Problem } from '../../core/curriculum/types';
 import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { checkAnswer } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
@@ -246,6 +246,55 @@ function pickGeo(rng: Rng, difficulty: number): { a1: Rational; r: Rational } {
 
 const recLabel = (a1: Rational, rTex: string, rel: string) => `$a_1 = ${dTex(a1)}$ and $a_n = ${rel.replace('R', rTex)}$`;
 
+
+/** verify() for the applied, graphed and explicit-to-recursive geometric items; null when not one of them. */
+function verifyGeoApplied(pr: Problem, text: string): string[] | null {
+  let a1: Rational | null = null;
+  let r: Rational | null = null;
+  const ball = /dropped from a height of (\d+) feet\. Each time it bounces, it rises to \$\\frac\{(\d+)\}\{(\d+)\}\$ of the height it fell from/.exec(text);
+  const share = /On day 1, (\d+) people share a new video\. Each day after that, the number of new shares is (twice|three times) the number/.exec(text);
+  const graph = pr.prompt.find((b) => b.t === 'graph');
+  const expl = pr.prompt.find((b) => b.t === 'math' && b.tex.startsWith('a_n = '));
+  if (ball) {
+    r = Q(Number(ball[2]), Number(ball[3]));
+    a1 = Q(ball[1]).mul(r); // the first bounce is already a fraction of the drop
+  } else if (share) {
+    a1 = Q(share[1]);
+    r = Q(share[2] === 'twice' ? 2 : 3);
+  } else if (graph && graph.t === 'graph') {
+    const pts = (graph.spec.points ?? []).map((q) => /^\((\d+), (-?[\d./]+)\)$/.exec(q.label ?? '')).map((m) => ({ n: Number(m![1]), v: Q(m![2]) })).sort((u, v) => u.n - v.n);
+    if (pts.some((q, i) => q.n !== i + 1)) return ['points are not terms 1, 2, 3, ...'];
+    const vs = pts.map((q) => q.v);
+    if (!allEq(ratios(vs))) return ['plotted terms are not geometric'];
+    a1 = vs[0];
+    r = ratios(vs)[0]!;
+  } else if (expl && expl.t === 'math' && pr.answer.kind === 'choice') {
+    const node = parseExpression(texToPlain(expl.tex.slice('a_n = '.length)));
+    const t1 = evalNumeric(node, { n: 1 });
+    const t2 = evalNumeric(node, { n: 2 });
+    const t3 = evalNumeric(node, { n: 3 });
+    const m = /^\$a_1 = (.+?)\$ and \$a_n = (.+?)\\,a_\{n-1\}\$$/.exec(choiceLabel(pr.answer));
+    if (!m) return ['recursive choice is not of the form r a_(n-1)'];
+    const c1 = texExact(m[1])!.toNumber();
+    const cr = texExact(m[2])!.toNumber();
+    return Math.abs(c1 - t1) < 1e-9 && Math.abs(cr * t1 - t2) < 1e-9 && Math.abs(cr * t2 - t3) < 1e-9 ? [] : ['recursive formula does not match the explicit formula'];
+  } else return null;
+  const a = pr.answer;
+  if (a.kind === 'expression') {
+    const node = parseExpression(a.value);
+    for (let n = 1; n <= 8; n++) {
+      const want = iterGeo(a1, r, n).toNumber();
+      if (Math.abs(evalNumeric(node, { n }) - want) > 1e-9 * Math.max(1, Math.abs(want))) return [`formula wrong at n = ${n}`];
+    }
+    return [];
+  }
+  if (a.kind !== 'number') return ['unexpected kind'];
+  const k = /bounce (\d+)\?|on day (\d+)\?|the (\d+)th term/.exec(text);
+  if (!k) return ['cannot read term number'];
+  const n = Number(k[1] ?? k[2] ?? k[3]);
+  return Q(a.value).eq(iterGeo(a1, r, n)) ? [] : ['term wrong'];
+}
+
 export const genGeometric: GeneratorDef = {
   id: 'u6.geometric',
   skillId: 'S6.07',
@@ -254,8 +303,145 @@ export const genGeometric: GeneratorDef = {
     const { a1, r } = pickGeo(rng, difficulty);
     const ts = [1, 2, 3, 4].map((n) => geo(a1, r, n));
     const intro: Block[] = [p('Here is a geometric sequence:'), math(listTex(ts))];
-    const task = difficulty === 1 ? rng.pick(['ratio', 'next'] as const) : difficulty === 2 ? rng.pick(['formula', 'term'] as const) : rng.pick(['recursive', 'rec2exp', 'which'] as const);
+    const task = difficulty === 1 ? rng.pick(['ratio', 'next'] as const) : difficulty === 2 ? rng.pick(['formula', 'term', 'context', 'graph'] as const) : rng.pick(['recursive', 'rec2exp', 'which', 'exp2rec', 'context'] as const);
     const rT = dTex(r);
+    if (task === 'context') {
+      // geometric sequences in applied situations (A.FGR.9.4)
+      const bounce = rng.bool();
+      let a1c: Rational;
+      let rc: Rational;
+      let story: string;
+      let ask: (k: number) => string;
+      let unit: string | undefined;
+      let ks: number[];
+      if (bounce) {
+        const [rs, H] = rng.pick([['2/3', 81], ['2/3', 27], ['3/4', 64], ['1/2', 32], ['1/2', 48], ['3/5', 25], ['4/5', 25]] as const);
+        rc = Q(rs);
+        a1c = Q(H).mul(rc);
+        story = `A ball is dropped from a height of ${H} feet. Each time it bounces, it rises to $${rc.toTex()}$ of the height it fell from. Let $a_n$ be the height, in feet, that the ball reaches on its $n$th bounce.`;
+        ask = (k) => `What height does the ball reach on bounce ${k}?`;
+        unit = 'feet';
+      } else {
+        const m = rng.pick([2, 3]);
+        rc = Q(m);
+        a1c = Q(rng.pick(m === 2 ? [3, 4, 5, 6, 10] : [2, 3, 4, 5]));
+        story = `On day 1, ${a1c.toString()} people share a new video. Each day after that, the number of new shares is ${m === 2 ? 'twice' : 'three times'} the number of new shares the day before. Let $a_n$ be the number of new shares on day $n$.`;
+        ask = (k) => `How many new shares are there on day ${k}?`;
+        unit = 'shares';
+      }
+      ks = [3, 4, 5, 6, 7].filter((k) => geo(a1c, rc, k).mul(100).isInteger() && geo(a1c, rc, k).lt(5000));
+      const askFormula = rng.bool() || ks.length === 0;
+      const hintsC: [string, string, string, string] = [
+        'Each term is the previous term times the same factor, so the sequence is geometric.',
+        bounce ? 'The first bounce already rises to that fraction of the drop height, so find $a_1$ first.' : 'The first term is the number on day 1.',
+        `The common ratio is the factor: $r = ${rc.toTex()}$.`,
+        'Use $a_n = a_1(r)^{n-1}$.',
+      ];
+      const firstStep = bounce
+        ? { text: 'Find the first term.', tex: `a_1 = ${rc.toTex()} \\cdot ${a1c.div(rc).toTex()} = ${dTex(a1c)}`, why: 'The first bounce rises to that fraction of the drop height.' }
+        : { text: 'Find the first term.', tex: `a_1 = ${dTex(a1c)}`, why: 'Day 1 is the first term.' };
+      if (askFormula) {
+        const spec = { kind: 'expression' as const, value: geoPlain(a1c, rc), variables: ['n'] };
+        return makeProblem({
+          skillId: 'S6.07',
+          tags: ['real-world'],
+          prompt: [p(story), p('Write an explicit formula for $a_n$.')],
+          answer: spec,
+          inputHint: 'Type a formula in n, like 54(2/3)^(n-1). You can start with a_n = .',
+          hints: hintsC,
+          solution: [
+            firstStep,
+            { text: 'Find the common ratio.', tex: `r = ${rc.toTex()}`, why: bounce ? 'Each bounce reaches the same fraction of the one before.' : 'Each day multiplies the number of new shares by the same factor.' },
+            { text: 'Write the explicit formula.', tex: `a_n = ${geoTex(a1c, rc)}`, why: 'Term $n$ is the first term multiplied by $r$ a total of $n - 1$ times.' },
+          ],
+          misconceptions: exprMis(spec, [
+            ...(bounce ? [{ answer: geoPlain(a1c.div(rc), rc), tag: 'sequence-index' as const, feedback: `The drop height is not a bounce. Check $n = 1$: the first bounce is already $${rc.toTex()}$ of the drop.` }] : []),
+            { answer: geoPlain(a1c, rc, 'n'), tag: 'sequence-index', feedback: 'Check $n = 1$: your formula should give the first term. Use the exponent $n - 1$.' },
+            { answer: `${numStr(a1c)}+(n-1)*${numStr(rc)}`, tag: 'other', feedback: 'That adds the ratio. The amount is multiplied by the same factor each time.' },
+          ]),
+        });
+      }
+      const k = rng.pick(ks);
+      const v = geo(a1c, rc, k);
+      return makeProblem({
+        skillId: 'S6.07',
+        tags: ['real-world'],
+        prompt: [p(story), p(ask(k))],
+        answer: numSpec(v, unit),
+        inputHint: 'Type a number.',
+        hints: hintsC,
+        solution: [
+          firstStep,
+          { text: 'Write the explicit formula.', tex: `a_n = ${geoTex(a1c, rc)}`, why: 'Each step multiplies by the same ratio.' },
+          { text: `Substitute $n = ${k}$.`, tex: `a_{${k}} = ${geoTex(a1c, rc, String(k - 1))} = ${dTex(v)}`, why: `From term 1 to term ${k} there are ${k - 1} multiplications by $r$.` },
+        ],
+        misconceptions: numberMisconceptions(v, [
+          { value: geo(a1c, rc, k + 1), tag: 'sequence-index', feedback: `That is term ${k + 1}. From term 1 to term ${k} there are ${k - 1} multiplications.` },
+          ...(bounce ? [{ value: geo(a1c, rc, k - 1), tag: 'sequence-index' as const, feedback: 'The drop height is not the first bounce. Start the count at the first bounce.' }] : []),
+          { value: a1c.add(rc.mul(k - 1)), tag: 'other', feedback: 'That adds the ratio. A geometric sequence multiplies by it.' },
+        ]),
+      });
+    }
+    if (task === 'graph') {
+      const rg = Q(rng.pick(['2', '3', '0.5']));
+      const a1g = Q(rg.eq(2) ? rng.int(1, 4) : rg.eq(3) ? rng.int(1, 3) : rng.pick([16, 32, 48, 64]));
+      const tsg = [1, 2, 3, 4].map((n) => geo(a1g, rg, n));
+      const top = Math.max(...tsg.map((t) => t.toNumber()));
+      const yStep = top > 80 ? 20 : top > 40 ? 10 : top > 20 ? 5 : top > 10 ? 2 : 1;
+      const spec: GraphSpec = {
+        xMin: -1,
+        xMax: 7,
+        yMin: -yStep,
+        yMax: Math.ceil((top + yStep) / yStep) * yStep,
+        yStep,
+        xLabel: 'n (term number)',
+        yLabel: 'a_n',
+        points: tsg.map((t, i) => ({ x: i + 1, y: t.toNumber(), label: `(${i + 1}, ${numStr(t)})` })),
+        ariaLabel: `Points of a sequence at ${tsg.map((t, i) => `(${i + 1}, ${numStr(t)})`).join(', ')}.`,
+      };
+      const askF = rng.int(0, 2) === 0;
+      const v = geo(a1g, rg, 6);
+      const spec2 = { kind: 'expression' as const, value: geoPlain(a1g, rg), variables: ['n'] };
+      return makeProblem({
+        skillId: 'S6.07',
+        tags: ['graph'],
+        prompt: [p('The graph shows the first four terms of a geometric sequence, plotted as points $(n, a_n)$.'), { t: 'graph', spec, caption: 'Each point is (term number, term).' }, p(askF ? 'Write an explicit formula for $a_n$.' : 'Find the 6th term, $a_{6}$.')],
+        answer: askF ? spec2 : numSpec(v),
+        inputHint: askF ? 'Type a formula in n, like 3(2)^(n-1).' : 'Type a number.',
+        hints: ['Read the terms from the labeled points: the $y$-coordinate of the point at $n$ is $a_n$.', 'Divide a term by the one before it to find the common ratio.', 'The point at $n = 1$ gives $a_1$.', askF ? 'Use $a_n = a_1(r)^{n-1}$.' : 'Keep multiplying by the ratio until you reach term 6.'],
+        solution: [
+          { text: 'Read the terms from the graph.', tex: listTex(tsg), why: 'The point $(n, a_n)$ is at height $a_n$ above term number $n$.' },
+          { text: 'Find the common ratio.', tex: `r = \\frac{${dTex(tsg[1])}}{${dTex(tsg[0])}} = ${dTex(rg)}`, why: rg.gt(1) ? 'The points rise faster and faster: each one is a multiple of the one before.' : 'The points fall by half each time and level off toward 0.' },
+          askF
+            ? { text: 'Write the formula.', tex: `a_n = ${geoTex(a1g, rg)}` }
+            : { text: 'Multiply on to term 6.', tex: `a_5 = ${dTex(geo(a1g, rg, 5))},\\quad a_6 = ${dTex(v)}`, why: 'Each term is the previous term times $r$.' },
+        ],
+        misconceptions: askF
+          ? exprMis(spec2, [{ answer: geoPlain(a1g, rg, 'n'), tag: 'sequence-index', feedback: 'Check $n = 1$: your formula should give the first point. Use the exponent $n - 1$.' }])
+          : numberMisconceptions(v, [
+              { value: geo(a1g, rg, 5), tag: 'sequence-index', feedback: 'That is the 5th term. Multiply by the ratio once more.' },
+              { value: tsg[3].add(tsg[3].sub(tsg[2]).mul(2)), tag: 'other', feedback: 'The points do not go up by the same amount each time. Multiply by the ratio.' },
+            ]),
+      });
+    }
+    if (task === 'exp2rec') {
+      const rTex = r.isInteger() && !r.isNegative() ? rT : paren(r);
+      const correct = recLabel(a1, rTex, 'R\\,a_{n-1}');
+      const wrongs = [recLabel(a1.mul(r), rTex, 'R\\,a_{n-1}'), recLabel(a1, rTex, 'a_{n-1} + R'), r.eq(a1) ? `$a_1 = ${dTex(a1)}$ and $a_n = ${rTex}\\,a_{n+1}$` : recLabel(r, a1.isNegative() ? paren(a1) : dTex(a1), 'R\\,a_{n-1}')];
+      return makeProblem({
+        skillId: 'S6.07',
+        tags: [],
+        prompt: [p('A geometric sequence has this explicit formula:'), math(`a_n = ${geoTex(a1, r)}`), p('Which recursive formula defines the same sequence?')],
+        answer: makeChoice(rng, correct, wrongs),
+        hints: ['In $a_n = a_1(r)^{n-1}$, the number in front is the first term and the base is the ratio.', 'Check $n = 1$: the exponent is 0, so $a_1$ is the number in front.', 'A recursive formula multiplies the previous term $a_{n-1}$ by the ratio.', 'Make sure the first term is the value of the formula at $n = 1$.'],
+        solution: [
+          { text: 'Find the first term.', tex: `a_1 = ${geoTex(a1, r, '0')} = ${dTex(a1)}`, why: 'Any nonzero number to the power 0 is 1.' },
+          { text: 'Find the ratio.', tex: `r = ${rT}`, why: 'The base of the power is what each term is multiplied by.' },
+          { text: 'Write the recursive formula.', tex: `a_1 = ${dTex(a1)},\\quad a_n = ${rTex}\\,a_{n-1}`, why: 'Each term is $r$ times the term before it.' },
+        ],
+        misconceptions: [],
+      });
+    }
     if (task === 'ratio') {
       return makeProblem({
         skillId: 'S6.07',
@@ -377,6 +563,8 @@ export const genGeometric: GeneratorDef = {
   },
   verify(pr) {
     const text = textAll(pr);
+    const ctxV = verifyGeoApplied(pr, text);
+    if (ctxV) return ctxV;
     const rec = /a_1 = (.+?),\\quad a_n = (.+?)\\,a_\{n-1\}/.exec(text);
     let a1: Rational;
     let r: Rational;
@@ -619,6 +807,304 @@ function texToPlain(tex: string): string {
     .replace(/[{}]/g, '');
 }
 
+// ---------------------------------------------------------------------------
+// S6.09 (A.FGR.9.5): comparing two functions given in DIFFERENT representations
+// (equation, graph, table, verbal description).
+// ---------------------------------------------------------------------------
+
+type MixKind = 'lin' | 'quad' | 'exp';
+interface MixFn { kind: MixKind; at: (x: number) => Rational; tex: string; plain: string; p: Rational[] }
+type Rep = 'eq' | 'graph' | 'table' | 'verbal';
+type MixQ = 'yint' | 'value' | 'asym' | 'factor' | 'dec';
+
+const signed = (k: Rational) => (k.isZero() ? '' : ` ${k.isNegative() ? '-' : '+'} ${dTex(k.abs())}`);
+function mLin(m: Rational, c: Rational): MixFn {
+  const mt = m.eq(1) ? '' : m.eq(-1) ? '-' : dTex(m);
+  return { kind: 'lin', at: (x) => m.mul(x).add(c), tex: `${mt}x${signed(c)}`, plain: `${numStr(m)}*x+(${numStr(c)})`, p: [m, c] };
+}
+function mQuad(s: Rational, c: Rational): MixFn {
+  return { kind: 'quad', at: (x) => s.mul(x * x).add(c), tex: `${s.eq(1) ? '' : dTex(s)}x^{2}${signed(c)}`, plain: `${numStr(s)}*x^2+(${numStr(c)})`, p: [s, c] };
+}
+function mExp(a: Rational, b: Rational, k: Rational = Q(0)): MixFn {
+  const head = `${a.eq(1) ? '' : a.eq(-1) ? '-' : dTex(a)}${paren(b)}^{x}`;
+  return { kind: 'exp', at: (x) => a.mul(b.pow(x)).add(k), tex: `${head}${signed(k)}`, plain: `${numStr(a)}*(${numStr(b)})^x+(${numStr(k)})`, p: [a, b, k] };
+}
+const MIX_XS: Record<MixKind, number[]> = { exp: [-1, 0, 1, 2], lin: [-1, 0, 1, 2, 3], quad: [-2, -1, 0, 1, 2] };
+
+function mixGraph(name: string, f: MixFn): Block {
+  const xs = MIX_XS[f.kind];
+  const ys = xs.map((x) => f.at(x).toNumber());
+  if (f.kind === 'exp') ys.push(f.p[2].toNumber());
+  let lo = Math.min(...ys, 0);
+  let hi = Math.max(...ys, 0);
+  const span = Math.max(hi - lo, 4);
+  const yStep = span > 80 ? 20 : span > 40 ? 10 : span > 20 ? 5 : span > 10 ? 2 : 1;
+  lo = Math.floor((lo - yStep) / yStep) * yStep;
+  hi = Math.ceil((hi + yStep) / yStep) * yStep;
+  const pts = xs.map((x) => ({ x, y: f.at(x).toNumber(), label: `(${x}, ${numStr(f.at(x))})` }));
+  const spec: GraphSpec = {
+    xMin: Math.min(...xs) - 2,
+    xMax: Math.max(...xs) + 2,
+    yMin: lo,
+    yMax: hi,
+    yStep,
+    functions: [{ expr: f.plain }, ...(f.kind === 'exp' ? [{ expr: numStr(f.p[2]), dashed: true, color: '#888888', label: `y = ${numStr(f.p[2])}` }] : [])],
+    points: pts,
+    ariaLabel: `The graph of ${name}, a ${f.kind === 'exp' ? 'curve' : f.kind === 'lin' ? 'line' : 'parabola'} through ${pts.map((q) => q.label).join(', ')}${f.kind === 'exp' ? `, with a dashed horizontal asymptote at y = ${numStr(f.p[2])}` : ''}.`,
+  };
+  return { t: 'graph', spec, caption: `The graph of $y = ${name}(x)$.${f.kind === 'exp' ? ' The dashed line is its horizontal asymptote.' : ''}` };
+}
+
+function verbalOf(name: string, f: MixFn): string {
+  const start = `Function $${name}$ has an output of ${numStr(f.at(0))} when $x = 0$, and its output`;
+  if (f.kind === 'lin') return `${start} ${f.p[0].isNegative() ? 'decreases' : 'increases'} by ${numStr(f.p[0].abs())} each time $x$ increases by 1.`;
+  const b = f.p[1];
+  if (b.isInteger()) return `${start} is multiplied by ${numStr(b)} each time $x$ increases by 1.`;
+  return `${start} ${b.gt(1) ? 'increases' : 'decreases'} by ${pct(b.sub(1).abs())}% each time $x$ increases by 1.`;
+}
+
+function mixRep(name: string, f: MixFn, rep: Rep): Block[] {
+  if (rep === 'eq') return [p(`Function $${name}$ is given by an equation:`), math(`${name}(x) = ${f.tex}`)];
+  if (rep === 'graph') return [p(`Function $${name}$ is shown in the graph.`), mixGraph(name, f)];
+  if (rep === 'table') return [p(`Function $${name}$ is shown in the table.`), { t: 'table', headers: ['$x$', `$${name}(x)$`], rows: [0, 1, 2, 3].map((x) => [String(x), numStr(f.at(x))]) }];
+  return [p(verbalOf(name, f))];
+}
+
+/** How a student reads each needed fact from each representation (solution steps). */
+function mixRead(name: string, f: MixFn, rep: Rep, q: MixQ, n: number): { text: string; tex?: string; why?: string } {
+  const N = `$${name}$`;
+  if (q === 'yint') {
+    const v = dTex(f.at(0));
+    if (rep === 'graph') return { text: `Read the $y$-intercept of ${N} from the graph.`, tex: `${name}(0) = ${v}`, why: 'The $y$-intercept is the labeled point where the graph crosses the $y$-axis, at $x = 0$.' };
+    if (rep === 'table') return { text: `Read the row of the table with $x = 0$.`, tex: `${name}(0) = ${v}`, why: 'The $y$-intercept is the output when the input is 0.' };
+    if (rep === 'verbal') return { text: `The description gives the output of ${N} at $x = 0$.`, tex: `${name}(0) = ${v}`, why: 'The starting value is the $y$-intercept.' };
+    return { text: `Substitute $x = 0$ into the equation of ${N}.`, tex: `${name}(0) = ${v}`, why: f.kind === 'exp' ? 'Any nonzero base to the power 0 is 1, so the $y$-intercept is $a + k$.' : 'At $x = 0$ only the constant term is left.' };
+  }
+  if (q === 'value') {
+    const v = f.at(n);
+    const vt = `${name}(${n}) ${eqv(v)}`;
+    if (rep === 'eq') return { text: `Substitute $x = ${n}$ into the equation of ${N}.`, tex: vt };
+    if (rep === 'verbal')
+      return f.kind === 'lin'
+        ? { text: `${N} is linear: it changes by the same amount each step.`, tex: `${name}(${n}) = ${dTex(f.at(0))} ${f.p[0].isNegative() ? '-' : '+'} ${dTex(f.p[0].abs())}(${n}) = ${dTex(v)}`, why: `${n} steps of ${dTex(f.p[0].abs())} from the starting value.` }
+        : { text: `${N} is exponential: it is multiplied by the same factor each step.`, tex: `${name}(${n}) = ${coef0(f.at(0))}${paren(f.p[1])}^{${n}} ${eqv(v)}`, why: `The factor is $${dTex(f.p[1])}$, used ${n} times.` };
+    if (rep === 'table') {
+      if (f.kind === 'lin') return { text: `In the table of ${N} the differences are all $${dTex(f.p[0])}$, so ${N} is linear. Keep adding $${dTex(f.p[0])}$.`, tex: vt, why: 'A constant difference means the same amount is added for each step of 1 in $x$.' };
+      if (f.kind === 'exp') return { text: `In the table of ${N} the ratios are all $${dTex(f.p[1])}$, so ${N} is exponential. Keep multiplying by $${dTex(f.p[1])}$.`, tex: `${name}(${n}) = ${coef0(f.at(0))}${paren(f.p[1])}^{${n}} ${eqv(v)}`, why: 'A constant ratio means the output is multiplied by the same factor for each step of 1 in $x$.' };
+      return { text: `In the table of ${N} the second differences are all $${dTex(f.p[0].mul(2))}$, so ${N} is quadratic: $${name}(x) = ${f.tex}$.`, tex: vt, why: `Check: $${name}(1) = ${dTex(f.at(1))}$ and $${name}(2) = ${dTex(f.at(2))}$ match the table.` };
+    }
+    return { text: `Use the labeled points to find the rule for ${N}: $${name}(x) = ${f.tex}$.`, tex: vt };
+  }
+  if (q === 'asym') {
+    const k = numStr(f.p[2]);
+    return rep === 'graph' ? { text: `The dashed asymptote of ${N} is the line $y = ${k}$.`, why: 'The curve levels off along this line.' } : { text: `In the equation of ${N}, the number added at the end is ${k}, so its asymptote is $y = ${k}$.`, why: 'As the power part shrinks toward 0, the outputs approach the added constant.' };
+  }
+  if (q === 'factor') {
+    if (rep === 'graph') {
+      const k = f.p[2];
+      return { text: `For ${N}, measure each labeled point from the asymptote $y = ${numStr(k)}$ and divide.`, tex: `\\frac{${dTex(f.at(1))} - ${sub0(k)}}{${dTex(f.at(0))} - ${sub0(k)}} = ${dTex(f.p[1])}`, why: 'Above the asymptote, the distance is multiplied by the growth factor for each step of 1 in $x$.' };
+    }
+    return { text: `In the equation of ${N}, the base is $${dTex(f.p[1])}$.`, why: 'The base is the growth factor.' };
+  }
+  // dec
+  const dec = f.at(1).lt(f.at(0));
+  if (rep === 'graph') return { text: `The graph of ${N} ${dec ? 'falls' : 'rises'} from left to right, so ${N} is ${dec ? 'decreasing' : 'increasing'}.`, why: `Compare the labeled points: $${name}(0) = ${dTex(f.at(0))}$ and $${name}(1) = ${dTex(f.at(1))}$.` };
+  return { text: `The output of ${N} ${dec ? 'goes down' : 'goes up'} each step, so ${N} is ${dec ? 'decreasing' : 'increasing'}.`, why: f.kind === 'exp' ? `Multiplying a positive amount by $${dTex(f.p[1])}$ makes it ${f.p[1].lt(1) ? 'smaller' : 'larger'}.` : 'A linear function changes by the same amount every step.' };
+}
+const coef0 = (a: Rational) => (a.eq(1) ? '' : dTex(a));
+const fmtV = (v: Rational) => (v.isInteger() || (v.isTerminatingDecimal() && v.mul(100).isInteger()) ? `$${dTex(v)}$` : `about $${commas(v.round(2), 2)}$`);
+const sub0 = (k: Rational) => (k.isNegative() ? `(${dTex(k)})` : dTex(k));
+
+function pickMixed(rng: Rng, difficulty: number): { f: MixFn; g: MixFn; rf: Rep; rg: Rep; q: MixQ; n: number } {
+  const combo = difficulty === 2 ? rng.pick(['A', 'B', 'C'] as const) : rng.pick(['D', 'E', 'F'] as const);
+  if (combo === 'A') {
+    const f = mExp(Q(rng.int(1, 6)), Q(rng.pick(['2', '3', '1.5', '0.5'])));
+    const g = rng.bool() ? mExp(Q(rng.int(1, 8)), Q(rng.pick(['2', '3', '1.5', '0.5'])), Q(rng.int(-3, 4))) : mLin(Q(rng.nonzeroInt(-5, 5)), Q(rng.int(-3, 8)));
+    return { f, g, rf: 'graph', rg: 'eq', q: 'yint', n: 0 };
+  }
+  if (combo === 'B') {
+    const f = mExp(Q(rng.int(1, 5)), Q(rng.pick([2, 3])));
+    const g = mLin(Q(rng.pick([5, 10, 15, 20, 25])), Q(rng.pick([10, 20, 30, 40, 50, 60, 80, 100])));
+    return { f, g, rf: 'table', rg: 'verbal', q: 'value', n: rng.int(4, 7) };
+  }
+  if (combo === 'C') {
+    const f = mLin(Q(rng.int(2, 9)), Q(rng.int(1, 20)));
+    const g = mExp(Q(rng.int(1, 5)), Q(rng.pick([2, 3])), Q(rng.int(-2, 5)));
+    const q = rng.bool() ? 'yint' : 'value';
+    return { f, g, rf: 'table', rg: 'eq', q, n: q === 'value' ? rng.int(4, 6) : 0 };
+  }
+  if (combo === 'D') {
+    const q = rng.bool() ? 'asym' : 'factor';
+    const b1 = Q(rng.pick(['2', '3', '1.5']));
+    const f = mExp(Q(rng.int(1, 3)), b1, Q(rng.int(-5, 5)));
+    const g = mExp(Q(rng.int(1, 4)), Q(rng.pick(['2', '3', '4', '1.5', '2.5'].filter((s) => !Q(s).eq(b1)))), Q(rng.int(-6, 6)));
+    return { f, g, rf: 'graph', rg: 'eq', q, n: 0 };
+  }
+  if (combo === 'E') {
+    const f = mQuad(Q(rng.int(1, 3)), Q(rng.int(0, 10)));
+    const g = mExp(Q(rng.int(1, 3)), Q(rng.pick(['2', '1.5', '3'])));
+    return { f, g, rf: 'table', rg: rng.bool() ? 'eq' : 'verbal', q: 'value', n: rng.int(5, 8) };
+  }
+  const f = rng.bool() ? mExp(Q(rng.pick([100, 200, 400, 800])), Q(rng.pick(['0.75', '0.8', '0.5', '1.25', '1.5', '2']))) : mLin(Q(rng.nonzeroInt(-9, 9)), Q(rng.pick([20, 40, 60])));
+  const g = mExp(Q(rng.pick([1, 2, 3, -1, -2, -3])), Q(rng.pick(['2', '3', '0.5'])), Q(rng.int(-2, 3)));
+  return { f, g, rf: 'verbal', rg: 'graph', q: 'dec', n: 0 };
+}
+
+const MIX_HINTS: Record<MixQ, (n: number) => [string, string, string, string]> = {
+  yint: () => ['The $y$-intercept is the output when $x = 0$.', 'For the graph, find where it crosses the $y$-axis.', 'For a table or a description, look for the output at $x = 0$; for an equation, substitute $x = 0$.', 'Compare the two outputs.'],
+  value: (n) => ['First decide what kind of function each one is: linear, quadratic or exponential.', 'Constant differences mean linear, constant second differences mean quadratic, constant ratios mean exponential.', `Extend each pattern (or substitute) until $x = ${n}$.`, 'Compare the two outputs.'],
+  asym: () => ['A horizontal asymptote is the line $y = k$ that the graph levels off toward.', 'On the graph it is drawn as a dashed line.', 'In $a(b)^{x} + k$ it is the constant $k$ added at the end.', 'Compare the two $k$-values.'],
+  factor: () => ['The growth factor is the number the distance from the asymptote is multiplied by each time $x$ increases by 1.', 'In an equation $a(b)^{x} + k$, it is the base $b$.', 'On the graph, subtract the asymptote value from two labeled points one step apart and divide.', 'Compare the two factors.'],
+  dec: () => ['A decreasing function has outputs that go down as $x$ goes up.', 'For the description, ask whether each step makes the output bigger or smaller.', 'For the graph, follow the curve from left to right.', 'Decide for each function separately.'],
+};
+
+function mixedCompare(rng: Rng, difficulty: number) {
+  for (let tries = 0; tries < 60; tries++) {
+    const { f, g, rf, rg, q, n } = pickMixed(rng, difficulty);
+    let vf: Rational;
+    let vg: Rational;
+    if (q === 'yint' || q === 'value') {
+      vf = f.at(n);
+      vg = g.at(n);
+    } else if (q === 'asym') {
+      vf = f.p[2];
+      vg = g.p[2];
+    } else if (q === 'factor') {
+      vf = f.p[1];
+      vg = g.p[1];
+    } else {
+      vf = Q(0);
+      vg = Q(0);
+    }
+    if (q !== 'dec' && vf.eq(vg)) continue;
+    // verbal and table values must be sensible: no zero start for verbal descriptions
+    if ((rf === 'verbal' && f.at(0).isZero()) || (rf === 'table' && f.at(0).isZero())) continue;
+    const prompt: Block[] = [...mixRep('f', f, rf), ...mixRep('g', g, rg)];
+    const question = q === 'yint' ? 'Which function has the greater $y$-intercept?' : q === 'value' ? `Which function has the greater value at $x = ${n}$?` : q === 'asym' ? 'Which function’s graph has the higher horizontal asymptote?' : q === 'factor' ? 'Both functions are exponential. Which one has the greater growth factor?' : 'Which of the two functions are decreasing?';
+    prompt.push(p(question));
+    let answer;
+    let concl: string;
+    if (q === 'dec') {
+      const df = f.at(1).lt(f.at(0));
+      const dg = g.at(1).lt(g.at(0));
+      const correct = df && dg ? 'Both $f$ and $g$' : df ? 'Only $f$' : dg ? 'Only $g$' : 'Neither';
+      answer = makeChoice(rng, correct, ['Only $f$', 'Only $g$', 'Both $f$ and $g$', 'Neither'].filter((o) => o !== correct));
+      concl = `${correct === 'Neither' ? 'Neither function is' : correct === 'Both $f$ and $g$' ? 'Both functions are' : `${correct} is`} decreasing.`;
+    } else {
+      const correct = vf.gt(vg) ? '$f$' : '$g$';
+      answer = makeChoice(rng, correct, [correct === '$f$' ? '$g$' : '$f$', 'They are equal']);
+      const what = q === 'yint' ? 'the greater $y$-intercept' : q === 'value' ? `the greater value at $x = ${n}$` : q === 'asym' ? 'the higher horizontal asymptote' : 'the greater growth factor';
+      concl = `Compare: ${fmtV(vf)} for $f$ and ${fmtV(vg)} for $g$. So ${correct} has ${what}.`;
+    }
+    return makeProblem({
+      skillId: 'S6.09',
+      tags: ['multi-step', ...(rf === 'graph' || rg === 'graph' ? (['graph'] as const) : [])],
+      prompt,
+      answer,
+      hints: MIX_HINTS[q](n),
+      solution: [mixRead('f', f, rf, q, n), mixRead('g', g, rg, q, n), { text: concl, why: 'The two functions are given in different ways, so first turn each one into the same kind of fact, then compare.' }],
+      misconceptions: [],
+    });
+  }
+  throw new Error('mixedCompare: no untied pair');
+}
+
+/** verify(): rebuild each function from its own representation and evaluate it numerically. */
+function mixEvaluators(pr: Pick<Problem, 'prompt'>): Map<string, (x: number) => number> | string {
+  const out = new Map<string, (x: number) => number>();
+  const blocks = pr.prompt;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b.t !== 'p') continue;
+    const head = /^Function \$([fg])\$ is (given by an equation|shown in the graph|shown in the table)/.exec(b.text);
+    const verbal = /^Function \$([fg])\$ has an output of (-?[\d.]+) when \$x = 0\$, and its output (increases by|decreases by|is multiplied by) ([\d.]+)(%?) each time \$x\$ increases by 1\.$/.exec(b.text);
+    if (verbal) {
+      const start = Q(verbal[2]);
+      const amt = Q(verbal[4]);
+      const pctg = verbal[5] === '%';
+      let step: (v: Rational) => Rational;
+      if (verbal[3] === 'is multiplied by') step = (v) => v.mul(amt);
+      else if (pctg) step = verbal[3] === 'increases by' ? (v) => v.add(v.mul(amt).div(100)) : (v) => v.sub(v.mul(amt).div(100));
+      else step = verbal[3] === 'increases by' ? (v) => v.add(amt) : (v) => v.sub(amt);
+      out.set(verbal[1], (x) => {
+        let v = start;
+        for (let s = 0; s < x; s++) v = step(v);
+        return v.toNumber();
+      });
+      continue;
+    }
+    if (!head) continue;
+    const name = head[1];
+    const nxt = blocks[i + 1];
+    if (head[2] === 'given by an equation') {
+      if (!nxt || nxt.t !== 'math' || !nxt.tex.startsWith(`${name}(x) = `)) return 'equation missing';
+      const tex = nxt.tex.slice(`${name}(x) = `.length);
+      out.set(name, (x) => evalTex(tex, x));
+    } else if (head[2] === 'shown in the graph') {
+      if (!nxt || nxt.t !== 'graph') return 'graph missing';
+      const fn = nxt.spec.functions!.find((q) => !q.dashed)!;
+      const node = parseExpression(fn.expr);
+      const F = (x: number) => evalNumeric(node, { x });
+      for (const pt of nxt.spec.points ?? []) {
+        const lab = /^\((-?\d+), (-?[\d./]+)\)$/.exec(pt.label ?? '');
+        if (!lab || Math.abs(Q(lab[2]).toNumber() - F(Number(lab[1]))) > 1e-9 || Math.abs(pt.y - F(pt.x)) > 1e-9) return 'graph label off the curve';
+      }
+      const dashed = nxt.spec.functions!.find((q) => q.dashed);
+      if (dashed) {
+        const k = Number(dashed.expr);
+        if (Math.abs(F(-60) - k) > 1e-6 && Math.abs(F(60) - k) > 1e-6) return 'dashed line is not the asymptote';
+      }
+      out.set(name, F);
+    } else {
+      if (!nxt || nxt.t !== 'table') return 'table missing';
+      const xs = nxt.rows.map((r) => Number(r[0]));
+      const ys = nxt.rows.map((r) => Q(r[1]));
+      if (xs.some((x, j) => x !== j)) return 'table x-values are not 0, 1, 2, ...';
+      const d1 = diffs(ys);
+      const d2 = diffs(d1);
+      let ext: (x: number) => Rational;
+      if (allEq(d1)) ext = (x) => { let v = ys[0]; for (let s = 0; s < x; s++) v = v.add(d1[0]); return v; };
+      else if (allEq(d2)) ext = (x) => { let v = ys[0]; let d = d1[0]; for (let s = 0; s < x; s++) { v = v.add(d); d = d.add(d2[0]); } return v; };
+      else if (allEq(ratios(ys))) ext = (x) => iterGeo(ys[0], ratios(ys)[0]!, x + 1);
+      else return 'table pattern unclear';
+      out.set(name, (x) => ext(x).toNumber());
+    }
+  }
+  return out.size === 2 ? out : 'functions not found';
+}
+
+function verifyMixed(pr: Problem): string[] {
+  const ev = mixEvaluators(pr);
+  if (typeof ev === 'string') return [ev];
+  const F = ev.get('f')!;
+  const G = ev.get('g')!;
+  const text = textAll(pr);
+  const a = pr.answer;
+  if (a.kind !== 'choice') return ['unexpected kind'];
+  const label = choiceLabel(a);
+  if (/decreasing\?/.test(text)) {
+    const dec = (H: (x: number) => number) => [0, 1, 2, 3].every((x) => H(x + 1) < H(x));
+    const inc = (H: (x: number) => number) => [0, 1, 2, 3].every((x) => H(x + 1) > H(x));
+    if (!(dec(F) || inc(F)) || !(dec(G) || inc(G))) return ['not monotone'];
+    const want = dec(F) && dec(G) ? 'Both $f$ and $g$' : dec(F) ? 'Only $f$' : dec(G) ? 'Only $g$' : 'Neither';
+    return label === want ? [] : ['decreasing choice wrong'];
+  }
+  let vf: number;
+  let vg: number;
+  const val = /greater value at \$x = (\d+)\$/.exec(text);
+  if (/greater \$y\$-intercept/.test(text)) [vf, vg] = [F(0), G(0)];
+  else if (val) [vf, vg] = [F(Number(val[1])), G(Number(val[1]))];
+  else if (/horizontal asymptote/.test(text)) {
+    const lim = (H: (x: number) => number) => (Math.abs(H(80) - H(81)) < 1e-9 ? H(80) : H(-80));
+    [vf, vg] = [lim(F), lim(G)];
+  } else if (/growth factor/.test(text)) {
+    const fac = (H: (x: number) => number) => (H(2) - H(1)) / (H(1) - H(0));
+    [vf, vg] = [fac(F), fac(G)];
+  } else return ['unknown question'];
+  if (Math.abs(vf - vg) < 1e-9) return label === 'They are equal' ? [] : ['should be equal'];
+  return label === (vf > vg ? '$f$' : '$g$') ? [] : ['comparison wrong'];
+}
+
 export const genCompareFamilies: GeneratorDef = {
   id: 'u6.compare-families',
   skillId: 'S6.09',
@@ -647,6 +1133,8 @@ export const genCompareFamilies: GeneratorDef = {
         misconceptions: [],
       });
     }
+    // functions given in two different representations (A.FGR.9.5)
+    if (difficulty === 2 ? rng.bool() : rng.int(0, 4) < 2) return mixedCompare(rng, difficulty);
     if (difficulty === 2) {
       const lin = linFn(Q(rng.int(3, 12)), Q(rng.int(2, 20)));
       const ex = expF(Q(rng.int(1, 4)), Q(rng.pick([2, 3])));
@@ -736,6 +1224,7 @@ export const genCompareFamilies: GeneratorDef = {
   verify(pr) {
     const text = textAll(pr);
     const a = pr.answer;
+    if (pr.prompt.some((b) => b.t === 'p' && /^Function \$[fg]\$ /.test(b.text))) return verifyMixed(pr);
     const table = pr.prompt.find((b) => b.t === 'table');
     if (table && table.t === 'table') {
       const ys = table.rows.map((r) => Q(r[1]));

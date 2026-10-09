@@ -125,6 +125,9 @@ export const U4L14: LessonContent = {
       ],
     },
     { t: 'callout', variant: 'warning', title: 'The range goes down to 0, not to 48', text: 'The ball starts at $48$ feet, but it falls past $48$ on the way down, all the way to the ground. Every height from $0$ to $64$ happens at some moment, so the reasonable range is $[0, 64]$, not $[48, 64]$.' },
+    { t: 'p', text: '### Reading domain and range from a graph or a table' },
+    { t: 'p', text: 'When a function is given as a graph, read the domain **left to right** along the horizontal axis and the range **bottom to top** along the vertical axis. A stick dropped from $36$ feet has height $h(t) = -16t^2 + 36$; its graph starts at $(0, 36)$ and ends when it hits the ground at $(1.5, 0)$, because $-16(1.5)^2 + 36 = -36 + 36 = 0$. So the domain is $0 \\le t \\le 1.5$ and the range is $0 \\le h \\le 36$.' },
+    { t: 'p', text: 'When a function is given only by a table, its domain is just the inputs listed. If a class records the number of handshakes $H(n)$ for groups of $n = 2, 3, 4, 5, 6$ students (outputs $1, 3, 6, 10, 15$), the domain is the set $\\{2, 3, 4, 5, 6\\}$, not the interval $2 \\le n \\le 6$: you cannot have $2.5$ students. A domain like this, made of separate values, is called **discrete**. The outputs, $\\{1, 3, 6, 10, 15\\}$, are the range.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'A drone camera, a launched water rocket, or a ball in a video game only exists for part of the math curve. Stating a reasonable domain and range tells a reader exactly which part of the model to trust.' },
   ],
   examples: [
@@ -341,6 +344,7 @@ export const U4L14: LessonContent = {
     'The range starts at the vertex height $k$: $y \\ge k$ if $a > 0$ (opens up), $y \\le k$ if $a < 0$ (opens down). Use $k$, not $h$.',
     'Write sets with brackets for included endpoints and parentheses for $\\infty$: $y \\le 9$ is $(-\\infty, 9]$ or $\\{y \\mid y \\le 9\\}$.',
     'In context, restrict to what makes sense: a projectile\'s domain runs from launch $t = 0$ to landing, and its range from $0$ to the maximum height.',
+    'From a graph, read the domain left to right and the range bottom to top. From a table of whole-number inputs, the domain is the set of listed inputs, a discrete domain like $\{2, 3, 4, 5, 6\}$.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },
 };

@@ -10,7 +10,7 @@ import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, numStr, money, makeChoice, choiceLabel, numberMisconceptions, decimalOrFraction } from './util';
 import { coefTex } from '../../core/math/format';
 import { Op, OP_TEX, isStrict, isGreater, relTexToPlain, holds, ptTex } from './u2-common';
-import { SYS_CONTEXTS, buildSystem } from './u2-contexts';
+import { SYS_CONTEXTS, buildSystem, countOf, ifThereAre } from './u2-contexts';
 
 /** Both sides of a plain relation evaluated at (x, y). */
 function sides(rel: string, x: Rational, y: Rational): [Rational, Rational] {
@@ -157,7 +157,7 @@ export const genConstraintContext: GeneratorDef = {
       return makeProblem({
         skillId: 'S2.04',
         tags: ['real-world', 'word'],
-        prompt: [setup, p(`If there are $${X.toTex()}$ ${ctx.xNoun}, what is the **${word}** whole number of ${ctx.yNoun} that works?`)],
+        prompt: [setup, p(`${ifThereAre(ctx, X.toNumber())}, what is the **${word}** whole number of ${ctx.yNoun} that works?`)],
         answer: { kind: 'number', value: numStr(y) },
         inputHint: 'Type a whole number.',
         hints: [
@@ -170,11 +170,11 @@ export const genConstraintContext: GeneratorDef = {
           { text: `Substitute $x = ${X.toTex()}$.`, tex: `${a.mul(X).toTex()} + ${coefTex(b)}y ${OP_TEX[op]} ${t.toTex()}` },
           { text: `Subtract $${a.mul(X).toTex()}$ from both sides.`, tex: `${coefTex(b)}y ${OP_TEX[op]} ${rest.toTex()}`, why: 'Subtracting keeps the symbol the same.' },
           { text: `Divide by $${b.toTex()}$.`, tex: `y ${OP_TEX[op]} ${exact.isInteger() ? exact.toTex() : `${exact.toTex()} \\approx ${exact.round(2).toDecimalString(2)}`}`, why: 'Dividing by a positive number keeps the symbol the same.' },
-          { text: `The ${word} whole number that works is $${y.toTex()}$.`, why: `Check: $${total(X, y).toTex()}$ ${holds(rel, X, y) ? 'works' : 'fails'}, but $${isGreater(op) ? y.sub(Q(1)).toTex() : y.add(Q(1)).toTex()}$ ${ctx.yNoun} would give $${total(X, isGreater(op) ? y.sub(Q(1)) : y.add(Q(1))).toTex()}$, which does not.` },
+          { text: `The ${word} whole number that works is $${y.toTex()}$.`, why: `Check: $${total(X, y).toTex()}$ ${holds(rel, X, y) ? 'works' : 'fails'}, but ${countOf(ctx, 'y', isGreater(op) ? y.sub(Q(1)).toTex() : y.add(Q(1)).toTex())} would give $${total(X, isGreater(op) ? y.sub(Q(1)) : y.add(Q(1))).toTex()}$, which does not.` },
         ],
         misconceptions: numberMisconceptions(y, [
           { value: isGreater(op) ? Q(exact.floor()) : Q(exact.floor()).add(Q(1)), tag: 'other', feedback: isGreater(op) ? `Check it: that many ${ctx.yNoun} falls just short. Round up instead.` : `Check it: that many ${ctx.yNoun} goes over the limit. Round down instead.` },
-          { value: t.div(b).isInteger() ? t.div(b) : Q(t.div(b).floor()), tag: 'equation-setup', feedback: `Don't forget the $${X.toTex()}$ ${ctx.xNoun}: they use up part of the total first.` },
+          { value: t.div(b).isInteger() ? t.div(b) : Q(t.div(b).floor()), tag: 'equation-setup', feedback: `Don't forget the ${countOf(ctx, 'x', X.toTex())}: that amount uses up part of the total first.` },
         ]),
       });
     }
@@ -214,7 +214,7 @@ export const genConstraintContext: GeneratorDef = {
       if (!swappedTot.eq(tot)) distractors.push(`${verdict(holds(rel, c.y, c.x))}. ${swapped}, and ${cmp(swappedTot)}.`, `${verdict(!holds(rel, c.y, c.x))}. ${swapped}, and ${cmp(swappedTot)}.`);
       else distractors.push(`${verdict(!ok)}. Only whole numbers can be tested.`, `${verdict(ok)}. The total does not matter here.`);
     }
-    const qText = `Is it possible to have $${decimalOrFraction(c.x)}$ ${ctx.xNoun} and $${decimalOrFraction(c.y)}$ ${ctx.yNoun}?`;
+    const qText = `Is it possible to have ${countOf(ctx, 'x', decimalOrFraction(c.x))} and ${countOf(ctx, 'y', decimalOrFraction(c.y))}?`;
     return makeProblem({
       skillId: 'S2.04',
       tags: ['real-world', 'word'],
@@ -242,7 +242,7 @@ export const genConstraintContext: GeneratorDef = {
     const q = (pr.prompt[1] as { text: string }).text;
     const errs: string[] = [];
     if (pr.answer.kind === 'number') {
-      const mm = /If there are \$(\d+)\$/.exec(q);
+      const mm = /If there (?:are|is) \$(\d+)\$/.exec(q);
       const X = Q(Number(mm![1]));
       const y = Rational.parse(pr.answer.value);
       const greater = /least/.test(q);
@@ -259,6 +259,14 @@ export const genConstraintContext: GeneratorDef = {
     const y = Rational.parse(mm[2]);
     const possible = x.isInteger() && y.isInteger() && !x.isNegative() && !y.isNegative() && holds(rel, x, y);
     if (choiceLabel(pr.answer).startsWith('Yes') !== possible) errs.push('verdict wrong');
+    // every claim the key makes about the inequality must be true
+    const truth = holds(rel, x, y);
+    const keyLab = choiceLabel(pr.answer);
+    if (/makes the inequality false/.test(keyLab) && truth) errs.push('key claims the inequality is false');
+    if (/makes the inequality true/.test(keyLab) && !truth) errs.push('key claims the inequality is true');
+    if (/cannot be \$/.test(keyLab) && x.isInteger()) errs.push('key claims a whole number is a fraction');
+    if (/negative number/.test(keyLab) && !y.isNegative() && !x.isNegative()) errs.push('key claims a negative count');
+    if (/Every point that makes the inequality true is possible|Only whole numbers can be tested|The total does not matter/.test(keyLab)) errs.push('key gives an invalid reason');
     // the correct option's stated comparison must be true
     const lab = choiceLabel(pr.answer);
     const totM = / = (-?\d+(?:\.\d+)?)\$/.exec(lab);

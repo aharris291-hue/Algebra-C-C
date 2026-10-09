@@ -69,7 +69,7 @@ export const U1L06: LessonContent = {
       ordered: true,
       items: [
         '**What are the smallest and largest inputs that make sense?** (Often the start is $0$ and the end is when something runs out or hits a limit.)',
-        '**Is the input continuous or discrete?** Time, distance and gallons can be any value (continuous). People, tickets and T-shirts come in whole numbers (discrete), so you list them: $\\{0, 1, 2, 3\\}$.',
+        '**Is the input continuous or discrete?** Time, distance and gallons can be any value (continuous). People, tickets and T-shirts come in whole numbers (discrete), so you list them: $\\{0, 1, 2, 3\\}$. A list with no end can use set-builder notation with a pattern, like $\\{x \\mid x = 1, 2, 3, \\dots\\}$, and the outputs of \\$10 tickets are $\\{y \\mid y = 10, 20, 30, \\dots\\}$.',
       ],
     },
     { t: 'callout', variant: 'why', title: 'Why find the range from the endpoints?', text: 'A linear function always moves steadily in one direction (or stays flat), so its smallest and largest outputs happen at the ends of the domain. Plug in each endpoint, then put the smaller output first.' },
@@ -241,7 +241,7 @@ export const U1L06: LessonContent = {
     mix: [
       { generator: 'u1.domain-range', difficulty: 1, weight: 2 },
       { generator: 'u1.domain-range', difficulty: 2, weight: 3 },
-      { generator: 'u1.domain-range', difficulty: 3, weight: 1 },
+      { generator: 'u1.domain-range', difficulty: 3, weight: 3 },
       { generator: 'u1.key-features', difficulty: 2, weight: 1 },
       { generator: 'u1.intercepts-context', difficulty: 2, weight: 1 },
     ],

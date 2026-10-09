@@ -11,6 +11,7 @@ import { CourseMap, SkillsView } from './screens/CourseMap';
 import { LessonPlayer } from './screens/LessonPlayer';
 import { DayPlayer } from './screens/DayPlayer';
 import { DiagnosticPlayer } from './screens/DiagnosticPlayer';
+import { GraphingTool } from './components/GraphingTool';
 import { ParentMode } from './screens/Parent';
 import { SettingsScreen } from './screens/Settings';
 
@@ -36,6 +37,7 @@ export function App() {
   const [profileId, setProfileId] = useState<number | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [toolOpen, setToolOpen] = useState(false);
   const activity = useRef<{ lessonId: string | null; activity: string }>({ lessonId: null, activity: 'dashboard' });
   const lastInput = useRef(Date.now());
 
@@ -160,6 +162,16 @@ export function App() {
       )}
       {screen.name === 'day' && profileId !== null && (
         <DayPlayer key={screen.lessonId} profileId={profileId} lessonId={screen.lessonId} onExit={() => go({ name: 'home' })} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} />
+      )}
+      {(screen.name === 'lesson' || screen.name === 'day') && profileId !== null && (
+        <>
+          {!toolOpen && (
+            <button className="btn gt-launch" onClick={() => setToolOpen(true)} aria-label="Open the graphing tool">
+              📈 Graphing tool
+            </button>
+          )}
+          {toolOpen && <GraphingTool onClose={() => setToolOpen(false)} />}
+        </>
       )}
       {screen.name === 'diagnostic' && profileId !== null && (
         <DiagnosticPlayer profileId={profileId} onExit={() => go({ name: 'home' })} onOpenLesson={(id) => openLesson(id)} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} />

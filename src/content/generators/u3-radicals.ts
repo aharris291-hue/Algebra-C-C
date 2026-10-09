@@ -199,6 +199,7 @@ export const genAddRadicals: GeneratorDef = {
   skillId: 'S3.05',
   description: 'Add and subtract radicals, simplifying first to find like radicals.',
   generate(rng, difficulty) {
+    if (rng.next() < (difficulty === 1 ? 0.25 : 0.35)) return addCubeRoots(rng, difficulty);
     const b = rng.pick(SQUAREFREE.slice(0, 7));
     let terms: RadTerm[];
     if (difficulty === 1) terms = [makeTerm(rng, b, false, false), makeTerm(rng, b, false, true)];
@@ -250,6 +251,82 @@ export const genAddRadicals: GeneratorDef = {
   verify: verifyConstant,
 };
 
+
+/** Cube-root terms c·∛(k³·b) as shown, and simplified c·k·∛b. A negative radicand is allowed at difficulty 3. */
+interface CubeTerm {
+  shownCoef: number;
+  shownRad: number;
+  coef: number;
+  rad: number;
+}
+
+function cubeTermTex(t: CubeTerm, first: boolean): string {
+  const body = t.shownCoef === 1 || t.shownCoef === -1 ? `\\sqrt[3]{${t.shownRad}}` : `${Math.abs(t.shownCoef)}\\sqrt[3]{${t.shownRad}}`;
+  if (first) return t.shownCoef < 0 ? `-${body}` : body;
+  return t.shownCoef < 0 ? ` - ${body}` : ` + ${body}`;
+}
+
+function addCubeRoots(rng: Rng, difficulty: number) {
+  const b = rng.pick([2, 3, 4, 5]);
+  const mk = (simplify: boolean, allowNeg: boolean, negRad: boolean, rad = b): CubeTerm => {
+    const k = simplify ? rng.int(2, 3) : 1;
+    let c = rng.int(1, simplify ? 3 : 8);
+    if (allowNeg && rng.bool()) c = -c;
+    const sign = negRad ? -1 : 1;
+    return { shownCoef: c, shownRad: sign * k * k * k * rad, coef: c * k * sign, rad };
+  };
+  let terms: CubeTerm[];
+  if (difficulty === 1) terms = [mk(false, false, false), mk(false, true, false)];
+  else if (difficulty === 2) terms = rng.shuffle([mk(true, false, false), mk(false, true, false)]);
+  else {
+    const other = rng.pick([2, 3, 4, 5].filter((x) => x !== b));
+    terms = rng.shuffle([mk(true, false, rng.bool()), mk(true, true, false), mk(rng.bool(), true, false, other)]);
+  }
+  if (new Set(terms.map((t) => `${t.shownCoef}:${t.shownRad}`)).size !== terms.length && difficulty > 1) return addCubeRoots(rng, difficulty);
+  const byRad = new Map<number, number>();
+  for (const t of terms) byRad.set(t.rad, (byRad.get(t.rad) ?? 0) + t.coef);
+  const rads = [...byRad.keys()];
+  if (rads.some((r) => byRad.get(r) === 0)) return addCubeRoots(rng, difficulty);
+  const answer = joinTerms(rads.map((r) => radPlain(byRad.get(r)!, r, 3)));
+  const answerTex = joinTerms(rads.map((r) => radTex(byRad.get(r)!, r, 3)));
+  const tex = terms.map((t, i) => cubeTermTex(t, i === 0)).join('');
+  const simplified = terms
+    .map((t, i) => {
+      const body = radTex(Math.abs(t.coef), t.rad, 3);
+      return i === 0 ? (t.coef < 0 ? `-${body}` : body) : t.coef < 0 ? ` - ${body}` : ` + ${body}`;
+    })
+    .join('');
+  const shownSum = terms.reduce((acc, t) => acc + t.shownCoef, 0);
+  const misc: Misconception[] = [];
+  if (difficulty === 2 && shownSum !== 0) misc.push({ answer: radPlain(shownSum, b, 3), tag: 'radical-simplify', feedback: 'Simplify each cube root first. The number that comes out of the cube root multiplies the coefficient in front.' });
+  if (rads.length === 1 && terms.length === 2) misc.push({ answer: radPlain(byRad.get(b)!, 2 * b, 3), tag: 'radical-simplify', feedback: 'When you combine like radicals, the number under the root stays the same, just as $3x + 2x = 5x$.' });
+  // pulling out a square root instead of a cube root, e.g. ∛54 → 3∛6
+  const sqWrong = terms.find((t) => Math.abs(t.shownRad) !== t.rad && splitPower(Math.abs(t.shownRad), 2).out > 1);
+  if (sqWrong && rads.length === 1 && terms.length === 2) {
+    const sp = splitPower(Math.abs(sqWrong.shownRad), 2);
+    if (sp.inside !== b && sp.inside > 1) misc.push({ answer: joinTerms(terms.map((t) => (t === sqWrong ? radPlain(t.shownCoef * sp.out * Math.sign(t.shownRad), sp.inside, 3) : radPlain(t.coef, t.rad, 3)))), tag: 'radical-simplify', feedback: 'For a **cube** root, look for a perfect **cube** factor ($8, 27, 64, \\ldots$), not a perfect square.' });
+  }
+  const solution: SolutionStep[] = [
+    ...(difficulty >= 2 ? [{ text: 'Simplify each cube root first.', tex: `${tex} = ${simplified}`, why: `Take the largest perfect cube factor out of each root: ${terms.filter((t) => Math.abs(t.shownRad) !== t.rad).map((t) => `$${t.shownRad} = ${t.shownRad < 0 ? '-' : ''}${Math.abs(t.shownRad) / t.rad} \\cdot ${t.rad}$ and $\\sqrt[3]{${t.shownRad < 0 ? '-' : ''}${Math.abs(t.shownRad) / t.rad}} = ${Math.round(Math.cbrt(t.shownRad / t.rad))}$`).join('; ')}.` }] : []),
+    { text: 'Combine like radicals by adding or subtracting their coefficients.', tex: `= ${answerTex}`, why: rads.length > 1 ? 'Cube roots with different numbers inside are unlike, so they stay separate.' : 'Like cube roots combine the way like terms do, and the number inside stays the same.' },
+  ];
+  return makeProblem({
+    skillId: 'S3.05',
+    tags: difficulty === 3 ? ['multi-step'] : [],
+    prompt: [p('Simplify completely.'), { t: 'math', tex }],
+    answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
+    inputHint: 'Type an answer like 7cbrt(2) or 3cbrt(2) + cbrt(5)',
+    hints: [
+      'Like radicals have the same index **and** the same number inside. Only like radicals combine.',
+      difficulty >= 2 ? 'Simplify every cube root first: look for a perfect cube factor, $8, 27, 64, \\ldots$' : 'Add or subtract the numbers in front of the cube roots.',
+      'Combine cube roots the way you combine like terms: $2\\sqrt[3]{5} + 4\\sqrt[3]{5} = 6\\sqrt[3]{5}$.',
+      difficulty === 3 ? 'A cube root of a negative number is negative: $\\sqrt[3]{-8} = -2$. After simplifying, group the terms with the same number inside.' : 'The number inside the cube root does not change when you add.',
+    ],
+    solution,
+    misconceptions: stringMisconceptions(answer, misc),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // S3.06: multiply radicals
 // ---------------------------------------------------------------------------
@@ -268,6 +345,7 @@ export const genMultiplyRadicals: GeneratorDef = {
     let answer: string;
     let solution: SolutionStep[];
     const misc: Misconception[] = [];
+    if (rng.next() < (difficulty === 3 ? 0.25 : 0.35)) return multiplyCubeRoots(rng, difficulty);
     if (difficulty <= 2) {
       // (p√a)(q√b) with ab having a square factor
       const b = rng.pick([2, 3, 5, 7]);
@@ -308,7 +386,9 @@ export const genMultiplyRadicals: GeneratorDef = {
         misc.push({ answer: `sqrt(${b * c}) ${k < 0 ? '-' : '+'} ${Math.abs(k)}`, tag: 'distribution', feedback: `Multiply **both** terms by $\\sqrt{${b}}$, including the $${Math.abs(k)}$.` });
       } else if (kind === 1) {
         // conjugates (k + √b)(k − √b) = k² − b
-        const k = rng.int(1, 7);
+        let k = rng.int(1, 7);
+        // k² = 2b would make the answer equal b, which the feedback below mentions
+        while (k * k === 2 * b) k = rng.int(1, 7);
         const value = k * k - b;
         answer = String(value);
         tex = `\\left(${k} + \\sqrt{${b}}\\right)\\left(${k} - \\sqrt{${b}}\\right)`;
@@ -350,6 +430,74 @@ export const genMultiplyRadicals: GeneratorDef = {
   },
   verify: verifyConstant,
 };
+
+
+/** Cube-free radicands used for products of cube roots. */
+const CUBE_FACTORS = [2, 3, 4, 5, 6, 9, 10, 12, 18, 25];
+
+function multiplyCubeRoots(rng: Rng, difficulty: number) {
+  const misc: Misconception[] = [];
+  let tex: string;
+  let answer: string;
+  let solution: SolutionStep[];
+  if (difficulty <= 2) {
+    // (p∛u)(q∛v): u·v has a perfect cube factor; at difficulty 2 it may be a perfect cube
+    const pairs: Array<[number, number]> = [];
+    for (const u of CUBE_FACTORS)
+      for (const v of CUBE_FACTORS) {
+        if (u >= v) continue;
+        const sp = splitPower(u * v, 3);
+        if (sp.out > 1 && (difficulty === 2 || sp.inside > 1) && u * v <= 250) pairs.push([u, v]);
+      }
+    const [u, v] = rng.shuffle([...rng.pick(pairs)]);
+    const pc = difficulty === 2 ? rng.int(2, 4) : 1;
+    const qc = difficulty === 2 ? rng.nonzeroInt(-4, 4) : 1;
+    const prod = u * v;
+    const { out, inside } = splitPower(prod, 3);
+    const coef = pc * qc * out;
+    answer = radPlain(coef, inside, 3);
+    const f = (c: number, r: number) => (c === 1 ? `\\sqrt[3]{${r}}` : c === -1 ? `-\\sqrt[3]{${r}}` : `${c}\\sqrt[3]{${r}}`);
+    tex = difficulty === 1 ? `\\sqrt[3]{${u}} \\cdot \\sqrt[3]{${v}}` : `${f(pc, u)} \\cdot ${qc < 0 ? `\\left(${f(qc, v)}\\right)` : f(qc, v)}`;
+    solution = [
+      { text: difficulty === 1 ? 'Multiply the numbers inside the cube roots.' : 'Multiply the numbers in front, and multiply the numbers inside the cube roots.', tex: `${tex} = ${pc * qc === 1 ? '' : pc * qc}\\sqrt[3]{${prod}}`, why: '$\\sqrt[3]{a} \\cdot \\sqrt[3]{b} = \\sqrt[3]{ab}$ for any real numbers $a$ and $b$.' },
+      { text: inside === 1 ? 'The product is a perfect cube, so the cube root is a whole number.' : 'Simplify the cube root.', tex: pc * qc === 1 ? `= ${radTex(coef, inside, 3)}` : `= ${pc * qc} \\cdot ${radTex(out, inside, 3)} = ${radTex(coef, inside, 3)}`, why: inside === 1 ? `$${prod} = ${out}^3$.` : `$${prod} = ${out ** 3} \\cdot ${inside}$ and $\\sqrt[3]{${out ** 3}} = ${out}$.` },
+    ];
+    misc.push({ answer: radPlain(pc * qc, prod, 3), tag: 'radical-simplify', feedback: 'Simplify at the end: look for a perfect cube factor of the number inside.' });
+    const sq = splitPower(prod, 2);
+    if (sq.out > 1 && (sq.out !== out || sq.inside !== inside)) misc.push({ answer: radPlain(pc * qc * sq.out, sq.inside, 3), tag: 'radical-simplify', feedback: 'For a **cube** root, take out a perfect **cube** factor ($8, 27, 64, 125, \\ldots$), not a perfect square.' });
+    if (pc * qc !== 1 && pc + qc !== 0) misc.push({ answer: radPlain((pc + qc) * out, inside, 3), tag: 'arithmetic-error', feedback: 'Multiply the numbers in front of the roots. Do not add them.' });
+  } else {
+    // ∛b(∛c + k): distribute
+    const b = rng.pick([2, 3, 4, 5]);
+    const c = rng.pick(CUBE_FACTORS.filter((x) => x !== b && splitPower(x * b, 3).out > 1 && x * b <= 250));
+    const k = rng.nonzeroInt(-6, 6);
+    const prod = b * c;
+    const { out, inside } = splitPower(prod, 3);
+    const value = Surd.root(BigInt(prod), 3).add(Surd.root(BigInt(b), 3, Rational.from(k as never)));
+    answer = surdPlain(value);
+    tex = `\\sqrt[3]{${b}}\\left(\\sqrt[3]{${c}} ${k < 0 ? '-' : '+'} ${Math.abs(k)}\\right)`;
+    solution = [
+      { text: 'Distribute the cube root to each term in the parentheses.', tex: `${tex} = \\sqrt[3]{${b}}\\cdot\\sqrt[3]{${c}} ${k < 0 ? '-' : '+'} ${Math.abs(k) === 1 ? '' : Math.abs(k)}\\sqrt[3]{${b}}`, why: 'The distributive property: $a(b + c) = ab + ac$.' },
+      { text: 'Multiply and simplify.', tex: `= \\sqrt[3]{${prod}} ${k < 0 ? '-' : '+'} ${Math.abs(k) === 1 ? '' : Math.abs(k)}\\sqrt[3]{${b}} = ${value.toTex()}`, why: inside === 1 ? `$${prod} = ${out}^3$, so $\\sqrt[3]{${prod}} = ${out}$.` : `$${prod} = ${out ** 3} \\cdot ${inside}$, so $\\sqrt[3]{${prod}} = ${radTex(out, inside, 3)}$.` },
+    ];
+    misc.push({ answer: `${radPlain(out, inside, 3)} ${k < 0 ? '-' : '+'} ${Math.abs(k)}`, tag: 'distribution', feedback: `Multiply **both** terms by $\\sqrt[3]{${b}}$, including the $${Math.abs(k)}$.` });
+  }
+  return makeProblem({
+    skillId: 'S3.06',
+    tags: difficulty === 3 ? ['multi-step'] : [],
+    prompt: [p('Multiply and simplify completely.'), { t: 'math', tex }],
+    answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
+    inputHint: 'Type an answer like 2cbrt(3) or 2 + 3cbrt(2)',
+    hints: [
+      'Use $\\sqrt[3]{a} \\cdot \\sqrt[3]{b} = \\sqrt[3]{ab}$, and multiply numbers in front of the roots together.',
+      difficulty === 3 ? 'Multiply the cube root by every term in the parentheses.' : 'Multiply first, then simplify the cube root you get.',
+      'Perfect cubes to look for inside the root: $8$, $27$, $64$, $125$, $216$.',
+      'Finish by taking any perfect cube factor out of the cube root.',
+    ],
+    solution,
+    misconceptions: stringMisconceptions(answer, misc),
+  });
+}
 
 // ---------------------------------------------------------------------------
 // S3.07: radicals with variables (all variables positive)

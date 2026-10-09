@@ -3,13 +3,14 @@ import type { LessonContent } from '../../../core/curriculum/types';
 /**
  * U4L10 Choosing a Method and Quadratic Constraints (A.PAR.6.3, A.PAR.6.4, A.MM.1.1)
  * Choosing among factoring, square roots, completing the square and the quadratic formula; the projectile
- * model h(t) = -16t^2 + vt + h0 in feet; and keeping only the solutions that make sense in context (S4.13).
+ * model h(t) = -16t^2 + vt + h0 in feet; keeping only the solutions that make sense in context; and deciding whether a data
+ * point is possible (a solution in the domain) or not possible (S4.13).
  *
  * Math verified by hand (2026-10-06): every solution below was substituted back into its equation or model, every discriminant was recomputed, and every rounded time and length was recomputed independently.
  */
 export const U4L10: LessonContent = {
   lessonId: 'U4L10',
-  goal: 'Choose an efficient method (factoring, square roots, completing the square, or the quadratic formula) for a quadratic equation, and decide which solutions make sense in a real situation, such as rejecting a negative time when a ball hits the ground.',
+  goal: 'Choose an efficient method (factoring, square roots, completing the square, or the quadratic formula) for a quadratic equation, and decide which solutions make sense in a real situation, such as rejecting a negative time when a ball hits the ground, and whether a data point is possible for the model.',
   needToKnow: [
     { t: 'p', text: 'This lesson pulls together the four solving methods from Unit 4:' },
     {
@@ -95,6 +96,21 @@ export const U4L10: LessonContent = {
       ],
     },
     { t: 'callout', variant: 'warning', title: 'Do not reject automatically', text: 'Not every second solution is wrong. When is the ball at a height of $96$ feet? Solving $-16t^2 + 48t + 64 = 96$ gives $t = 1$ and $t = 2$. **Both** fit: the ball passes $96$ feet on the way up and again on the way down. Reject a solution only when the situation rules it out.' },
+    { t: 'p', text: '### Is this data point possible?' },
+    { t: 'p', text: 'A data point $(t, h)$ is **possible** for a model only when two things are true: it is a **solution** of the model (substituting $t$ really gives $h$), **and** it fits the situation (the time is in the domain, while the object is actually in the air). A point that fails either test is **not possible**.' },
+    { t: 'p', text: 'Take a ball thrown up from $4$ feet at $48$ feet per second: $h(t) = -16t^2 + 48t + 4$. Its vertex is at $t = -\\frac{48}{2(-16)} = 1.5$, where $h(1.5) = -36 + 72 + 4 = 40$ feet, and it lands when $h(t) = 0$, at $t \\approx 3.08$ seconds. So the domain is $0 \\le t \\le 3.08$ and every height is between $0$ and $40$ feet.' },
+    {
+      t: 'table',
+      caption: 'Testing data points against the model h(t) = -16t squared + 48t + 4.',
+      headers: ['Data point', 'Test', 'Possible?'],
+      rows: [
+        ['$(1, 36)$', '$h(1) = -16 + 48 + 4 = 36$, and $t = 1$ is during the flight', 'yes: it is a solution that fits'],
+        ['$(2, 40)$', '$h(2) = -64 + 96 + 4 = 36$, not $40$', 'no: the ball is at $40$ feet only at $t = 1.5$'],
+        ['$(1, 50)$', '$50$ is above the maximum height of $40$ feet', 'no: the ball never gets that high'],
+        ['$(4, -60)$', '$h(4) = -256 + 192 + 4 = -60$ fits the equation, but $t = 4$ is after it lands', 'no: outside the domain'],
+      ],
+    },
+    { t: 'callout', variant: 'why', title: 'Why a solution can still be impossible', text: 'The equation $h(t) = -16t^2 + 48t + 4$ keeps going forever in both directions, but the ball does not. Points like $(4, -60)$ or $(-1, -60)$ satisfy the equation, yet they describe times when the ball is not in the air, so they are not possible data for this situation.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Engineers find when a launched rocket lands, builders find the width of a walkway that fits a space, and athletes study how long a ball stays in the air. In each case the math gives two answers and the situation decides which to keep.' },
   ],
   examples: [
@@ -147,6 +163,19 @@ export const U4L10: LessonContent = {
         { text: 'Interpret.', why: 'The ball rises past $96$ feet at $1$ second, peaks at $100$ feet at $1.5$ seconds, and falls back past $96$ feet at $2$ seconds. It is at one place at a time, but it visits that height twice.' },
       ],
       answer: 'No. Both $t = 1$ s (going up) and $t = 2$ s (coming down) are correct. Reject a solution only when the situation rules it out.',
+    },
+    {
+      title: 'Is this data point possible?',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: 'A ball is thrown up from $4$ feet, so $h(t) = -16t^2 + 48t + 4$ from the throw until it lands. A student records the data points $(2, 40)$ and $(4, -60)$. Is each one possible?' }],
+      steps: [
+        { text: 'Find the domain and the greatest height.', tex: 't = -\\frac{48}{2(-16)} = 1.5, \\quad h(1.5) = 40, \\quad h(t) = 0 \\text{ at } t \\approx 3.08', why: 'The vertex gives the maximum height, and the positive solution of $h(t) = 0$ is when the ball lands. So the ball is in the air for $0 \\le t \\le 3.08$ at heights from $0$ to $40$ feet.' },
+        { text: 'Test $(2, 40)$ by substituting $t = 2$.', tex: 'h(2) = -16(4) + 48(2) + 4 = 36', why: 'A point is on the model only if the model gives that output. At $t = 2$ the height is $36$, not $40$.' },
+        { text: 'Decide about $(2, 40)$.', why: 'Not possible. The ball does reach $40$ feet, but only at $t = 1.5$, not at $t = 2$.' },
+        { text: 'Test $(4, -60)$ by substituting $t = 4$.', tex: 'h(4) = -16(16) + 48(4) + 4 = -60', why: 'This point is a solution of the equation.' },
+        { text: 'Check it against the situation.', why: 'Not possible. $t = 4$ is after the ball lands (about $3.08$ seconds), and a height of $-60$ feet would be underground. The equation allows it, but the situation does not.' },
+      ],
+      answer: 'Neither is possible: $(2, 40)$ is not on the model ($h(2) = 36$), and $(4, -60)$ fits the equation but is outside the domain.',
     },
     {
       title: 'A walkway around a pool',
@@ -299,6 +328,7 @@ export const U4L10: LessonContent = {
     'A perfect-square discriminant means the quadratic factors over the integers; a negative one means no real solutions.',
     'The projectile model $h(t) = -16t^2 + vt + h_0$ gives height in feet after $t$ seconds; set $h(t) = 0$ to find when it lands.',
     'Check every solution against the situation: reject negative times and lengths, but keep both solutions when both fit, like passing $96$ feet going up and coming down.',
+    'A data point is possible only if it is a solution of the model and its input is in the domain: test it by substituting, and compare with the maximum height and the landing time.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },
 };

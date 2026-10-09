@@ -7,7 +7,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U1L09: LessonContent = {
   lessonId: 'U1L09',
-  goal: 'Build a linear model from a situation, a table, or two data points, explain what its slope and intercept mean, use it to predict, and convert units and rates with conversion factors.',
+  goal: 'Choose the input and output quantities for a situation, build a linear model from a situation, a table, or two data points, explain what its slope and intercept mean (with units), use it to predict, and convert units, rates and areas with conversion factors.',
   needToKnow: [
     { t: 'p', text: 'You already know the pieces this lesson puts together:' },
     {
@@ -37,6 +37,9 @@ export const U1L09: LessonContent = {
         '**Starting value (intercept $b$):** the output when the input is $0$.',
       ],
     },
+    { t: 'p', text: '### Choosing the quantities' },
+    { t: 'p', text: 'Before writing a model, decide which quantity is the **input** and which is the **output**. The output is what you want to find; the input is what it depends on. A hose fills a pool at 20 gallons per minute, and you want the water in the pool at any time: the input is the **time since filling started (minutes)** and the output is the **water in the pool (gallons)**. The rate, 20 gallons per minute, never changes, so it is not an input or an output: it becomes the slope.' },
+    { t: 'callout', variant: 'tip', title: 'Let the units check you', text: 'The rate\'s units are always (output units) per (input unit). "Gallons per minute" tells you that minutes go in and gallons come out.' },
     { t: 'p', text: '### Building a model from a situation' },
     { t: 'p', text: 'A phone plan costs \\$30 per month plus a one-time \\$45 activation fee. The cost changes by \\$30 every month, so the slope is $30$. Before any months pass you already owe \\$45, so the intercept is $45$.' },
     { t: 'math', tex: 'C(m) = 30m + 45' },
@@ -52,6 +55,11 @@ export const U1L09: LessonContent = {
     { t: 'p', text: 'Choose each factor so the unit you want to get rid of is on the **opposite** side (top vs. bottom) and cancels. Here is $60$ miles per hour in feet per second:' },
     { t: 'math', tex: '\\frac{60 \\text{ mi}}{1 \\text{ hr}} \\cdot \\frac{5280 \\text{ ft}}{1 \\text{ mi}} \\cdot \\frac{1 \\text{ hr}}{3600 \\text{ s}} = \\frac{60 \\cdot 5280 \\text{ ft}}{3600 \\text{ s}} = \\frac{316{,}800 \\text{ ft}}{3600 \\text{ s}} = 88 \\text{ ft/s}' },
     { t: 'callout', variant: 'why', title: 'Why the units cancel', text: 'Miles is on the top of the first fraction and the bottom of the second, so miles cancel. Hours is on the bottom of the first fraction and the top of the third, so hours cancel. Only feet on top and seconds on the bottom are left, which is exactly the unit we wanted.' },
+    { t: 'p', text: '### Area units' },
+    { t: 'p', text: 'A **square foot** is a square 1 foot on each side. Since $1 \\text{ yd} = 3 \\text{ ft}$, a square yard is 3 feet by 3 feet, so $1 \\text{ yd}^2 = 3 \\times 3 = 9 \\text{ ft}^2$. Area conversions use the length factor **twice**, once for each dimension.' },
+    { t: 'math', tex: '54 \\text{ ft}^2 \\cdot \\frac{1 \\text{ yd}}{3 \\text{ ft}} \\cdot \\frac{1 \\text{ yd}}{3 \\text{ ft}} = \\frac{54}{9} \\text{ yd}^2 = 6 \\text{ yd}^2' },
+    { t: 'p', text: '### Units of the numbers in a model' },
+    { t: 'p', text: 'Every number in a model has units. In $C(m) = 15m + 50$, the cost of a plan in dollars after $m$ months, the $15$ multiplies months, so it is a rate in **dollars per month**. The $50$ is added on its own, so it is in **dollars**, the same units as the output. That is why the terms can be added: $(\\text{dollars per month}) \\times (\\text{months}) = \\text{dollars}$.' },
   ],
   examples: [
     {
@@ -114,6 +122,17 @@ export const U1L09: LessonContent = {
         { text: 'Multiply the numbers.', tex: '3 \\cdot 2.54 \\cdot 60 = 7.62 \\cdot 60 = 457.2', why: 'Inches and minutes cancel, leaving centimeters per hour.' },
       ],
       answer: '$457.2$ cm per hour',
+    },
+    {
+      title: 'Carpet in square yards',
+      kind: 'real-world',
+      problem: [{ t: 'p', text: 'A rug covers 54 square feet. Carpet is sold by the square yard. How many square yards is the rug? Use $1$ yard $= 3$ feet.' }],
+      steps: [
+        { text: 'Turn the length fact into an area fact.', tex: '1 \\text{ yd}^2 = (3 \\text{ ft})(3 \\text{ ft}) = 9 \\text{ ft}^2', why: 'A square yard is 3 feet long and 3 feet wide, so it holds a 3-by-3 grid of square feet.' },
+        { text: 'Convert.', tex: '54 \\text{ ft}^2 \\cdot \\frac{1 \\text{ yd}^2}{9 \\text{ ft}^2} = 6 \\text{ yd}^2', why: 'The conversion factor equals 1, and square feet cancel. Square yards are bigger, so there are fewer of them.' },
+        { text: 'Check the common mistake.', tex: '54 \\div 3 = 18 \\;(\\text{wrong})', why: 'Dividing by 3 only converts one dimension. Area needs the factor twice.' },
+      ],
+      answer: '$6$ square yards',
     },
     {
       title: 'A common mistake: a factor upside down',
@@ -238,10 +257,10 @@ export const U1L09: LessonContent = {
     count: 8,
     reviewCount: 2,
     mix: [
-      { generator: 'u1.linear-model', difficulty: 1, weight: 1 },
+      { generator: 'u1.linear-model', difficulty: 1, weight: 2 },
       { generator: 'u1.linear-model', difficulty: 2, weight: 2 },
       { generator: 'u1.linear-model', difficulty: 3, weight: 1 },
-      { generator: 'u1.unit-rates', difficulty: 1, weight: 1 },
+      { generator: 'u1.unit-rates', difficulty: 1, weight: 2 },
       { generator: 'u1.unit-rates', difficulty: 2, weight: 2 },
       { generator: 'u1.unit-rates', difficulty: 3, weight: 1 },
       { generator: 'u1.rate-context', difficulty: 2, weight: 1 },
@@ -264,6 +283,8 @@ export const U1L09: LessonContent = {
     'From a table or two points, find the slope first, then find $b$, then check the model with another data point.',
     'Always give the slope and intercept **units** and choose a **reasonable domain** for the situation.',
     'A conversion factor equals $1$. Place each one so the unwanted unit cancels: $60$ mi/hr $= 88$ ft/s.',
+    'Choose the input (what the output depends on) and the output (what you want to find) before building a model. A constant rate is the slope, not an input.',
+    'Area units are squared: $1 \\text{ yd}^2 = 9 \\text{ ft}^2$, so use the length factor twice. In a model, the number multiplying the input is in (output units) per (input unit); the constant has the output\'s units.',
   ],
   mastery: { quizPassScore: 0.8, practiceMinCorrect: 5 },
 };
