@@ -4,15 +4,16 @@
  * exactly, monomials are compared with the key at sample points, and equations are checked by
  * substituting the key.
  */
-import type { GeneratorDef, Rng, SolutionStep, ProblemStep } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, SolutionStep, ProblemStep, Problem } from '../../core/curriculum/types';
 import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { expressionsEquivalent, isExponentSimplified } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { evalNumeric } from '../../core/math/evaluate';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, numStr, Q, numberMisconceptions } from './util';
-import { texToParser, texExact, powTex, mono, monoMul, monoDiv, monoPow, monoRawTex, monoPlain, monoTex, VAR_SETS, type Mono } from './u5-common';
+import { texToParser, texExact, powTex, baseTex, mono, monoMul, monoDiv, monoPow, monoRawTex, monoPlain, monoTex, VAR_SETS, type Mono } from './u5-common';
 import { mathBlocks } from './u4-common';
+import { numStep, choiceStep, finalStep, withSteps, stepErrors, type StepMis } from './u5-steps';
 
 type Hints = [string, string, string, string];
 type Mis = { value: Rational | null; tag: MisconceptionTag; feedback: string };
@@ -22,13 +23,23 @@ const fracStr = (r: Rational) => r.toString();
 // S5.01: evaluate numerical powers
 // ---------------------------------------------------------------------------
 
+/** Guided steps: the steps before the last, and the last step's prompt, hints and explanation. */
+interface StepPlan {
+  pre: ProblemStep[];
+  last: [string, Hints, string];
+}
+
 interface PowItem {
   tex: string;
   value: Rational;
   mis: Mis[];
   hints: Hints;
   solution: SolutionStep[];
+  plan?: StepPlan;
 }
+
+/** "is not 0" feedback for a zero power, shared by several steps. */
+const ZERO_NOT_0: StepMis['feedback'] = 'A nonzero number to the zero power is not 0. Going down from exponent 1 to exponent 0 divides by the base once, and a number divided by itself is 1.';
 
 const RULES_HINT = 'Product rule: add exponents. Quotient rule: subtract exponents. Power rule: multiply exponents. All three need the same base.';
 
@@ -54,6 +65,21 @@ function evalD1(rng: Rng): PowItem {
           { text: 'The exponent applies only to the base right next to it.', tex: `-${b}^{0} = -\\left(${b}^{0}\\right)`, why: 'Order of operations: exponents come before the negative sign (which means multiplying by $-1$).' },
           { text: 'Any nonzero number to the zero power is 1.', tex: `-\\left(1\\right) = -1` },
         ],
+        plan: {
+          pre: [
+            numStep(
+              `The exponent belongs only to the $${b}$ right under it. First find $${b}^{0}$.`,
+              Q(1),
+              [`Look at the pattern $${b}^{2}$, $${b}^{1}$, $${b}^{0}$: each step down divides by ${b}.`, `$${b}^{1} = ${b}$. Going down one more step divides by ${b} again.`, `$${b}^{0} = \\frac{${b}^{1}}{${b}} = \\frac{${b}}{${b}}$.`, 'A nonzero number divided by itself is the same small number every time.'],
+              `$${b}^{0} = \\frac{${b}}{${b}} = 1$: any nonzero number to the zero power is 1.`,
+              [
+                { value: Q(0), tag: 'exponent-rule', feedback: ZERO_NOT_0 },
+                { value: Q(b), tag: 'exponent-rule', feedback: 'An exponent of 1 leaves the base unchanged, but this exponent is 0.' },
+              ],
+            ),
+          ],
+          last: [`Now apply the negative sign in front. What is $-${b}^{0}$?`, ['The negative sign is applied after the power.', `$-${b}^{0}$ means $-\\left(${b}^{0}\\right)$.`, 'Take the value you just found and find its opposite.', 'Multiply your value from the first step by $-1$.'], `$-${b}^{0} = -(1) = -1$, because the exponent comes before the negative sign.`],
+        },
       };
     }
     const base = b === 0 ? Q(rng.int(1, 4), rng.pick([3, 5, 7])) : Q(b);
@@ -69,6 +95,18 @@ function evalD1(rng: Rng): PowItem {
         { text: 'Use the quotient pattern.', tex: `${powTex(base, 0)} = \\frac{${powTex(base, 1)}}{${powTex(base, 1)}}`, why: 'Subtracting equal exponents gives 0, and a number divided by itself is 1.' },
         { text: 'Any nonzero number to the zero power is 1.', tex: `${powTex(base, 0)} = 1` },
       ],
+      plan: {
+        pre: [
+          numStep(
+            `Use the pattern of powers. Start one step higher: what is $${powTex(base, 1)}$?`,
+            base,
+            ['An exponent counts how many times the base is a factor.', 'An exponent of 1 means the base is used once.', `$${powTex(base, 1)}$ is just one copy of $${base.toTex()}$.`, 'Write the base itself.'],
+            `$${powTex(base, 1)} = ${base.toTex()}$: one factor of the base.`,
+            [{ value: Q(1), tag: 'exponent-rule', feedback: 'That is the zero power. An exponent of 1 means the base is used once.' }],
+          ),
+        ],
+        last: [`Going down from exponent 1 to exponent 0 divides by the base once more. So $${powTex(base, 0)} = ${powTex(base, 1)} \\div ${baseTex(base)}$. What is $${powTex(base, 0)}$?`, ['Each step down in the exponent divides by the base.', `Divide your answer from the first step by $${base.toTex()}$.`, 'A nonzero number divided by itself is always the same number.', 'This works for every nonzero base, including negatives and fractions.'], `$${powTex(base, 0)} = \\frac{${base.toTex()}}{${base.toTex()}} = 1$.`],
+      },
     };
   }
   if (kind === 'neg' || kind === 'ten') {
@@ -89,6 +127,18 @@ function evalD1(rng: Rng): PowItem {
         { text: 'A negative exponent means the reciprocal of the positive power.', tex: `${b}^{-${n}} = \\frac{1}{${b}^{${n}}}`, why: `Following the pattern down past $${b}^{0} = 1$, each step divides by ${b} again.` },
         { text: 'Evaluate the power.', tex: `\\frac{1}{${b}^{${n}}} = ${v.toTex()}` },
       ],
+      plan: {
+        pre: [
+          numStep(
+            `A negative exponent means "one over" the positive power: $${b}^{-${n}} = \\frac{1}{${b}^{${n}}}$. First find the positive power $${b}^{${n}}$.`,
+            Q(b).pow(n),
+            [`$${b}^{${n}}$ means $${b}$ used as a factor ${n === 1 ? 'once' : `${n} times`}.`, n === 1 ? `One factor of $${b}$ is just $${b}$.` : `Write out the factors: $${Array(n).fill(b).join(' \\cdot ')}$.`, 'Multiply the factors from left to right.', `Do not multiply $${b}$ by ${n}; repeat the factor instead.`],
+            `$${b}^{${n}} = ${Q(b).pow(n).toTex()}$.`,
+            [{ value: n === 1 ? null : Q(b * n), tag: 'exponent-rule', feedback: `An exponent is repeated multiplication: $${b}^{${n}}$ is not $${b} \\times ${n}$.` }],
+          ),
+        ],
+        last: [`Now write $${b}^{-${n}} = \\frac{1}{${b}^{${n}}}$ as a fraction. What is $${b}^{-${n}}$?`, ['The positive power you just found goes in the denominator.', 'The numerator is 1.', 'A negative exponent makes a reciprocal, not a negative number.', 'Write 1 over your answer from the first step.'], `$${b}^{-${n}} = \\frac{1}{${Q(b).pow(n).toTex()}}$. Each step below exponent 0 divides by ${b} again.`],
+      },
     };
   }
   if (kind === 'frac') {
@@ -111,6 +161,21 @@ function evalD1(rng: Rng): PowItem {
         { text: 'Flip the fraction and make the exponent positive.', tex: `${powTex(base, `-${n}`)} = ${powTex(base.inv(), n)}`, why: `$\\frac{1}{${base.toTex()}} = ${base.inv().toTex()}$, so the reciprocal of a fraction is the fraction flipped.` },
         { text: 'Raise the numerator and denominator to the power.', tex: `${powTex(base.inv(), n)} = ${v.toTex()}` },
       ],
+      plan: {
+        pre: [
+          numStep(
+            `A negative exponent means take the reciprocal. What is the reciprocal of $${base.toTex()}$?`,
+            base.inv(),
+            ['The reciprocal of a number is 1 divided by that number.', 'For a fraction, the reciprocal swaps the numerator and the denominator.', `Put ${c} on top and ${a} on the bottom.`, 'A number times its reciprocal is 1. Check your answer that way.'],
+            `The reciprocal of $${base.toTex()}$ is $${base.inv().toTex()}$, because $${base.toTex()} \\cdot ${base.inv().toTex()} = 1$.`,
+            [
+              { value: base, tag: 'exponent-rule', feedback: 'That is the same fraction. Flip it: swap the top and the bottom.' },
+              { value: base.neg(), tag: 'exponent-rule', feedback: 'A reciprocal is not the opposite. Keep the sign and swap the top and the bottom.' },
+            ],
+          ),
+        ],
+        last: [`So $${powTex(base, `-${n}`)} = ${powTex(base.inv(), n)}$. Evaluate it.`, [`Raise the fraction you found to the power ${n}.`, 'Raise the numerator and the denominator to the power separately.', `$${powTex(base.inv(), n)} = \\frac{${c}^{${n}}}{${a}^{${n}}}$.`, 'Simplify the fraction if you can.'], `$${powTex(base.inv(), n)} = ${v.toTex()}$.`],
+      },
     };
   }
   // negbase: (-b)^n versus -b^n
@@ -139,6 +204,46 @@ function evalD1(rng: Rng): PowItem {
           { text: `The base is $${b}$, not $-${b}$.`, tex: `-${b}^{${n}} = -\\left(${Array(n).fill(b).join(' \\cdot ')}\\right)`, why: 'Exponents come before the negative sign in the order of operations.' },
           { text: 'Multiply, then apply the negative.', tex: `= ${v.toTex()}` },
         ],
+    plan: paren
+      ? {
+          pre: [
+            numStep(
+              `What is the base of $(-${b})^{${n}}$? Type the number that is used as a factor.`,
+              Q(-b),
+              ['The base is the number right under the exponent.', 'Parentheses group everything inside them into one base.', `Everything inside the parentheses is the base.`, 'Include the sign.'],
+              `The parentheses make $-${b}$ the base, so the negative sign is part of every factor.`,
+              [{ value: Q(b), tag: 'order-of-operations', feedback: 'The negative sign is inside the parentheses, so it is part of the base.' }],
+            ),
+          ],
+          last: [`Multiply ${n} factors of $-${b}$. What is $(-${b})^{${n}}$?`, [`Write it out: $${Array(n).fill(`(-${b})`).join('')}$.`, `Multiply the sizes first: ${n} factors of ${b}.`, 'Then decide the sign by counting the negative factors.', 'An even number of negative factors gives a positive product; an odd number gives a negative product.'], `$(-${b})^{${n}} = ${v.toTex()}$: ${n % 2 === 0 ? 'an even' : 'an odd'} number of negative factors.`],
+        }
+      : {
+          pre: [
+            numStep(
+              `There are no parentheses, so the base of $-${b}^{${n}}$ is just $${b}$. First find $${b}^{${n}}$.`,
+              Q(b).pow(n),
+              [`$${b}^{${n}}$ means ${n} factors of $${b}$.`, `Write them out: $${Array(n).fill(b).join(' \\cdot ')}$.`, 'Multiply from left to right.', 'Leave the negative sign for the next step.'],
+              `$${b}^{${n}} = ${Q(b).pow(n).toTex()}$.`,
+              [
+                { value: Q(b * n), tag: 'exponent-rule', feedback: `An exponent is repeated multiplication, not $${b} \\times ${n}$.` },
+                { value: Q(b).pow(n).neg(), tag: 'order-of-operations', feedback: `This step asks only for $${b}^{${n}}$. The negative sign comes next.` },
+              ],
+            ),
+          ],
+          last: [`Now apply the negative sign in front. What is $-${b}^{${n}}$?`, ['The negative sign is applied after the power.', `$-${b}^{${n}}$ means $-\\left(${b}^{${n}}\\right)$.`, 'Take the opposite of the value you just found.', 'Multiply your value from the first step by $-1$.'], `$-${b}^{${n}} = -${Q(b).pow(n).toTex()}$, because exponents come before the negative sign.`],
+        },
+  };
+}
+
+/** Steps for a D2 rule problem: find the new exponent with the rule, then evaluate the single power. */
+function d2Plan(b: number, e: number, v: Rational, ruleStep: ProblemStep): StepPlan {
+  return {
+    pre: [ruleStep],
+    last: [
+      `So the expression equals $${b}^{${e}}$. Evaluate $${b}^{${e}}$ as an integer or a fraction.`,
+      [e < 0 ? 'A negative exponent means one over the positive power.' : e === 0 ? 'Any nonzero number to the zero power has the same value.' : `Multiply ${e} factor${e === 1 ? '' : 's'} of ${b}.`, e < 0 ? `Rewrite $${b}^{${e}}$ as $\\frac{1}{${b}^{${-e}}}$.` : 'Use repeated multiplication.', e < 0 ? `Find $${b}^{${-e}}$ for the denominator.` : 'Multiply from left to right.', 'A negative exponent never makes the answer negative.'],
+      `$${b}^{${e}} = ${v.toTex()}$.`,
+    ],
   };
 }
 
@@ -167,6 +272,7 @@ function evalD2(rng: Rng): PowItem {
         { text: 'Power of a power: multiply the exponents.', tex: `${tex} = ${b}^{${m} \\cdot ${n < 0 ? `(${n})` : n}} = ${b}^{${e}}`, why: n > 0 ? `$\\left(${b}^{${m}}\\right)^{${n}}$ is ${n} copies of $${b}^{${m}}$ multiplied together, so the exponent ${m} is counted ${n} times.` : `A negative outside exponent means the reciprocal of ${Math.abs(n) === 1 ? `$${b}^{${m}}$` : `${Math.abs(n)} copies of $${b}^{${m}}$`}, which multiplies the exponent ${m} by ${n}.` },
         { text: 'Evaluate.', tex: `${b}^{${e}} = ${v.toTex()}` },
       ],
+      plan: d2Plan(b, e, v, numStep(`Power of a power: multiply the exponents. What is the new exponent, $${m} \\cdot ${n < 0 ? `(${n})` : n}$?`, Q(e), ['A power raised to a power uses the inside power several times.', 'Repeating an exponent several times is multiplication, so multiply the exponents.', 'Watch the signs: a negative times a positive is negative, and a negative times a negative is positive.', `Multiply ${m} by ${n}.`], `$${m} \\cdot ${n < 0 ? `(${n})` : n} = ${e}$, so the expression is $${b}^{${e}}$.`, [{ value: Q(m + n), tag: 'exponent-rule', feedback: 'For a power of a power, multiply the exponents. Adding is for multiplying powers with the same base.' }, { value: Q(-e), tag: 'sign-error', feedback: 'Check the sign of the product of the exponents.' }])),
     };
   }
   // product / quotient with at least one negative exponent
@@ -194,6 +300,7 @@ function evalD2(rng: Rng): PowItem {
         { text: 'Same base, multiplying: add the exponents.', tex: `${tex} = ${b}^{${m} + ${pn(n)}} = ${b}^{${e}}`, why: 'Each exponent counts factors of the base (a negative exponent counts factors in the denominator), so the counts add.' },
         { text: 'Evaluate.', tex: `${b}^{${e}} = ${v.toTex()}` },
       ],
+      plan: d2Plan(b, e, v, numStep(`Same base, multiplying: add the exponents. What is the new exponent, $${m} + ${pn(n)}$?`, Q(e), ['The product rule works only because the bases are the same.', 'Each exponent counts factors of the base, so the counts add.', 'A negative exponent counts factors in the denominator, so it takes away from the total.', 'Adding a negative number is the same as subtracting.'], `$${m} + ${pn(n)} = ${e}$, so the expression is $${b}^{${e}}$.`, [{ value: Q(m * n), tag: 'exponent-rule', feedback: 'When you multiply powers with the same base, add the exponents. Multiplying exponents is for a power of a power.' }, { value: Q(m - n), tag: 'sign-error', feedback: 'Add the two exponents, keeping each one\'s sign.' }])),
     };
   }
   const tex = `\\frac{${b}^{${m}}}{${b}^{${n}}}`;
@@ -210,6 +317,7 @@ function evalD2(rng: Rng): PowItem {
       { text: 'Same base, dividing: subtract the exponents.', tex: `${tex} = ${b}^{${m} - ${pn(n)}} = ${b}^{${e}}`, why: 'Factors of the base on the bottom cancel factors on the top, so the exponents subtract.' },
       { text: 'Evaluate.', tex: `${b}^{${e}} = ${v.toTex()}` },
     ],
+    plan: d2Plan(b, e, v, numStep(`Same base, dividing: subtract the exponents, top minus bottom. What is the new exponent, $${m} - ${pn(n)}$?`, Q(e), ['The quotient rule works only because the bases are the same.', 'Factors on the bottom cancel factors on the top, so the exponents subtract.', 'Subtract in the order top minus bottom.', 'Subtracting a negative number is the same as adding its opposite.'], `$${m} - ${pn(n)} = ${e}$, so the expression is $${b}^{${e}}$.`, [{ value: Q(m + n), tag: 'exponent-rule', feedback: 'When you divide powers with the same base, subtract the exponents; do not add them.' }, { value: Q(n - m), tag: 'exponent-rule', feedback: 'Subtract in the right order: the top exponent minus the bottom exponent.' }])),
   };
 }
 
@@ -286,6 +394,26 @@ function evalD3(rng: Rng): PowItem {
   return evalD2(rng);
 }
 
+/** Attach a step plan (if any): its steps, then the problem's own answer as the last step. */
+function planned(pr: Problem, plan: StepPlan | undefined): Problem {
+  return plan ? withSteps(pr, (q) => [...plan.pre, finalStep(q, ...plan.last)]) : pr;
+}
+
+/** verify(): each guided step of an evaluate-powers problem, recomputed from the printed expression. */
+function evalStepKeys(tex: string, value: Rational): Array<Rational | null> {
+  let m: RegExpExecArray | null;
+  if ((m = /^-(\d+)\^\{0\}$/.exec(tex))) return [Q(1), value];
+  if ((m = /^(.+)\^\{0\}$/.exec(tex))) return [texExact(m[1]), value];
+  if ((m = /^(\d+)\^\{-(\d+)\}$/.exec(tex))) return [Q(m[1]).pow(Number(m[2])), value];
+  if ((m = /^\\left\(\\frac\{(\d+)\}\{(\d+)\}\\right\)\^\{-\d+\}$/.exec(tex))) return [Q(Number(m[2]), Number(m[1])), value];
+  if ((m = /^\(-(\d+)\)\^\{\d+\}$/.exec(tex))) return [Q(m[1]).neg(), value];
+  if ((m = /^-(\d+)\^\{(\d+)\}$/.exec(tex))) return [Q(m[1]).pow(Number(m[2])), value];
+  if ((m = /^\d+\^\{(-?\d+)\} \\cdot \d+\^\{(-?\d+)\}$/.exec(tex))) return [Q(Number(m[1]) + Number(m[2])), value];
+  if ((m = /^\\frac\{\d+\^\{(-?\d+)\}\}\{\d+\^\{(-?\d+)\}\}$/.exec(tex))) return [Q(Number(m[1]) - Number(m[2])), value];
+  if ((m = /^\\left\(\d+\^\{(-?\d+)\}\\right\)\^\{(-?\d+)\}$/.exec(tex))) return [Q(Number(m[1]) * Number(m[2])), value];
+  return [null, value];
+}
+
 const gcd = (a: number, b: number): number => (b === 0 ? Math.abs(a) : gcd(b, a % b));
 
 export const genEvaluatePowers: GeneratorDef = {
@@ -294,23 +422,27 @@ export const genEvaluatePowers: GeneratorDef = {
   description: 'Evaluate numerical powers with zero and negative exponents and the product, quotient and power rules.',
   generate(rng, difficulty) {
     const it = difficulty === 1 ? evalD1(rng) : difficulty === 2 ? evalD2(rng) : evalD3(rng);
-    return makeProblem({
-      skillId: 'S5.01',
-      tags: difficulty === 3 ? ['multi-step'] : [],
-      prompt: [p('Evaluate. Write your answer as an integer or a fraction.'), { t: 'math', tex: it.tex }],
-      answer: { kind: 'number', value: fracStr(it.value) },
-      inputHint: 'Type an integer or a fraction, like -9 or 1/8.',
-      hints: it.hints,
-      solution: it.solution,
-      misconceptions: numberMisconceptions(it.value, it.mis),
-    });
+    return planned(
+      makeProblem({
+        skillId: 'S5.01',
+        tags: difficulty === 3 ? ['multi-step'] : [],
+        prompt: [p('Evaluate. Write your answer as an integer or a fraction.'), { t: 'math', tex: it.tex }],
+        answer: { kind: 'number', value: fracStr(it.value) },
+        inputHint: 'Type an integer or a fraction, like -9 or 1/8.',
+        hints: it.hints,
+        solution: it.solution,
+        misconceptions: numberMisconceptions(it.value, it.mis),
+      }),
+      it.plan,
+    );
   },
   verify(pr) {
     if (pr.answer.kind !== 'number') return ['unexpected kind'];
     const tex = mathBlocks(pr)[0];
     const v = texExact(tex);
     if (!v) return ['could not evaluate the printed expression'];
-    return v.eq(Q(pr.answer.value)) ? [] : [`expected ${v.toString()}`];
+    const errs = v.eq(Q(pr.answer.value)) ? [] : [`expected ${v.toString()}`];
+    return [...errs, ...stepErrors(pr, evalStepKeys(tex, v))];
   },
 };
 
@@ -324,7 +456,10 @@ interface SimpItem {
   wrong: Array<{ m: Mono; tag: MisconceptionTag; feedback: string }>;
   hints: Hints;
   solution: SolutionStep[];
+  plan?: StepPlan;
 }
+
+const SIMP_LAST_HINTS: Hints = ['Write the coefficient first, then each variable with its exponent.', 'Use the numbers you found in the earlier steps.', 'A variable with a negative exponent moves to the denominator with a positive exponent.', 'Type exponents with ^ and use / for a fraction bar.'];
 
 const nzInt = (rng: Rng, lo: number, hi: number) => rng.nonzeroInt(lo, hi);
 
@@ -352,6 +487,13 @@ function simpD1(rng: Rng, v: string, w: string): SimpItem {
         { text: 'Group the numbers and the powers.', tex: `(${c1} \\cdot ${c2})(${v}^{${m}} \\cdot ${v}^{${n}})`, why: 'Multiplication can be done in any order.' },
         { text: 'Multiply the numbers and add the exponents.', tex: `${monoTex(r, order)}`, why: `There are ${m} + ${n} = ${m + n} factors of $${v}$ in all.` },
       ],
+      plan: {
+        pre: [
+          numStep(`Group the numbers and the powers: $(${c1} \\cdot ${c2})(${v}^{${m}} \\cdot ${v}^{${n}})$. First multiply the coefficients. What is $${c1} \\cdot ${c2}$?`, Q(c1 * c2), ['The coefficients are the numbers in front of the variables.', 'Multiplication can be done in any order, so the two numbers can be multiplied together.', `Multiply ${c1} by ${c2}.`, 'Multiply the numbers; do not add them.'], `$${c1} \\cdot ${c2} = ${c1 * c2}$.`, [{ value: Q(c1 + c2), tag: 'arithmetic-error', feedback: 'Multiply the coefficients; do not add them.' }]),
+          numStep(`Now the variable. $${v}^{${m}} \\cdot ${v}^{${n}}$ has the same base. What is the exponent of $${v}$ in the product?`, Q(m + n), ['Same base, multiplying: use the product rule.', `$${v}^{${m}}$ has ${m} factors of $${v}$ and $${v}^{${n}}$ has ${n} more.`, 'Count all the factors of the base together.', 'Add the exponents.'], `$${m} + ${n} = ${m + n}$ factors of $${v}$ in all.`, [{ value: Q(m * n), tag: 'exponent-rule', feedback: 'When you multiply powers with the same base, add the exponents; do not multiply them.' }]),
+        ],
+        last: ['Put the coefficient and the power together. Write the simplified product.', SIMP_LAST_HINTS, `$${tex} = ${monoTex(r, order)}$.`],
+      },
     };
   }
   if (kind === 'quotient') {
@@ -376,6 +518,13 @@ function simpD1(rng: Rng, v: string, w: string): SimpItem {
         { text: 'Subtract the exponents.', tex: `\\frac{${v}^{${m}}}{${v}^{${n}}} = ${v}^{${m} - ${n}} = ${v}^{${m - n}}`, why: `Each factor of $${v}$ on the bottom cancels one on the top, leaving ${m - n}.` },
         { text: 'Put it together.', tex: monoTex(r, order) },
       ],
+      plan: {
+        pre: [
+          numStep(`Divide the coefficients first. What is $${c1} \\div ${c2}$?`, Q(q), ['The coefficients are the numbers in front of the variables.', 'A fraction bar means divide.', `Divide ${c1} by ${c2}.`, 'Divide the numbers; do not subtract them.'], `$${c1} \\div ${c2} = ${q}$.`, [{ value: Q(c1 - c2), tag: 'arithmetic-error', feedback: 'Divide the coefficients; do not subtract them.' }]),
+          numStep(`Now the variable. What is the exponent of $${v}$ in $\\frac{${v}^{${m}}}{${v}^{${n}}}$?`, Q(m - n), ['Same base, dividing: use the quotient rule.', `Each factor of $${v}$ on the bottom cancels one on the top.`, `${n} of the ${m} factors on top cancel.`, 'Subtract the exponents, top minus bottom.'], `$${m} - ${n} = ${m - n}$ factors of $${v}$ are left.`, [{ value: Q(m + n), tag: 'exponent-rule', feedback: 'When you divide powers with the same base, subtract the exponents; do not add them.' }, { value: m % n === 0 ? Q(m / n) : null, tag: 'exponent-rule', feedback: 'Subtract the exponents; do not divide them.' }, { value: Q(n - m), tag: 'exponent-rule', feedback: 'Subtract top minus bottom.' }]),
+        ],
+        last: ['Put the coefficient and the power together. Write the simplified quotient.', SIMP_LAST_HINTS, `$${monoRawTex(A, order)} \\div ${monoRawTex(B, order)} = ${monoTex(r, order)}$.`],
+      },
     };
   }
   if (kind === 'power') {
@@ -399,6 +548,13 @@ function simpD1(rng: Rng, v: string, w: string): SimpItem {
         { text: 'Apply the power to each factor.', tex: `${cTex}^{${n}} \\cdot (${v}^{${m}})^{${n}}`, why: `$(ab)^{n} = a^{n}b^{n}$ because each copy of the product contributes one $a$ and one $b$.` },
         { text: 'Evaluate the number and multiply the exponents.', tex: monoTex(r, order), why: `${n} copies of $${v}^{${m}}$ give ${m} \\cdot ${n} = ${m * n} factors of $${v}$.` },
       ],
+      plan: {
+        pre: [
+          numStep(`The power applies to every factor inside the parentheses, including the number. What is $${cTex}^{${n}}$?`, Q(c).pow(n), [`$${cTex}^{${n}}$ means ${n} factors of $${cTex}$.`, `Write them out: $${Array(n).fill(cTex).join(' \\cdot ')}$.`, 'Multiply from left to right.', c < 0 ? 'An even number of negative factors is positive; an odd number is negative.' : 'An exponent is repeated multiplication, not multiplying by the exponent.'], `$${cTex}^{${n}} = ${Q(c).pow(n).toTex()}$.`, [{ value: Q(c * n), tag: 'exponent-rule', feedback: `Raising $${cTex}$ to the power ${n} means multiplying ${n} copies of it, not $${cTex} \\times ${n}$.` }, { value: Q(c), tag: 'exponent-rule', feedback: 'The power applies to the number too.' }, { value: c < 0 ? Q(c).pow(n).neg() : null, tag: 'sign-error', feedback: 'Check the sign: count the negative factors.' }]),
+          numStep(`Power of a power: what is the exponent of $${v}$ in $(${v}^{${m}})^{${n}}$?`, Q(m * n), [`$(${v}^{${m}})^{${n}}$ means ${n} copies of $${v}^{${m}}$ multiplied together.`, `Each copy has ${m} factors of $${v}$.`, `${n} copies of ${m} factors is ${n} groups of ${m}.`, 'Multiply the exponents.'], `$${m} \\cdot ${n} = ${m * n}$.`, [{ value: Q(m + n), tag: 'exponent-rule', feedback: 'For a power of a power, multiply the exponents; do not add them.' }]),
+        ],
+        last: ['Put the number and the power together. Write the simplified expression.', SIMP_LAST_HINTS, `$\\left(${monoRawTex(A, order)}\\right)^{${n}} = ${monoTex(r, order)}$.`],
+      },
     };
   }
   // zero exponent
@@ -419,6 +575,12 @@ function simpD1(rng: Rng, v: string, w: string): SimpItem {
         { text: 'Any nonzero base to the zero power is 1.', tex: `${w}^{0} = 1`, why: `$\\frac{${w}^{k}}{${w}^{k}} = ${w}^{k-k} = ${w}^{0}$, and anything nonzero divided by itself is 1.` },
         { text: 'Multiply by 1.', tex: `${monoRawTex(A, order).replace(`${w}^{0}`, '')} \\cdot 1 = ${monoTex(r, order)}` },
       ],
+      plan: {
+        pre: [
+          numStep(`What is $${w}^{0}$? (Assume $${w} \\neq 0$.)`, Q(1), [`Think of $${w}^{0}$ as $\\frac{${w}^{k}}{${w}^{k}}$ for any exponent $k$.`, 'Same base, dividing: subtract the exponents, which gives exponent 0.', 'A nonzero quantity divided by itself always gives the same number.', 'This is true for every nonzero base.'], `$${w}^{0} = 1$, because $\\frac{${w}^{k}}{${w}^{k}} = 1$.`, [{ value: Q(0), tag: 'exponent-rule', feedback: ZERO_NOT_0 }]),
+        ],
+        last: [`So $${c}${v}^{${m}}${w}^{0}$ is $${c}${v}^{${m}} \\cdot 1$. Write the simplified expression.`, ['Multiplying by 1 changes nothing.', 'Drop the factor that equals 1.', `Keep the coefficient ${c} and the power of $${v}$.`, 'Do not replace the zero power with 0.'], `$${c}${v}^{${m}}${w}^{0} = ${monoTex(r, order)}$.`],
+      },
     };
   }
   const n = rng.int(1, 5);
@@ -435,6 +597,12 @@ function simpD1(rng: Rng, v: string, w: string): SimpItem {
       { text: 'The base is everything in the parentheses.', tex: `\\left(${monoRawTex(A, order)}\\right)^{0}`, why: 'The exponent 0 is outside the parentheses.' },
       { text: 'Any nonzero base to the zero power is 1.', tex: '= 1' },
     ],
+    plan: {
+      pre: [
+        choiceStep(`In $\\left(${monoRawTex(A, order)}\\right)^{0}$, what is the base of the zero power?`, [`Only the number $${c}$`, `Everything inside the parentheses, $${monoRawTex(A, order)}$`, `Only the variable $${w}$`], 1, ['The base is whatever the exponent sits on.', 'The exponent 0 is written outside the parentheses.', 'Parentheses group everything inside into one base.', 'An exponent outside parentheses applies to the whole group.'], 'The exponent is outside the parentheses, so the whole product is the base.', [{ index: 0, tag: 'exponent-rule', feedback: 'The exponent is outside the parentheses, so it applies to everything inside, not just the number.' }, { index: 2, tag: 'exponent-rule', feedback: 'The exponent is outside the parentheses, so it applies to everything inside.' }]),
+      ],
+      last: ['Any nonzero base to the zero power has the same value. Write the simplified expression.', ['Assume the variables are not zero, so the base is not zero.', 'Think of the base divided by itself.', 'A nonzero quantity divided by itself is always the same number.', 'The answer is a single number with no variables.'], `$\\left(${monoRawTex(A, order)}\\right)^{0} = 1$: a nonzero base to the zero power is 1.`],
+    },
   };
 }
 
@@ -468,6 +636,15 @@ function simpD2(rng: Rng, v: string, w: string): SimpItem {
           { text: 'Subtract exponents for each variable.', tex: order.map((x) => `${x}^{${A.exps[x]} - ${B.exps[x]}} = ${x}^{${r.exps[x]}}`).join(',\\quad '), why: 'Same base, dividing: subtract the exponents.' },
           { text: 'Write negative exponents as positive exponents in the denominator.', tex: monoTex(r, order), why: `$${v}^{-n} = \\frac{1}{${v}^{n}}$.` },
         ],
+        plan: {
+          pre: [
+            numStep(`Start with the numbers. Simplify the coefficient $\\frac{${c1}}{${c2}}$. Type an integer or a fraction in lowest terms.`, r.coef, ['The coefficients are the numbers in front of the variables.', 'A fraction bar means divide.', `Divide ${c1} and ${c2} by their greatest common factor.`, 'If they share no factor other than 1, the fraction is already in lowest terms.'], gcd(c1, c2) === 1 ? `$\\frac{${c1}}{${c2}}$ is already in lowest terms.` : `$\\frac{${c1}}{${c2}} = ${r.coef.toTex()}$.`, [{ value: Q(c1 - c2), tag: 'arithmetic-error', feedback: 'Divide the coefficients; do not subtract them.' }, { value: Q(c2, c1), tag: 'arithmetic-error', feedback: 'The top number is divided by the bottom number, not the other way around.' }]),
+            ...order.map((x) =>
+              numStep(`Now $${x}$: what is its exponent after dividing? Subtract top minus bottom. (A negative answer is fine here.)`, Q(r.exps[x]), ['Same base, dividing: use the quotient rule.', `Find the exponent of $${x}$ on top and on the bottom.`, `Top minus bottom: $${A.exps[x]} - ${B.exps[x]}$.`, 'If the bottom exponent is bigger, the result is negative.'], `$${A.exps[x]} - ${B.exps[x]} = ${r.exps[x]}$.`, [{ value: Q(-r.exps[x]), tag: 'exponent-rule', feedback: 'Subtract in the right order: the top exponent minus the bottom exponent.' }, { value: Q(A.exps[x] + B.exps[x]), tag: 'exponent-rule', feedback: 'When you divide powers with the same base, subtract the exponents.' }]),
+            ),
+          ],
+          last: ['Write the simplified expression with only positive exponents. A variable with a negative exponent moves to the denominator.', SIMP_LAST_HINTS, `$\\frac{${monoRawTex(A, order)}}{${monoRawTex(B, order)}} = ${monoTex(r, order)}$.`],
+        },
       };
     }
     const c1 = rng.pick([2, 3, 4, 5, -2, -3]);
@@ -493,6 +670,15 @@ function simpD2(rng: Rng, v: string, w: string): SimpItem {
         { text: 'Add exponents for each variable.', tex: order.map((x) => `${x}^{${A.exps[x]} + ${B.exps[x] < 0 ? `(${B.exps[x]})` : B.exps[x]}} = ${x}^{${r.exps[x]}}`).join(',\\quad '), why: 'Same base, multiplying: add the exponents.' },
         { text: 'Use positive exponents only.', tex: monoTex(r, order), why: 'A factor with a negative exponent moves to the denominator with a positive exponent.' },
       ],
+      plan: {
+        pre: [
+          numStep(`Multiply the coefficients. What is $${c1 < 0 ? `(${c1})` : c1} \\cdot ${c2}$?`, Q(c1 * c2), ['The coefficients are the numbers in front of the variables.', 'Multiplication can be done in any order, so multiply the two numbers.', `Multiply ${c1} by ${c2}.`, c1 < 0 ? 'A negative times a positive is negative.' : 'Multiply; do not add.'], `$${c1 < 0 ? `(${c1})` : c1} \\cdot ${c2} = ${c1 * c2}$.`, [{ value: Q(-c1 * c2), tag: 'sign-error', feedback: 'Check the sign of the product.' }, { value: Q(c1 + c2), tag: 'arithmetic-error', feedback: 'Multiply the coefficients; do not add them.' }]),
+          ...order.map((x) =>
+            numStep(`Now $${x}$: what is its exponent in the product? (A negative answer is fine here.)`, Q(r.exps[x]), ['Same base, multiplying: use the product rule.', `Find the exponent of $${x}$ in each factor.`, `Add them: $${A.exps[x]} + ${B.exps[x] < 0 ? `(${B.exps[x]})` : B.exps[x]}$.`, 'Adding a negative number is the same as subtracting.'], `$${A.exps[x]} + ${B.exps[x] < 0 ? `(${B.exps[x]})` : B.exps[x]} = ${r.exps[x]}$.`, [{ value: Q(A.exps[x] * B.exps[x]), tag: 'exponent-rule', feedback: 'When you multiply powers with the same base, add the exponents; do not multiply them.' }, { value: Q(A.exps[x] - B.exps[x]), tag: 'sign-error', feedback: 'Add the two exponents, keeping each one\'s sign.' }]),
+          ),
+        ],
+        last: ['Write the simplified expression with only positive exponents. A variable with a negative exponent moves to the denominator.', SIMP_LAST_HINTS, `$${monoRawTex(A, order)} \\cdot ${monoRawTex(B, order)} = ${monoTex(r, order)}$.`],
+      },
     };
   }
   return simpD1(rng, v, w);
@@ -597,16 +783,19 @@ export const genSimplifyExponents: GeneratorDef = {
       if (expressionsEquivalent(n, keyNode) || mis.some((m) => expressionsEquivalent(parseExpression(m.answer), n))) continue;
       mis.push({ answer: s, tag: x.tag, feedback: x.feedback });
     }
-    return makeProblem({
-      skillId: 'S5.01',
-      tags: difficulty === 3 ? ['multi-step'] : [],
-      prompt: [p(`Simplify. Use only positive exponents. Assume no variable equals $0$.`), { t: 'math', tex: it.tex }],
-      answer: { kind: 'expression', value: key, form: 'exponent-simplified', variables: order },
-      inputHint: `Type exponents with ^ and fractions with /, like 3${v}^4/${w}^2 or 2${v}^5/(9${w}^3).`,
-      hints: it.hints,
-      solution: it.solution,
-      misconceptions: mis,
-    });
+    return planned(
+      makeProblem({
+        skillId: 'S5.01',
+        tags: difficulty === 3 ? ['multi-step'] : [],
+        prompt: [p(`Simplify. Use only positive exponents. Assume no variable equals $0$.`), { t: 'math', tex: it.tex }],
+        answer: { kind: 'expression', value: key, form: 'exponent-simplified', variables: order },
+        inputHint: `Type exponents with ^ and fractions with /, like 3${v}^4/${w}^2 or 2${v}^5/(9${w}^3).`,
+        hints: it.hints,
+        solution: it.solution,
+        misconceptions: mis,
+      }),
+      it.plan,
+    );
   },
   verify(pr) {
     if (pr.answer.kind !== 'expression') return ['unexpected kind'];
@@ -616,6 +805,21 @@ export const genSimplifyExponents: GeneratorDef = {
     if (!expressionsEquivalent(given, key)) errs.push('key is not equivalent to the printed expression');
     const s = isExponentSimplified(key);
     if (!s.ok) errs.push(`key is not simplified: ${s.reason}`);
+    // steps: the coefficient and each exponent, read off the printed expression by evaluating it
+    // (coefficient = value at all variables 1; exponent of v = log2 of the value at v = 2, others 1)
+    const vars = pr.answer.variables ?? [];
+    const at = (vals: Record<string, number>) => evalNumeric(given, vals);
+    const one = Object.fromEntries(vars.map((x) => [x, 1]));
+    const coef = at(one);
+    const expOf = (x: string) => Math.round(Math.log2(Math.abs(at({ ...one, [x]: 2 }) / coef)));
+    const steps = pr.steps ?? [];
+    // two steps: the zero power (a choice of base, or w^0 = 1); more: coefficient, then each exponent
+    const want: Array<Rational | null> = steps.length === 2 ? [steps[0].answer.kind === 'choice' ? null : Q(1)] : [null, ...vars.map((x) => Q(expOf(x)))].slice(0, steps.length - 1);
+    errs.push(...stepErrors(pr, want));
+    if (steps.length >= 3) {
+      const c = steps[0].answer;
+      if (c.kind !== 'number' || Math.abs(Q(c.value).toNumber() - coef) > 1e-9 * Math.max(1, Math.abs(coef))) errs.push('coefficient step wrong');
+    }
     return errs;
   },
 };
@@ -748,6 +952,33 @@ export const genSolveExponential: GeneratorDef = {
         { text: 'Same base, so set the exponents equal.', tex: `${linExp(pc, q)} = ${n}`, why: `Different exponents would give different powers of ${g}, so equal powers need equal exponents.` },
         ...(pc === 1 && q === 0 ? [] : [{ text: 'Solve.', tex: `x = ${x}` }]),
         { text: 'Check by substituting.', tex: `${g}^{${linExp(pc, q).replace('x', `(${x})`)}} = ${g}^{${n}} = ${value.toTex()}`, why: 'The solution makes both sides equal.' },
+      ];
+      const ex = linExp(pc, q);
+      steps = [
+        numStep(
+          `Write $${value.toTex()}$ as a power of $${g}$. What is the exponent?`,
+          Q(n),
+          [`Multiply $${g}$ by itself until you reach $${value.toTex()}$.`, `Count how many factors of $${g}$ you used.`, `Start with $${g} \\cdot ${g} = ${g * g}$ and keep going.`, 'The exponent is the number of factors.'],
+          `$${value.toTex()} = ${g}^{${n}}$ (${n} factors of ${g}).`,
+          [{ value: value.div(g), tag: 'exponent-rule', feedback: `Dividing $${value.toTex()}$ by $${g}$ does not give the exponent. Count the factors of $${g}$.` }, { value: n > 2 ? Q(n - 1) : null, tag: 'arithmetic-error', feedback: 'Count the factors again: multiply them out to check.' }],
+        ),
+        ...(pc !== 1 && q !== 0
+          ? [
+              numStep(
+                `Same base, so the exponents are equal: $${ex} = ${n}$. Undo the ${q > 0 ? 'addition' : 'subtraction'} first. What does $${pc}x$ equal?`,
+                Q(n - q),
+                ['Get the $x$-term alone on one side.', q > 0 ? `Subtract ${q} from both sides.` : `Add ${-q} to both sides.`, `Work out $${n} ${q > 0 ? '-' : '+'} ${Math.abs(q)}$.`, 'Do the same thing to both sides to keep them equal.'],
+                `$${pc}x = ${n} ${q > 0 ? '-' : '+'} ${Math.abs(q)} = ${n - q}$.`,
+                [{ value: Q(n + q), tag: 'inverse-operation', feedback: q > 0 ? `Undo adding ${q} by subtracting ${q}.` : `Undo subtracting ${-q} by adding ${-q}.` }],
+              ),
+            ]
+          : []),
+        finalStep(
+          { answer: { kind: 'number', value: numStr(x0) }, misconceptions: numberMisconceptions(x0, mis), inputHint: 'Type an integer or a fraction, like 5 or 3/2.' },
+          pc !== 1 && q !== 0 ? `Now solve $${pc}x = ${n - q}$. What is $x$?` : pc === 1 && q === 0 ? `Same base, so the exponents are equal. What is $x$?` : `Same base, so the exponents are equal: $${ex} = ${n}$. Solve for $x$.`,
+          ['When two powers of the same base are equal, their exponents are equal.', pc !== 1 ? `Divide both sides by ${pc}.` : q !== 0 ? (q > 0 ? `Subtract ${q} from both sides.` : `Add ${-q} to both sides.`) : 'The exponent on the left is just $x$.', 'Check by substituting your answer into the exponent.', `The exponent must work out to ${n}.`],
+          `$x = ${x0.toTex()}$. Check: $${g}^{${ex.replace('x', `(${x})`)}} = ${g}^{${n}} = ${value.toTex()}$.`,
+        ),
       ];
     } else if (difficulty === 2) {
       const g = rng.pick([2, 2, 3, 5]);
@@ -906,6 +1137,17 @@ export const genSolveExponential: GeneratorDef = {
     const rel = (t: number) => Math.abs(f(t)) / Math.max(Math.abs(evalNumeric(L, { x: t })), Math.abs(evalNumeric(R, { x: t })), 1e-300);
     for (const d of [0.25, 1, 3]) if (rel(x + d) < 1e-9 || rel(x - d) < 1e-9) errs.push('another solution nearby');
     if (Math.sign(f(x + 0.25)) === Math.sign(f(x - 0.25))) errs.push('not a crossing');
+    // steps of g^(px + q) = value: the exponent n with g^n = value (repeated multiplication), then n - q
+    const d1 = /^(\d+)\^\{(\d*)x(?: ([+-]) (\d+))?\} = (\d+)$/.exec(mathBlocks(pr)[0]);
+    const want: Array<Rational | null> = [];
+    const s1 = pr.steps?.[0]?.prompt[0];
+    if (d1 && s1?.t === 'p' && s1.text.includes(`as a power of $${d1[1]}$`)) {
+      let n = 0;
+      for (let pw = Q(1); !pw.eq(Q(d1[5])) && n < 40; n++) pw = pw.mul(Number(d1[1]));
+      const q = d1[3] ? Number(d1[4]) * (d1[3] === '-' ? -1 : 1) : 0;
+      want.push(Q(n), Q(n - q));
+    }
+    errs.push(...stepErrors(pr, want));
     return errs;
   },
 };

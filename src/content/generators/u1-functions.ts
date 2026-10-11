@@ -8,6 +8,7 @@ import { linearTex, linearPlain, linearTexDec, decTex } from '../../core/math/fo
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, math, makeProblem, numberMisconceptions, numStr, sub, money, pickDistinct, FUNC_NAMES } from './util';
+import { numStep, choiceStep, finalStep, stepErrors } from './u1-steps';
 
 // ---------------------------------------------------------------------------
 // S1.01: Is this relation a function?
@@ -58,6 +59,98 @@ function pairsTex(pairs: Array<[number, number]>): string {
   return `\\{${pairs.map(([x, y]) => `(${x}, ${y})`).join(',\\ ')}\\}`;
 }
 
+/** Two pairs with different inputs and the same output (the "allowed" case), if any. */
+function sharedPair(pairs: Array<[number, number]>, badInput?: number): [[number, number], [number, number]] | null {
+  for (let i = 0; i < pairs.length; i++)
+    for (let j = i + 1; j < pairs.length; j++) {
+      const [a, b] = [pairs[i], pairs[j]];
+      if (a[0] !== b[0] && a[1] === b[1] && a[0] !== badInput && b[0] !== badInput) return a[0] < b[0] ? [a, b] : [b, a];
+    }
+  return null;
+}
+
+const SHARED_OK = 'No. Two inputs may share an output.';
+const SHARED_BAD = 'Yes. Each output may belong to only one input.';
+const NO_REPEAT = 'No input has two different outputs.';
+const REPEAT = 'Some input has two different outputs.';
+
+/** Guided steps for "is this relation a function?": the allowed case first, then the rule itself. */
+function isFunctionSteps(rel: RelationData): Problem['steps'] {
+  const shared = sharedPair(rel.pairs, rel.badInput);
+  const finalAnswer = { kind: 'choice' as const, options: [{ id: 'yes', label: 'Yes, it is a function' }, { id: 'no', label: 'No, it is not a function' }], correct: rel.isFunction ? 'yes' : 'no' };
+  const steps: NonNullable<Problem['steps']> = [];
+  if (shared) {
+    const [[x1, y], [x2]] = shared;
+    steps.push(
+      choiceStep(
+        `The inputs $${x1}$ and $${x2}$ both have the output $${y}$. Does that stop the relation from being a function?`,
+        [SHARED_BAD, SHARED_OK],
+        1,
+        [
+          'Say the rule of a function in your own words: each input gets exactly one output.',
+          'The rule is about inputs. Ask whether one input is being sent to two places.',
+          `Here two different inputs go to the same place. Is either input, $${x1}$ or $${x2}$, sent to two outputs?`,
+          'Think of people and birthdays: two people can share a birthday, but one person cannot have two birthdays.',
+        ],
+        'A function only forbids one input having two outputs, so two inputs sharing an output is allowed.',
+        [{ index: 0, tag: 'other', feedback: 'The rule is about inputs, not outputs. Two different inputs may share the same output.' }],
+      ),
+    );
+  }
+  if (rel.isFunction) {
+    steps.push(
+      choiceStep(
+        'Now look only at the inputs ($x$-values). Is any input listed twice with two different outputs?',
+        [REPEAT, NO_REPEAT],
+        1,
+        [
+          'Read the list of $x$-values from the first pair to the last.',
+          'Look for an $x$-value that shows up in two pairs.',
+          `The inputs are ${rel.pairs.map(([x]) => x).join(', ')}. Are any two of them the same number?`,
+          'If no $x$-value repeats, no input can have two outputs.',
+        ],
+        'Every input appears only once, so no input has two different outputs.',
+        [{ index: 0, tag: 'other', feedback: 'Check again: a repeated output does not count. Look for the same $x$-value in two pairs.' }],
+      ),
+    );
+  } else {
+    const outs = rel.pairs.filter(([x]) => x === rel.badInput).map(([, y]) => y);
+    steps.push(
+      numStep(
+        'Now look only at the inputs ($x$-values). Which input is listed twice with two different outputs?',
+        Q(rel.badInput!),
+        [
+          'Read the list of $x$-values from the first pair to the last.',
+          'Look for an $x$-value that shows up in two pairs.',
+          `The inputs are ${rel.pairs.map(([x]) => x).join(', ')}. Which number appears twice?`,
+          'When you find it, check that its two outputs are different numbers.',
+        ],
+        `That input is paired with both $${outs[0]}$ and $${outs[1]}$, so it has two different outputs.`,
+        [
+          ...rel.sharedOutputInputs.map((x) => ({ value: Q(x), tag: 'other' as const, feedback: 'That input shares an output with another input, which is allowed. Look for one input with two outputs.' })),
+          ...outs.map((y) => ({ value: Q(y), tag: 'graph-reading' as const, feedback: 'That is an output ($y$-value). The question asks for the input ($x$-value).' })),
+        ],
+        'Type the x-value.',
+      ),
+    );
+  }
+  steps.push(
+    finalStep(
+      'So, is the relation a function?',
+      finalAnswer,
+      [
+        'Use what you found in the last step.',
+        'A relation is a function when no input has two different outputs.',
+        'Shared outputs do not matter. Only a repeated input with different outputs breaks the rule.',
+        rel.isFunction ? 'You found that no input has two outputs.' : 'You found an input with two outputs.',
+      ],
+      rel.isFunction ? 'No input has two different outputs, so the relation is a function.' : 'One input has two different outputs, so the relation is not a function.',
+      [{ answer: rel.isFunction ? 'no' : 'yes', tag: 'other', feedback: rel.isFunction ? 'A shared output is allowed. Only one input with two outputs would break the rule.' : 'Look at the input you found: it has two different outputs, which a function never allows.' }],
+    ),
+  );
+  return steps;
+}
+
 export const genIsFunction: GeneratorDef = {
   id: 'u1.is-function',
   skillId: 'S1.01',
@@ -92,6 +185,7 @@ export const genIsFunction: GeneratorDef = {
               { text: 'So the relation is not a function.' },
             ],
         misconceptions: [],
+        steps: isFunctionSteps(rel),
       });
     }
     // difficulty 2/3: identify the input with two outputs
@@ -142,6 +236,18 @@ export const genIsFunction: GeneratorDef = {
     const isF = relationIsFunction(rows);
     if (pr.answer.kind === 'choice') {
       if ((pr.answer.correct === 'yes') !== isF) errs.push('function answer disagrees with independent check');
+      if (pr.steps) {
+        // independent route: count how many outputs each input has
+        const outsOf = new Map<number, Set<number>>();
+        for (const [x, y] of rows) outsOf.set(x, (outsOf.get(x) ?? new Set()).add(y));
+        const multi = [...outsOf].filter(([, ys]) => ys.size > 1).map(([x]) => x);
+        const sharesOutput = rows.some(([x, y]) => rows.some(([x2, y2]) => x2 !== x && y2 === y && !multi.includes(x) && !multi.includes(x2)));
+        const expected: Array<Rational | string | null> = [];
+        if (sharesOutput) expected.push(SHARED_OK);
+        expected.push(multi.length === 0 ? NO_REPEAT : multi.length === 1 ? Q(multi[0]) : null);
+        expected.push(isF ? 'Yes, it is a function' : 'No, it is not a function');
+        errs.push(...stepErrors(pr, expected));
+      }
     } else if (pr.answer.kind === 'number') {
       const x = Number(pr.answer.value);
       const outs = new Set(rows.filter(([a]) => a === x).map(([, b]) => b));
@@ -409,6 +515,32 @@ export const genNotationTable: GeneratorDef = {
           { text: `Read the output in that row: $${f}(${a}) = ${ys[i]}$.` },
         ],
         misconceptions: numberMisconceptions(val, [{ value: swapped, tag: 'graph-reading', feedback: `You found the input whose output is ${a}. In $${f}(${a})$, ${a} is the input.` }]),
+        steps: [
+          numStep(
+            `In $${f}(${a})$, which number is the input ($x$-value)?`,
+            Q(a),
+            [
+              'Function notation $f(x)$ is read "f of x". The letter $f$ names the function.',
+              'The number inside the parentheses is the input.',
+              `Look inside the parentheses of $${f}(${a})$.`,
+              'The input is the number you would find in the $x$ column.',
+            ],
+            `The number in the parentheses is the input, so $x = ${a}$.`,
+            [{ value: val, tag: 'graph-reading', feedback: `That is the output. In $${f}(${a})$, the input is the number inside the parentheses.` }],
+          ),
+          numStep(
+            `Find the row where $x = ${a}$. What is $${f}(${a})$?`,
+            val,
+            [
+              `$${f}(${a})$ is the output that goes with the input $${a}$.`,
+              `Run your finger down the $x$ column until you reach $${a}$.`,
+              `Stay in that row and move across to the $${f}(x)$ column.`,
+              'The number in that cell is the output.',
+            ],
+            `Each row pairs an input with its output, so the output in the row $x = ${a}$ is $${f}(${a})$.`,
+            [{ value: swapped, tag: 'graph-reading', feedback: `You found the input whose output is ${a}. Start in the $x$ column at ${a}.` }],
+          ),
+        ],
       });
     }
     // difficulty 2/3: combination
@@ -437,6 +569,34 @@ export const genNotationTable: GeneratorDef = {
         { value: Q(k).mul(xs[i]).add(op === '+' ? Q(xs[j]) : Q(xs[j]).neg()), tag: 'graph-reading', feedback: 'It looks like you used the inputs. Replace each function value with its output from the table.' },
         { value: op === '-' ? Q(k).mul(ys[i]).add(ys[j]) : null, tag: 'sign-error', feedback: 'Check the operation between the two function values.' },
       ]),
+      steps: [
+        numStep(
+          `Look up the first value. What is $${f}(${xs[i]})$?`,
+          Q(ys[i]),
+          ['A function value is an output.', `Find the row where $x = ${xs[i]}$.`, `Move across that row to the $${f}(x)$ column.`, 'Read the number in that cell.'],
+          `The row with $x = ${xs[i]}$ has the output $${ys[i]}$.`,
+          [{ value: Q(xs[i]), tag: 'graph-reading', feedback: 'That is the input. Read the output in the same row.' }],
+        ),
+        numStep(
+          `Look up the second value. What is $${f}(${xs[j]})$?`,
+          Q(ys[j]),
+          ['A function value is an output.', `Find the row where $x = ${xs[j]}$.`, `Move across that row to the $${f}(x)$ column.`, 'Read the number in that cell.'],
+          `The row with $x = ${xs[j]}$ has the output $${ys[j]}$.`,
+          [{ value: Q(xs[j]), tag: 'graph-reading', feedback: 'That is the input. Read the output in the same row.' }],
+        ),
+        numStep(
+          `Replace each function value by its number and simplify: $${kTex}${k === 1 ? '' : '\\cdot'}${sub(Q(ys[i]))} ${op} ${sub(Q(ys[j]))}$.`,
+          value,
+          [
+            'Function values are just numbers, so use ordinary arithmetic.',
+            k === 1 ? 'There is only one operation to do.' : 'Multiply first, then add or subtract.',
+            op === '-' ? 'Subtracting a negative number is the same as adding its opposite.' : 'Adding a negative number is the same as subtracting.',
+            'Use a number line if the signs are tricky.',
+          ],
+          'Once each function value is replaced by a number, the expression is ordinary arithmetic.',
+          [{ value: op === '-' ? Q(k).mul(ys[i]).add(ys[j]) : null, tag: 'sign-error', feedback: 'Check the operation between the two numbers.' }],
+        ),
+      ],
     });
   },
   verify(pr) {
@@ -453,7 +613,10 @@ export const genNotationTable: GeneratorDef = {
     });
     const val = toPoly(parseExpression(e)).constantValue();
     if (pr.answer.kind !== 'number' || !Rational.parse(pr.answer.value).eq(val)) return [`answer mismatch: ${val}`];
-    return [];
+    // steps: each lookup re-read from the table, the last step is the whole expression
+    const inputs = [...(expr[1] ?? expr[2]).matchAll(/[fgh]\((-?\d+)\)/g)].map((mm) => Number(mm[1]));
+    const looked = inputs.map((x) => Q(map.get(x)!));
+    return stepErrors(pr, inputs.length === 1 ? [Q(inputs[0]), looked[0]] : [...looked, val]);
   },
 };
 

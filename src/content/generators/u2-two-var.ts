@@ -3,13 +3,13 @@
  * S2.02 write inequalities from words and situations.
  * S2.03 graph linear inequalities (boundary and shading) and read them from graphs.
  */
-import type { GeneratorDef, Rng, Difficulty, Block, GraphSpec } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, Difficulty, Block, GraphSpec, ProblemStep } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
 import { linearTex, linearPlain } from '../../core/math/format';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
-import { Q, p, makeProblem, numStr, money, makeChoice, choiceLabel, stringMisconceptions } from './util';
-import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds } from './u2-common';
+import { Q, p, makeProblem, numStr, money, makeChoice, choiceLabel, stringMisconceptions, numberMisconceptions } from './util';
+import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds, stepChoice, lastStepErrors, stepLabel } from './u2-common';
 
 // ---------------------------------------------------------------------------
 // Phrases
@@ -70,6 +70,65 @@ function oneVarPhrase(rng: Rng, countable: boolean): string {
   return rng.pick(list);
 }
 
+const LOWER = 'A lower limit: the amount is the smallest allowed (or values must go above it).';
+const UPPER = 'An upper limit: the amount is the largest allowed (or values must stay below it).';
+const INCLUDED = (v: string, n: number) => `Yes, $${v} = ${n}$ is allowed, so the symbol includes "or equal to".`;
+const EXCLUDED = (v: string, n: number) => `No, $${v} = ${n}$ is not allowed, so the symbol is strict ($<$ or $>$).`;
+
+/** Guided steps for a one-variable phrase (difficulty 1): which kind of limit, whether the amount counts, then the symbol. */
+function phraseSteps(ph: string, v: string, n: number, answer: ReturnType<typeof makeChoice>): ProblemStep[] {
+  const op = PHRASE_OP[ph];
+  const limit = stepChoice(isGreater(op) ? LOWER : UPPER, [isGreater(op) ? UPPER : LOWER], n);
+  const counts = stepChoice(isStrict(op) ? EXCLUDED(v, n) : INCLUDED(v, n), [isStrict(op) ? INCLUDED(v, n) : EXCLUDED(v, n)], n + 1);
+  return [
+    {
+      prompt: [p(`Does "**${ph}**" $${n}$ set a lower limit or an upper limit?`)],
+      answer: limit,
+      hints: [
+        'A lower limit is a floor: values must be at or above it. An upper limit is a ceiling: values must be at or below it.',
+        '"At least", "no less than", "a minimum of" and "more than" all push values **up** from the amount.',
+        '"At most", "no more than", "a maximum of", "less than" and "fewer than" keep values **down** at or under the amount.',
+        `Ask: would $${n + 5}$ fit the rule, or $${n - 5}$?`,
+      ],
+      misconceptions: [{ answer: limit.options.find((o) => o.id !== limit.correct)!.id, tag: 'inequality-direction', feedback: PHRASE_HELP[op] }],
+      explanation: `"${ph}" sets ${isGreater(op) ? 'a lower' : 'an upper'} limit, so the solutions are ${isGreater(op) ? 'greater' : 'less'} than (or equal to) $${n}$.`,
+    },
+    {
+      prompt: [p(`Is $${v} = ${n}$ itself allowed by "**${ph}** $${n}$"?`)],
+      answer: counts,
+      hints: [
+        'Some phrases count the amount itself and some leave it out.',
+        '"At least" and "at most" include the amount: exactly that much is fine.',
+        'Phrases with "than" alone, like "more than" or "fewer than", leave the amount out.',
+        `Could $${v}$ be exactly $${n}$ and still follow the rule?`,
+      ],
+      misconceptions: [{ answer: counts.options.find((o) => o.id !== counts.correct)!.id, tag: 'inequality-direction', feedback: PHRASE_HELP[op] }],
+      explanation: isStrict(op) ? `"${ph}" leaves $${n}$ out, so use a strict symbol.` : `"${ph}" includes $${n}$ itself, so use a symbol with "or equal to".`,
+    },
+    {
+      prompt: [p('Now choose the inequality that says the same thing.')],
+      answer,
+      hints: [
+        `Put the direction (${isGreater(op) ? 'greater' : 'less'}) and the "or equal to" decision together.`,
+        '$\\ge$ and $\\le$ include the amount; $>$ and $<$ do not.',
+        `The variable is $${v}$ and the amount is $${n}$.`,
+        'Read your choice aloud: does it say the same thing as the sentence?',
+      ],
+      misconceptions: answer.options
+        .filter((o) => o.id !== answer.correct)
+        .map((o) => {
+          const chosen = (['<=', '>=', '<', '>'] as Op[]).find((q) => o.label.includes(` ${OP_TEX[q]} `)) ?? op;
+          return {
+            answer: o.id,
+            tag: 'inequality-direction' as const,
+            feedback: isGreater(chosen) !== isGreater(op) ? `"${ph}" sets ${isGreater(op) ? 'a lower' : 'an upper'} limit, so $${v}$ must be ${isGreater(op) ? 'greater' : 'less'} than $${n}$${isStrict(op) ? '' : ' or equal to it'}. Check the direction of the symbol.` : `The direction is right. Now check the amount itself: "${ph}" ${isStrict(op) ? 'leaves it out' : 'includes it'}.`,
+          };
+        }),
+      explanation: `"${ph}" $${n}$ means $${v} ${OP_TEX[op]} ${n}$.`,
+    },
+  ];
+}
+
 interface FeeTemplate {
   v: string;
   dir: 'up' | 'down';
@@ -97,11 +156,13 @@ export const genIneqPhrases: GeneratorDef = {
       const op = PHRASE_OP[ph];
       const lab = (o: Op) => `$${tpl.v} ${OP_TEX[o]} ${n}$`;
       const others = (['<', '>', '<=', '>='] as Op[]).filter((o) => o !== op);
+      const answer = makeChoice(rng, lab(op), others.map(lab));
       return makeProblem({
         skillId: 'S2.02',
         tags: ['word'],
         prompt: [p(tpl.text(`**${ph}**`, n)), p('Which inequality says the same thing?')],
-        answer: makeChoice(rng, lab(op), others.map(lab)),
+        answer,
+        steps: phraseSteps(ph, tpl.v, n, answer),
         hints: [
           'Decide two things: is the amount a lower limit or an upper limit, and does the amount itself count?',
           '"At least", "no less than" and "a minimum of" set a lower limit. "At most", "no more than" and "a maximum of" set an upper limit.',
@@ -190,6 +251,12 @@ export const genIneqPhrases: GeneratorDef = {
       const lab = choiceLabel(pr.answer);
       const want = OP_TEX[op];
       if (!lab.includes(` ${want} `)) errs.push(`choice ${lab} does not use ${want}`);
+      if (pr.steps) {
+        // the phrase decides both step answers on its own
+        if ((stepLabel(pr.steps[0]) === LOWER) !== isGreater(op)) errs.push('limit step disagrees with the phrase');
+        if (stepLabel(pr.steps[1]).startsWith('Yes') === isStrict(op)) errs.push('"or equal to" step disagrees with the phrase');
+        errs.push(...lastStepErrors(pr));
+      }
       return errs;
     }
     if (pr.answer.kind !== 'inequality') return ['unexpected kind'];
@@ -345,6 +412,71 @@ function pickSlope(rng: Rng, d: Difficulty): Rational {
   return Q(num, den);
 }
 
+const DASHED_LAB = 'Dashed, because points on the line are **not** solutions.';
+const SOLID_LAB = 'Solid, because points on the line **are** solutions.';
+const truthLab = (pt: string, ok: boolean) => (ok ? `True, so ${pt} is a solution.` : `False, so ${pt} is not a solution.`);
+
+/** The test point for y op mx + b: the origin unless the line passes through it. */
+function testPoint(b: Rational): { x: number; y: number } {
+  return b.isZero() ? { x: 0, y: 1 } : { x: 0, y: 0 };
+}
+
+/** Guided steps for y op mx + b (difficulty 1): line type, a test point, then the full description. */
+function featureSteps(m: Rational, b: Rational, op: Op, answer: ReturnType<typeof makeChoice>, correct: string): ProblemStep[] {
+  const strict = isStrict(op);
+  const line = stepChoice(strict ? DASHED_LAB : SOLID_LAB, [strict ? SOLID_LAB : DASHED_LAB], m.toNumber() + b.toNumber());
+  const tp = testPoint(b);
+  const ptT = `$(${tp.x}, ${tp.y})$`;
+  const rhs = m.mul(Q(tp.x)).add(b);
+  const ok = holds(`y ${op} ${linearPlain(m, b)}`, tp.x, tp.y);
+  const truth = stepChoice(truthLab(ptT, ok), [truthLab(ptT, !ok)], b.toNumber() + 3);
+  const below = Q(tp.y).lt(rhs);
+  return [
+    {
+      prompt: [p(`The symbol in $y ${OP_TEX[op]} ${linearTex(m, b)}$ is $${OP_TEX[op]}$. Should the boundary line be solid or dashed?`)],
+      answer: line,
+      hints: [
+        'Points on the boundary line make the two sides **equal**.',
+        'Ask whether the symbol allows "equal to".',
+        '$\\le$ and $\\ge$ allow equal; $<$ and $>$ do not.',
+        'A line whose points count is drawn solid. A line whose points do not count is drawn dashed.',
+      ],
+      misconceptions: [{ answer: line.options.find((o) => o.id !== line.correct)!.id, tag: 'graph-reading', feedback: strict ? `$${OP_TEX[op]}$ has no "or equal to", so points on the line do not count: dashed.` : `$${OP_TEX[op]}$ includes "or equal to", so points on the line count: solid.` }],
+      explanation: strict ? 'Strict symbols leave the line out, so it is dashed.' : '"Or equal to" includes the line, so it is solid.',
+    },
+    {
+      prompt: [p(`Test the point ${ptT}, which is not on the line. Substitute it into $y ${OP_TEX[op]} ${linearTex(m, b)}$. Is the result true or false?`)],
+      answer: truth,
+      hints: [
+        `Put $x = ${tp.x}$ and $y = ${tp.y}$ into the inequality.`,
+        `The right side becomes $${linearTex(m, b).replace(/x/g, `(${tp.x})`)}$.`,
+        `Work out the right side, then compare it with $${tp.y}$ using $${OP_TEX[op]}$.`,
+        `Is $${tp.y} ${OP_TEX[op]} ${rhs.toTex()}$ a true statement?`,
+      ],
+      misconceptions: [{ answer: truth.options.find((o) => o.id !== truth.correct)!.id, tag: 'other', feedback: `The right side is $${rhs.toTex()}$. Compare $${tp.y}$ with it carefully, using the symbol $${OP_TEX[op]}$.` }],
+      explanation: `$${tp.y} ${OP_TEX[op]} ${rhs.toTex()}$ is ${ok ? 'true' : 'false'}, so ${ptT} is ${ok ? '' : 'not '}a solution.`,
+    },
+    {
+      prompt: [p(`${ptT} is ${below ? 'below' : 'above'} the line, and it ${ok ? 'is' : 'is not'} a solution. Now choose how to graph the inequality.`)],
+      answer,
+      hints: [
+        ok ? 'The test point is a solution, so shade the side it is on.' : 'The test point is not a solution, so shade the other side.',
+        'Use the line type you chose in the first step.',
+        `${ptT} is ${below ? 'below' : 'above'} the line.`,
+        'Check: $y >$ or $y \\ge$ shades above, and $y <$ or $y \\le$ shades below.',
+      ],
+      misconceptions: answer.options
+        .filter((o) => o.id !== answer.correct)
+        .map((o) => ({
+          answer: o.id,
+          tag: 'graph-reading' as const,
+          feedback: o.label.startsWith(strict ? 'Dashed' : 'Solid') ? `The line type is right, but the shading is on the wrong side. ${ok ? 'Shade the side with the test point.' : 'The test point is not a solution, so shade away from it.'}` : `Check the line type: $${OP_TEX[op]}$ ${strict ? 'leaves the line out (dashed)' : 'includes the line (solid)'}.`,
+        })),
+      explanation: `${correct}.`,
+    },
+  ];
+}
+
 export const genGraphIneqFeatures: GeneratorDef = {
   id: 'u2.graph-ineq-features',
   skillId: 'S2.03',
@@ -405,7 +537,9 @@ export const genGraphIneqFeatures: GeneratorDef = {
       ],
       solution,
       misconceptions: [],
-      steps: stepAnswer
+      steps: difficulty === 1
+        ? featureSteps(m, b, solved, answer, correct)
+        : stepAnswer
         ? [
             {
               prompt: [p(`Solve $${promptTex}$ for $y$.`)],
@@ -440,13 +574,99 @@ export const genGraphIneqFeatures: GeneratorDef = {
     const c1 = lp.evaluate({ x: Q(0), y: Q(1) }).sub(c0);
     const yb = c0.neg().div(c1);
     if (holds(rel, 0, yb) !== (lab[1] === 'Solid')) errs.push('boundary type wrong');
+    if (pr.steps?.length === 3) {
+      // line-type step from a point on the line; test-point step by substituting the point named in its prompt
+      if (stepLabel(pr.steps[0]).startsWith('Solid') !== holds(rel, 0, yb)) errs.push('line-type step wrong');
+      const tp = /Test the point \$\((-?\d+), (-?\d+)\)\$/.exec((pr.steps[1].prompt[0] as { text: string }).text);
+      if (!tp) errs.push('cannot read the test point');
+      else {
+        if (Q(Number(tp[2])).eq(f0(Number(tp[1])))) errs.push('test point is on the line');
+        if (stepLabel(pr.steps[1]).startsWith('True') !== holds(rel, Number(tp[1]), Number(tp[2]))) errs.push('test-point step wrong');
+      }
+      errs.push(...lastStepErrors(pr));
+    }
     return errs;
+    function f0(x: number): Rational {
+      const cx = lp.evaluate({ x: Q(x), y: Q(0) });
+      return cx.neg().div(c1);
+    }
   },
 };
 
 // ---------------------------------------------------------------------------
 // S2.03: write the inequality shown by a graph
 // ---------------------------------------------------------------------------
+
+/** Guided steps for reading a graphed inequality (difficulty 1): intercept, slope, symbol, inequality. */
+function fromGraphSteps(m: Rational, b: Rational, run: number, rise: Rational, strict: boolean, above: boolean, op: Op, answer: string, misc: Array<{ answer: string; tag: 'sign-error' | 'rise-run-swap' | 'equation-setup'; feedback: string }>): ProblemStep[] {
+  const symLab = (o: Op) => `$y ${OP_TEX[o]} \\ldots$`;
+  const sym = stepChoice(symLab(op), (['<', '>', '<=', '>='] as Op[]).filter((o) => o !== op).map(symLab), m.toNumber() + b.toNumber() + 5);
+  const p1 = `(${run}, ${b.add(rise).toTex()})`;
+  return [
+    {
+      prompt: [p('Start with the boundary line. Where does it cross the $y$-axis? Type the $y$-intercept $b$.')],
+      answer: { kind: 'number', value: numStr(b) },
+      hints: [
+        'The $y$-axis is the vertical axis, where $x = 0$.',
+        'One of the marked points is on the $y$-axis.',
+        'The $y$-intercept is the $y$-coordinate of that point.',
+        'Read the second number of the marked point whose first number is $0$.',
+      ],
+      misconceptions: numberMisconceptions(b, [
+        { value: b.neg(), tag: 'graph-reading', feedback: 'Check the sign: is the crossing point above or below the $x$-axis?' },
+        { value: m.isZero() ? null : b.neg().div(m), tag: 'graph-reading', feedback: 'That is where the line crosses the $x$-axis. The $y$-intercept is where it crosses the **$y$-axis**.' },
+      ]),
+      explanation: `The line crosses the $y$-axis at $(0, ${b.toTex()})$, so $b = ${b.toTex()}$.`,
+    },
+    {
+      prompt: [p(`Now find the slope $m$ of the boundary line. Use the marked points $(0, ${b.toTex()})$ and $${p1}$.`)],
+      answer: { kind: 'number', value: numStr(m) },
+      hints: [
+        'Slope is rise over run: the change in $y$ divided by the change in $x$.',
+        `Going from $(0, ${b.toTex()})$ to $${p1}$, the run is $${run}$.`,
+        'Find the rise: how far up (positive) or down (negative) does the line go?',
+        `Subtract the $y$-values: $${b.add(rise).toTex()} - ${b.isNegative() ? `(${b.toTex()})` : b.toTex()}$, then divide by the run.`,
+      ],
+      misconceptions: numberMisconceptions(m, [
+        { value: m.neg(), tag: 'sign-error', feedback: 'Check the sign: a line that falls from left to right has a negative slope; one that rises has a positive slope.' },
+        { value: m.isZero() || m.inv().eq(m) ? null : m.inv(), tag: 'rise-run-swap', feedback: 'Slope is rise over run: put the change in $y$ on top.' },
+      ]),
+      explanation: `The line ${rise.isNegative() ? 'falls' : 'rises'} $${rise.abs().toTex()}$ for every $${run}$ to the right, so $m = ${m.toTex()}$ and the boundary is $y = ${linearTex(m, b)}$.`,
+    },
+    {
+      prompt: [p(`The line is **${strict ? 'dashed' : 'solid'}** and the shading is **${above ? 'above' : 'below'}** it. Which symbol goes in $y \\;?\\; ${linearTex(m, b)}$?`)],
+      answer: sym,
+      hints: [
+        'Two decisions: is the line included, and which side is shaded?',
+        'A solid line is included ($\\le$ or $\\ge$). A dashed line is not ($<$ or $>$).',
+        'Shading above means $y$ is greater than the line; below means less.',
+        `Combine "${strict ? 'not included' : 'included'}" with "${above ? 'greater' : 'less'}".`,
+      ],
+      misconceptions: sym.options
+        .filter((o) => o.id !== sym.correct)
+        .map((o) => {
+          const chosen = (['<=', '>=', '<', '>'] as Op[]).find((q) => o.label === symLab(q))!;
+          return {
+            answer: o.id,
+            tag: 'graph-reading' as const,
+            feedback: isGreater(chosen) !== above ? `The shading is ${above ? 'above' : 'below'} the line, where $y$ is ${above ? 'greater' : 'less'} than the line's value.` : `The line is ${strict ? 'dashed, so it is not included: no "or equal to"' : 'solid, so it is included: use "or equal to"'}.`,
+          };
+        }),
+      explanation: `${strict ? 'Dashed' : 'Solid'} and shaded ${above ? 'above' : 'below'} means $${OP_TEX[op]}$.`,
+    },
+    {
+      prompt: [p('Now write the inequality shown by the graph.')],
+      answer: { kind: 'inequality', value: answer },
+      inputHint: 'Type an inequality like y < 2x + 1 or y >= -3.',
+      hints: ['Write $y$, then the symbol, then $mx + b$.', 'Use the slope and $y$-intercept you found.', 'Use the symbol you chose in the last step.', 'Check a shaded point: it should make your inequality true.'],
+      misconceptions: stringMisconceptions(answer, [
+        ...misc,
+        { answer: `y ${FLIP_OP[op]} ${linearPlain(m, b)}`, tag: 'graph-reading', feedback: `The shading is ${above ? 'above' : 'below'} the line, so $y$ is ${above ? 'greater' : 'less'} than the line's value.` },
+      ]),
+      explanation: `$y ${OP_TEX[op]} ${linearTex(m, b)}$.`,
+    },
+  ];
+}
 
 export const genIneqFromGraph: GeneratorDef = {
   id: 'u2.ineq-from-graph',
@@ -523,6 +743,7 @@ export const genIneqFromGraph: GeneratorDef = {
         { text: `The shading is ${above ? 'above' : 'below'} the line.`, tex: `y ${OP_TEX[op]} ${linearTex(m, b)}`, why: `Points ${above ? 'above' : 'below'} the line have ${above ? 'larger' : 'smaller'} $y$-values than the line. Test $(0, ${b.add(Q(above ? 2 : -2)).toTex()})$, a shaded point: it makes the inequality true.` },
       ],
       misconceptions: stringMisconceptions(answer, misc),
+      steps: difficulty === 1 ? fromGraphSteps(m, b, run, rise, strict, above, op, answer, misc) : undefined,
     });
   },
   verify(pr) {
@@ -550,6 +771,18 @@ export const genIneqFromGraph: GeneratorDef = {
     for (const pt of g.spec.points ?? []) {
       if (!f.evaluate({ x: Q(pt.x) }).eq(Q(pt.y))) errs.push('marked point off the line');
       if (Math.abs(pt.x) > 8 || Math.abs(pt.y) > 8) errs.push('marked point outside window');
+    }
+    if (pr.steps?.length === 4) {
+      // intercept and slope read from the two marked points; the symbol from the picture's line style and side
+      const [p0, p1] = g.spec.points ?? [];
+      const st = pr.steps.map((x) => x.answer);
+      const yInt = p0 && p0.x === 0 ? Q(p0.y) : null;
+      const slope = p0 && p1 ? Q(p1.y - p0.y).div(Q(p1.x - p0.x)) : null;
+      if (!yInt || st[0].kind !== 'number' || !Rational.parse(st[0].value).eq(yInt)) errs.push('intercept step wrong');
+      if (!slope || st[1].kind !== 'number' || !Rational.parse(st[1].value).eq(slope)) errs.push('slope step wrong');
+      const want = q.side === 'above' ? (q.strict ? '>' : '>=') : q.strict ? '<' : '<=';
+      if (stepLabel(pr.steps[2]) !== `$y ${OP_TEX[want as Op]} \\ldots$`) errs.push('symbol step wrong');
+      errs.push(...lastStepErrors(pr));
     }
     return errs;
   },

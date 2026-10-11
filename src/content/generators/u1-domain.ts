@@ -10,6 +10,15 @@ import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, texToExpr } from './util';
 import { buildContext, DECREASING_KEYS } from './u1-contexts';
+import { numStep, choiceStep, finalStep, stepErrors } from './u1-steps';
+import type { ProblemStep } from '../../core/curriculum/types';
+
+const LINE_STOPS = 'It stops at an endpoint.';
+const LINE_FOREVER = 'It keeps going forever in both directions.';
+const TO_LEFT = 'To the left';
+const TO_RIGHT = 'To the right';
+const UP_FOREVER = 'Up forever';
+const DOWN_FOREVER = 'Down forever';
 
 const ALL: Interval = { lo: null, loClosed: false, hi: null, hiClosed: false };
 
@@ -171,7 +180,18 @@ export const genDomainRange: GeneratorDef = {
     const spec: GraphSpec = { xMin: -9, xMax: 9, yMin: -9, yMax: 9, ariaLabel: '' };
     let key: Interval;
     let describe: string;
+    const pre: ProblemStep[] = [];
     if (shape === 'line') {
+      pre.push(
+        choiceStep(
+          'Look at both ends of the graph. Does it stop at an endpoint, or does it keep going?',
+          [LINE_STOPS, LINE_FOREVER],
+          1,
+          ['An endpoint is shown with a dot (filled or open).', 'Arrows or a line that runs off the grid mean the graph continues.', 'Check the left end and the right end.', 'A line with no dots has no endpoints.'],
+          'There are no endpoint dots, so the line continues forever in both directions.',
+          [{ index: 0, tag: 'interval-endpoint', feedback: 'There are no endpoint dots: the line runs off the grid on both sides.' }],
+        ),
+      );
       spec.functions = [{ expr: linearPlain(m, b) }];
       spec.ariaLabel = `A line with slope ${m.toString()} that continues forever in both directions.`;
       describe = 'The line continues forever in both directions.';
@@ -190,6 +210,27 @@ export const genDomainRange: GeneratorDef = {
         const [ya, yb] = [fx(x1), fx(x2)];
         key = ya.lt(yb) ? { lo: ya, loClosed: !open1, hi: yb, hiClosed: !open2 } : { lo: yb, loClosed: !open2, hi: ya, hiClosed: !open1 };
       }
+      const [lowV, highV] = askDomain ? [Q(x1), Q(x2)] : fx(x1).lt(fx(x2)) ? [fx(x1), fx(x2)] : [fx(x2), fx(x1)];
+      const coord = askDomain ? '$x$' : '$y$';
+      pre.push(
+        numStep(
+          askDomain ? 'What is the smallest $x$-value on the segment (its left end)?' : 'What is the smallest $y$-value on the segment (its lowest point)?',
+          lowV,
+          [askDomain ? 'The domain uses the $x$-values, read from left to right.' : 'The range uses the $y$-values, read from bottom to top.', 'Look at the two endpoints of the segment.', askDomain ? 'Which endpoint is farther left? Use its first coordinate.' : 'Which endpoint is lower? Use its second coordinate.', 'Ignore for now whether the dot is open or filled.'],
+          `A segment's ${coord}-values run between its endpoints, so the ${askDomain ? 'left' : 'lower'} endpoint gives the smallest one.`,
+          [
+            { value: highV, tag: 'graph-reading', feedback: askDomain ? 'That end is on the right. Find the left end.' : 'That point is the highest. Find the lowest one.' },
+            { value: askDomain ? fx(x1) : fx(x1).lt(fx(x2)) ? Q(x1) : Q(x2), tag: 'graph-reading', feedback: askDomain ? 'That is a $y$-value. The domain uses $x$-values.' : 'That is an $x$-value. The range uses $y$-values.' },
+          ],
+        ),
+        numStep(
+          askDomain ? 'What is the largest $x$-value on the segment (its right end)?' : 'What is the largest $y$-value on the segment (its highest point)?',
+          highV,
+          [askDomain ? 'The domain uses the $x$-values.' : 'The range uses the $y$-values.', 'Use the other endpoint of the segment.', askDomain ? 'Read its first coordinate.' : 'Read its second coordinate.', 'Ignore for now whether the dot is open or filled.'],
+          `The ${askDomain ? 'right' : 'upper'} endpoint gives the largest ${coord}-value.`,
+          [{ value: lowV, tag: 'graph-reading', feedback: askDomain ? 'That is the left end. Find the right end.' : 'That is the lowest point. Find the highest one.' }],
+        ),
+      );
     } else {
       const toRight = rng.bool();
       const x0 = toRight ? x1 : x2;
@@ -205,6 +246,33 @@ export const genDomainRange: GeneratorDef = {
         const up = toRight === !m.isNegative();
         key = up ? { lo: y0, loClosed: !openEnd, hi: null, hiClosed: false } : { lo: null, loClosed: false, hi: y0, hiClosed: !openEnd };
       }
+      const up = toRight === !m.isNegative();
+      pre.push(
+        numStep(
+          askDomain ? 'What is the $x$-coordinate of the ray\'s endpoint?' : 'What is the $y$-coordinate of the ray\'s endpoint?',
+          askDomain ? Q(x0) : y0,
+          ['A ray has one endpoint, marked with a dot.', `The endpoint is $(${x0}, ${y0.toTex()})$.`, askDomain ? 'The domain uses $x$-values: the first coordinate.' : 'The range uses $y$-values: the second coordinate.', 'Ignore for now whether the dot is open or filled.'],
+          askDomain ? 'The endpoint is where the inputs start.' : 'The endpoint is where the outputs start.',
+          [{ value: askDomain ? y0 : Q(x0), tag: 'graph-reading', feedback: askDomain ? 'That is the $y$-coordinate. The domain uses $x$-values.' : 'That is the $x$-coordinate. The range uses $y$-values.' }],
+        ),
+        askDomain
+          ? choiceStep(
+              'From the endpoint, which way does the ray go on forever?',
+              [TO_LEFT, TO_RIGHT],
+              toRight ? 1 : 0,
+              ['Follow the ray away from its dot.', 'Does it run off the left edge or the right edge of the grid?', 'Going right means larger $x$-values.', 'Going left means smaller $x$-values.'],
+              toRight ? 'The ray runs off to the right, so the $x$-values grow without end.' : 'The ray runs off to the left, so the $x$-values decrease without end.',
+              [{ index: toRight ? 0 : 1, tag: 'inequality-direction', feedback: 'Follow the ray from its dot: which edge of the grid does it run off?' }],
+            )
+          : choiceStep(
+              'Follow the ray away from its endpoint. Do the $y$-values go up forever or down forever?',
+              [UP_FOREVER, DOWN_FOREVER],
+              up ? 0 : 1,
+              ['Start at the dot and trace along the ray.', 'Watch the height of the ray, not how far left or right it goes.', `The ray goes to the ${toRight ? 'right' : 'left'} and the line ${m.isNegative() ? 'falls' : 'rises'} from left to right.`, 'Does the ray run off the top or the bottom of the grid?'],
+              up ? 'The ray climbs without end, so the outputs have no upper limit.' : 'The ray drops without end, so the outputs have no lower limit.',
+              [{ index: up ? 1 : 0, tag: 'inequality-direction', feedback: 'Trace the ray from its dot: does it run off the top or the bottom of the grid?' }],
+            ),
+      );
     }
     const flipped: Interval = { ...key, loClosed: !key.loClosed, hiClosed: !key.hiClosed };
     const misc: Array<{ iv: Interval; tag: Misconception['tag']; feedback: string }> = [];
@@ -239,6 +307,22 @@ export const genDomainRange: GeneratorDef = {
         { text: `The ${word} is:`, tex: `${intervalToTex(key)}` },
       ],
       misconceptions: ivMisconceptions(key, [...misc, ...(shape === 'line' ? [] : [{ iv: flipped, tag: 'interval-endpoint' as const, feedback: 'Check each endpoint: a filled dot is included (bracket), an open circle is not (parenthesis).' }])]),
+      steps: [
+        ...pre,
+        finalStep(
+          `Now write the ${word} in interval notation.`,
+          { kind: 'interval', value: ivText(key) },
+          [
+            'Write the smaller number first.',
+            'A filled dot means the endpoint is included: use [ or ].',
+            'An open circle means it is not included: use ( or ).',
+            'A side that goes on forever uses $\\infty$ or $-\\infty$, always with a parenthesis.',
+          ],
+          shape === 'line' ? 'A non-horizontal line reaches every real number, so the set is $(-\\infty, \\infty)$.' : 'The bracket type shows whether each endpoint is part of the set, and infinity is never reached.',
+          ivMisconceptions(key, shape === 'line' ? [] : [{ iv: flipped, tag: 'interval-endpoint' as const, feedback: 'Check each endpoint: a filled dot is included (bracket), an open circle is not (parenthesis).' }]),
+          notationHint,
+        ),
+      ],
     });
   },
   verify(pr) {
@@ -311,7 +395,26 @@ export const genDomainRange: GeneratorDef = {
         };
       }
     }
-    return intervalsEqual(got, expect) ? [] : [`expected ${intervalToText(expect)}, got ${pr.answer.value}`];
+    if (!intervalsEqual(got, expect)) return [`expected ${intervalToText(expect)}, got ${pr.answer.value}`];
+    if (!g) return [];
+    // steps, re-read from the drawn graph: a line, a segment's two ends, or a ray's end and direction
+    const fn = g.spec.functions![0];
+    const poly = toPoly(parseExpression(fn.expr));
+    const at = (x: number) => poly.evaluate({ x: Q(x) });
+    const slope = at(1).sub(at(0));
+    const [d0, d1] = fn.domain ?? [-Infinity, Infinity];
+    const loX = d0 <= g.spec.xMin ? null : d0;
+    const hiX = d1 >= g.spec.xMax ? null : d1;
+    if (loX === null && hiX === null) return stepErrors(pr, [LINE_FOREVER, null]);
+    if (loX !== null && hiX !== null) {
+      const vals = askDomain ? [Q(loX), Q(hiX)] : [at(loX), at(hiX)].sort((u, w) => (u.lt(w) ? -1 : 1));
+      return stepErrors(pr, [vals[0], vals[1], null]);
+    }
+    const end = (loX ?? hiX)!;
+    const toRight = loX !== null;
+    if (askDomain) return stepErrors(pr, [Q(end), toRight ? TO_RIGHT : TO_LEFT, null]);
+    const goesUp = toRight ? slope.gt(0) : slope.lt(0);
+    return stepErrors(pr, [at(end), goesUp ? UP_FOREVER : DOWN_FOREVER, null]);
   },
 };
 

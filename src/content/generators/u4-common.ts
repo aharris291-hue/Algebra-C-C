@@ -1,5 +1,8 @@
 /** Shared helpers for Unit 4 (quadratic expressions and equations) generators. */
-import type { Block, Problem } from '../../core/curriculum/types';
+import type { Block, Problem, ProblemStep } from '../../core/curriculum/types';
+import type { AnswerSpec, Misconception, MisconceptionTag } from '../../core/math/answers';
+import { checkAnswer } from '../../core/math/answers';
+import { canonicalInput } from '../../core/engine/problems';
 import { Poly, toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { polyTex, polyPlain } from '../../core/math/format';
@@ -267,4 +270,92 @@ export function substituteTex(a: Num, b: Num, c: Num, x: Num): string {
   if (!B.isZero()) s += `${B.isNegative() ? ' - ' : ' + '}${B.abs().eq(1) ? '' : B.abs().toTex()}${px}`;
   s += tailTex(C);
   return s;
+}
+
+// ---------------------------------------------------------------------------
+// Guided steps (lesson audit): helpers shared by the Unit 4 generators
+// ---------------------------------------------------------------------------
+
+type Choice = { kind: 'choice'; options: { id: string; label: string }[]; correct: string };
+
+/**
+ * A multiple-choice step answer whose option order comes from the labels' text, so building a
+ * step never draws from the problem's random number generator (the problem a seed produces is
+ * unchanged by adding steps).
+ */
+export function fixedChoice(correct: string, distractors: string[]): Choice {
+  const labels = [correct, ...distractors.filter((d, i, all) => d !== correct && all.indexOf(d) === i)];
+  let hash = 0;
+  for (const ch of labels.join('|')) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const n = labels.length;
+  const at = hash % n; // position of the correct option
+  const ids = 'abcdefgh';
+  const options = labels.map((_, i) => ({ id: ids[i], label: labels[(i - at + n) % n] }));
+  return { kind: 'choice', options, correct: ids[at] };
+}
+
+/** Misconception for picking a particular wrong option of a choice step (null if the label is absent or correct). */
+export function choiceMis(spec: Choice, label: string, tag: MisconceptionTag, feedback: string): Misconception | null {
+  const o = spec.options.find((x) => x.label === label);
+  return o && o.id !== spec.correct ? { answer: o.id, tag, feedback } : null;
+}
+
+/** Expression misconceptions that differ from the key and from each other (compared as polynomials). */
+export function exprMis(key: string, list: Array<{ answer: string; tag: MisconceptionTag; feedback: string } | null>): Misconception[] {
+  const seen: Poly[] = [plainPoly(key)];
+  const out: Misconception[] = [];
+  for (const m of list) {
+    if (!m) continue;
+    const q = plainPoly(m.answer);
+    if (seen.some((s) => s.equals(q))) continue;
+    seen.push(q);
+    out.push(m);
+  }
+  return out;
+}
+
+/** Number misconceptions that differ from the key and from each other. */
+export function numMis(key: Num, list: Array<{ value: Num; tag: MisconceptionTag; feedback: string } | null>): Misconception[] {
+  const seen: Rational[] = [R(key)];
+  const out: Misconception[] = [];
+  for (const m of list) {
+    if (!m) continue;
+    const v = R(m.value);
+    if (seen.some((s) => s.eq(v))) continue;
+    seen.push(v);
+    out.push({ answer: v.isInteger() || v.isTerminatingDecimal() ? v.toDecimalString(10) : v.toString(), tag: m.tag, feedback: m.feedback });
+  }
+  return out;
+}
+
+/** A guided step. */
+export function gstep(text: string, answer: AnswerSpec, hints: [string, string, string, string], explanation: string, misconceptions: Array<Misconception | null> = [], inputHint?: string): ProblemStep {
+  const mis = misconceptions.filter((m): m is Misconception => !!m);
+  return { prompt: [{ t: 'p', text }], answer, hints, explanation, ...(mis.length ? { misconceptions: mis } : {}), ...(inputHint ? { inputHint } : {}) };
+}
+
+/**
+ * verify() check for guided steps: the last step's key must be accepted as the problem's
+ * final answer, and each expected step value (recomputed by the generator's verify from the
+ * prompt) must be accepted by that step's key. `expected[i]` is typed input, or null to skip.
+ */
+export function checkSteps(pr: Pick<Problem, 'answer' | 'steps'>, expected?: Array<string | null>): string[] {
+  const steps = pr.steps ?? [];
+  if (!steps.length) return [];
+  const errs: string[] = [];
+  const last = steps[steps.length - 1];
+  if (checkAnswer(pr.answer, canonicalInput(last.answer)).status !== 'correct') errs.push('last step is not the final answer');
+  expected?.forEach((e, i) => {
+    if (e === null) return;
+    if (!steps[i]) errs.push(`missing step ${i + 1}`);
+    else if (checkAnswer(steps[i].answer, e).status !== 'correct') errs.push(`step ${i + 1} key does not match ${e}`);
+  });
+  if (expected && expected.length !== steps.length) errs.push(`expected ${expected.length} steps, got ${steps.length}`);
+  return errs;
+}
+
+/** Typed input for the option of a choice spec with this label (for checkSteps). */
+export function pickLabel(spec: AnswerSpec, label: string): string {
+  if (spec.kind !== 'choice') return '#not-a-choice';
+  return spec.options.find((o) => o.label === label)?.id ?? '#missing-option';
 }

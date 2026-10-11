@@ -13,6 +13,7 @@ import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
 import { texToParser, exactRational, expPlain, expTex, dTex, commas, pct, textOf } from './u5-common';
 import { mathBlocks, graphOf } from './u4-common';
+import { numStep, choiceStep, finalStep, withSteps, stepErrors } from './u5-steps';
 
 type Hints = [string, string, string, string];
 
@@ -89,7 +90,7 @@ export const genInterpretExponential: GeneratorDef = {
       const story = [p(`The function below gives ${c.what}.`), { t: 'math' as const, tex: fx }];
       if (askA) {
         const ans = makeChoice(rng, `The ${c.unitNoun} at the start, when $${c.v} = 0$`, [`How much the ${c.unitNoun} changes each ${c.per}`, `The ${c.unitNoun} after 1 ${c.per}`, `The percent the ${c.unitNoun} changes each ${c.per}`]);
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S5.02',
           tags: ['real-world'],
           prompt: [...story, p(`What does the number $${c.a}$ represent?`)],
@@ -100,14 +101,17 @@ export const genInterpretExponential: GeneratorDef = {
             { text: `So $${c.a}$ is the ${c.unitNoun} at the start.`, why: 'The initial value $a$ is the output when the input is 0.' },
           ],
           misconceptions: [],
-        });
+        }), (pr) => [
+          numStep(`Substitute $${c.v} = 0$. What is $${c.fn}(0)$?`, a, [`Replace $${c.v}$ with 0 in the function.`, `Any nonzero number to the zero power is 1, so $\\left(${dTex(b)}\\right)^{0} = 1$.`, 'Multiply the number in front by the value of the power.', 'Multiplying by 1 changes nothing.'], `$${c.fn}(0) = ${c.a}\\left(${dTex(b)}\\right)^{0} = ${c.a}(1) = ${c.a}$.`, [{ value: Q(0), tag: 'exponent-rule', feedback: 'The zero power is 1, not 0.' }, { value: b, tag: 'growth-decay', feedback: 'That is the factor. Substitute 0 for the input and evaluate.' }, { value: a.mul(b), tag: 'growth-decay', feedback: `That is the value after 1 ${c.per}. Use $${c.v} = 0$.` }]),
+          finalStep(pr, `So $${c.a}$ is the output when $${c.v} = 0$. What does the number $${c.a}$ represent?`, [`$${c.v}$ counts ${c.per}s since the start.`, `$${c.v} = 0$ means no time has passed yet.`, `The output is the ${c.unitNoun}.`, `In $a(b)^{${c.v}}$, $a$ is the initial value.`], `$${c.a}$ is the ${c.unitNoun} at the start, because $${c.fn}(0) = ${c.a}$.`),
+        ]);
       }
       const rp = pct(r);
       const correct = `The ${c.unitNoun} ${changeWord(b)} by ${rp}% each ${c.per}.`;
       const wrongs = growth
         ? [`The ${c.unitNoun} increases by ${pct(b)}% each ${c.per}.`, `The ${c.unitNoun} increases by ${dTex(b)} each ${c.per}.`, `The ${c.unitNoun} decreases by ${rp}% each ${c.per}.`]
         : [`The ${c.unitNoun} decreases by ${pct(b)}% each ${c.per}.`, `The ${c.unitNoun} decreases by ${dTex(b)} each ${c.per}.`, `The ${c.unitNoun} increases by ${rp}% each ${c.per}.`];
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S5.02',
         tags: ['real-world'],
         prompt: [...story, p(`What does the number $${dTex(b)}$ tell you?`)],
@@ -118,7 +122,11 @@ export const genInterpretExponential: GeneratorDef = {
           { text: 'Write the rate as a percent.', tex: `${dTex(r)} = ${rp}\\%`, why: growth ? '' : `Multiplying by $${dTex(b)}$ keeps ${pct(b)}% of the ${c.unitNoun}, so ${rp}% is lost.` },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        choiceStep(`Is the factor $${dTex(b)}$ greater than 1 or between 0 and 1? What does that mean?`, [`Greater than 1, so the ${c.unitNoun} grows`, `Between 0 and 1, so the ${c.unitNoun} decays`], growth ? 0 : 1, [`Compare $${dTex(b)}$ with 1.`, 'Multiplying by a number greater than 1 makes a positive amount bigger.', 'Multiplying by a number between 0 and 1 makes a positive amount smaller.', `Is $${dTex(b)}$ bigger or smaller than 1?`], growth ? `$${dTex(b)} > 1$, so each ${c.per} the ${c.unitNoun} gets bigger.` : `$0 < ${dTex(b)} < 1$, so each ${c.per} the ${c.unitNoun} gets smaller.`, [{ index: growth ? 1 : 0, tag: 'growth-decay', feedback: `Compare $${dTex(b)}$ with 1 carefully.` }]),
+        numStep(growth ? `For growth, $b = 1 + r$. Solve $1 + r = ${dTex(b)}$ and give $r$ as a percent.` : `For decay, $b = 1 - r$. Solve $1 - r = ${dTex(b)}$ and give $r$ as a percent.`, r.mul(100), [growth ? 'The 1 stands for keeping all of the amount; the rest is the increase.' : 'The factor is the part that remains; the rate is the part that is lost.', growth ? `Subtract 1 from $${dTex(b)}$.` : `Subtract $${dTex(b)}$ from 1.`, 'That gives the rate as a decimal.', 'Multiply the decimal by 100 to write it as a percent.'], `$r = ${dTex(r)} = ${rp}\\%$.`, [{ value: b.mul(100), tag: 'percent-rate', feedback: growth ? 'That is the whole new amount compared with the old one. Subtract the original 100%.' : 'That is the part that remains. The rate is the part that is lost.' }, { value: r, tag: 'percent-rate', feedback: 'That is the rate as a decimal. Write it as a percent.' }], { unit: '%', inputHint: 'Type the percent as a number, like 5 for 5%.' }),
+        finalStep(pr, `Which statement tells what $${dTex(b)}$ means?`, ['Use the direction from the first step.', 'Use the percent from the second step.', `The rate is a percent of the ${c.unitNoun}, not the factor itself.`, `Pick the statement with that direction and that percent each ${c.per}.`], `Multiplying by $${dTex(b)}$ each ${c.per} means the ${c.unitNoun} ${changeWord(b)} by ${rp}% each ${c.per}.`),
+      ]);
     }
     const growth = rng.bool();
     const b = Q(growth ? rng.pick(GROWTH_B) : rng.pick(DECAY_B));
@@ -127,7 +135,7 @@ export const genInterpretExponential: GeneratorDef = {
     if (difficulty === 1) {
       const ask = rng.pick(['a', 'b', 'type'] as const);
       if (ask === 'type') {
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S5.02',
           tags: [],
           prompt: [p('Does this equation show exponential growth or exponential decay?'), { t: 'math', tex }],
@@ -138,11 +146,14 @@ export const genInterpretExponential: GeneratorDef = {
             { text: growth ? '$b > 1$, so the values grow.' : '$0 < b < 1$, so the values shrink.', why: growth ? 'Multiplying by a number greater than 1 makes a positive number bigger.' : 'Multiplying by a number between 0 and 1 makes a positive number smaller.' },
           ],
           misconceptions: [],
-        });
+        }), (pr) => [
+          numStep('Compare the equation with $y = a(b)^{x}$. What is the base $b$, the number raised to the power $x$?', b, ['In $y = a(b)^{x}$, $a$ is in front and $b$ is inside the parentheses.', 'The base is the number that the exponent $x$ sits on.', 'Look inside the parentheses.', 'Type it as a decimal or a whole number.'], `The base is $b = ${dTex(b)}$.`, [{ value: a, tag: 'growth-decay', feedback: 'That is the initial value $a$. The base is the number raised to the power $x$.' }]),
+          finalStep(pr, `Compare $b = ${dTex(b)}$ with 1. Does the equation show growth or decay?`, ['If $b > 1$, each step multiplies by more than 1.', 'If $0 < b < 1$, each step multiplies by less than 1.', 'Multiplying a positive number by more than 1 makes it bigger.', `Is $${dTex(b)}$ bigger or smaller than 1?`], growth ? `$${dTex(b)} > 1$, so the values grow: exponential growth.` : `$0 < ${dTex(b)} < 1$, so the values shrink: exponential decay.`),
+        ]);
       }
       const target = ask === 'a' ? a : b;
       const other = ask === 'a' ? b : a;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S5.02',
         tags: [],
         prompt: [p(ask === 'a' ? 'What is the initial value (the value of $y$ when $x = 0$)?' : `What is the ${growth ? 'growth' : 'decay'} factor?`), { t: 'math', tex }],
@@ -153,13 +164,22 @@ export const genInterpretExponential: GeneratorDef = {
           { text: ask === 'a' ? `The initial value is $${dTex(a)}$.` : `The ${growth ? 'growth' : 'decay'} factor is $${dTex(b)}$.` },
         ],
         misconceptions: numberMisconceptions(target, [{ value: other, tag: 'growth-decay', feedback: ask === 'a' ? 'That is the base $b$. The initial value is the number in front.' : 'That is the initial value $a$. The factor is the base raised to the power.' }]),
-      });
+      }), (pr) => ask === 'a'
+          ? [
+              numStep(`The initial value is $y$ when $x = 0$. Substitute $x = 0$. What is $\\left(${dTex(b)}\\right)^{0}$?`, Q(1), ['Any nonzero number to the zero power has the same value.', `Think of $\\left(${dTex(b)}\\right)^{0}$ as a number divided by itself.`, 'A nonzero number divided by itself is the same small number every time.', 'It is not 0.'], `$\\left(${dTex(b)}\\right)^{0} = 1$.`, [{ value: Q(0), tag: 'exponent-rule', feedback: 'A nonzero number to the zero power is 1, not 0.' }, { value: b, tag: 'exponent-rule', feedback: 'An exponent of 0 does not leave the base unchanged; that is exponent 1.' }]),
+              finalStep(pr, `So $y = ${dTex(a)} \\cdot \\left(${dTex(b)}\\right)^{0}$ when $x = 0$. What is the initial value?`, ['Multiply the number in front by the value of the power.', 'Multiplying by 1 changes nothing.', '$a$ is the number in front of the parentheses.', 'The initial value is the output at $x = 0$.'], `$y = ${dTex(a)}(1) = ${dTex(a)}$, the number in front.`),
+            ]
+          : [
+              numStep('Substitute $x = 0$. What is $y$?', a, ['The power is 1 when $x = 0$.', 'So $y$ is the number in front times 1.', 'Read the number in front of the parentheses.', 'Multiplying by 1 changes nothing.'], `When $x = 0$, $y = ${dTex(a)}$.`, [{ value: Q(0), tag: 'exponent-rule', feedback: 'The zero power is 1, so $y$ is not 0.' }, { value: b, tag: 'growth-decay', feedback: 'That is the base. Substitute $x = 0$ and evaluate.' }]),
+              numStep('Substitute $x = 1$. What is $y$?', a.mul(b), [`When $x = 1$, the power $\\left(${dTex(b)}\\right)^{1}$ is just $${dTex(b)}$.`, `So $y = ${dTex(a)} \\cdot ${dTex(b)}$.`, 'Multiply the two numbers.', 'Use a calculator if the decimal is tricky.'], `When $x = 1$, $y = ${dTex(a)} \\cdot ${dTex(b)} = ${dTex(a.mul(b))}$.`, [{ value: a.add(b), tag: 'growth-decay', feedback: 'The factor is multiplied, not added.' }, { value: b, tag: 'other', feedback: 'Do not forget to multiply by the number in front.' }]),
+              finalStep(pr, `Going from $x = 0$ to $x = 1$, $y$ goes from $${dTex(a)}$ to $${dTex(a.mul(b))}$. What number is $y$ multiplied by? That is the ${growth ? 'growth' : 'decay'} factor.`, ['Divide the new value by the old value.', `Find $${dTex(a.mul(b))} \\div ${dTex(a)}$.`, 'Each step of 1 in $x$ multiplies $y$ by this same number.', 'Check: it is the base in the equation.'], `$${dTex(a.mul(b))} \\div ${dTex(a)} = ${dTex(b)}$, the base of the power.`),
+            ]);
     }
     // difficulty 2: factor <-> percent
     if (rng.bool()) {
       const r = b.sub(1).abs();
       const word = growth ? 'grows' : 'decays';
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S5.02',
         tags: [],
         prompt: [p(`The amount $y$ ${word} according to the equation below. By what percent does $y$ ${growth ? 'increase' : 'decrease'} each time $x$ increases by 1?`), { t: 'math', tex }],
@@ -174,12 +194,15 @@ export const genInterpretExponential: GeneratorDef = {
           { value: b.mul(100), tag: 'percent-rate', feedback: growth ? `$${dTex(b)}$ is the whole new amount compared with the old one (${pct(b)}%). Subtract the original 100%.` : `$${dTex(b)}$ is the part that remains (${pct(b)}%). The question asks for the part that is lost.` },
           { value: r, tag: 'percent-rate', feedback: 'That is the rate as a decimal. Write it as a percent.' },
         ]),
-      });
+      }), (pr) => [
+          numStep(growth ? `For growth, $b = 1 + r$. Solve $1 + r = ${dTex(b)}$. What is $r$ as a decimal?` : `For decay, $b = 1 - r$. Solve $1 - r = ${dTex(b)}$. What is $r$ as a decimal?`, r, [growth ? 'The 1 stands for keeping all of the amount.' : 'The factor is the part that remains.', growth ? `Subtract 1 from both sides.` : `Rearrange: $r = 1 - ${dTex(b)}$.`, growth ? `Find $${dTex(b)} - 1$.` : `Find $1 - ${dTex(b)}$.`, 'The rate is a positive decimal less than 1 here.'], `$r = ${growth ? `${dTex(b)} - 1` : `1 - ${dTex(b)}`} = ${dTex(r)}$.`, [{ value: b, tag: 'percent-rate', feedback: 'That is the factor. The rate is how far the factor is from 1.' }, { value: growth ? null : b.sub(1), tag: 'sign-error', feedback: 'For decay, the rate is $1 - b$, which is positive.' }, { value: r.mul(100), tag: 'percent-rate', feedback: 'This step asks for the decimal. You will change it to a percent next.' }]),
+          finalStep(pr, `Write $r$ as a percent. By what percent does $y$ ${growth ? 'increase' : 'decrease'} each time $x$ increases by 1?`, ['A percent is a number out of 100.', 'Multiply the decimal by 100.', 'Move the decimal point two places to the right.', 'Type just the number of percent.'], `$${dTex(r)} = ${pct(r)}\\%$.`),
+        ]);
     }
     const rr = Q(rng.pick(growth ? [2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 35] : [2, 4, 5, 8, 10, 12, 15, 20, 25, 30, 40]), 100);
     const factor = growth ? Q(1).add(rr) : Q(1).sub(rr);
     const thing = rng.pick(growth ? ['a savings account balance', 'the number of members of a club', 'the population of a city', 'the number of trees in a forest'] : ['the value of a laptop', 'the number of fish in a lake', 'the amount of water in a leaking tank', 'the brightness of a fading light']);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S5.02',
       tags: ['word'],
       prompt: [p(`Each year, ${thing} ${growth ? 'increases' : 'decreases'} by ${pct(rr)}%. What is the ${growth ? 'growth' : 'decay'} factor $b$ in the model $y = a(b)^{x}$?`)],
@@ -195,7 +218,10 @@ export const genInterpretExponential: GeneratorDef = {
         { value: growth ? Q(1).sub(rr) : Q(1).add(rr), tag: 'growth-decay', feedback: growth ? 'An increase needs a factor greater than 1.' : 'A decrease needs a factor less than 1.' },
         { value: rr.mul(100), tag: 'percent-rate', feedback: 'Write the rate as a decimal first.' },
       ]),
-    });
+    }), (pr) => [
+      numStep(`Write ${pct(rr)}% as a decimal.`, rr, ['Percent means "out of 100".', 'Divide the percent by 100.', 'Move the decimal point two places to the left.', `${pct(rr)}% is ${pct(rr)} hundredths.`], `${pct(rr)}% $= ${dTex(rr)}$.`, [{ value: rr.mul(100), tag: 'percent-rate', feedback: 'Divide by 100 to change a percent to a decimal.' }, { value: rr.mul(10), tag: 'percent-rate', feedback: 'Check the decimal point: divide by 100, not by 10.' }]),
+      finalStep(pr, growth ? `For growth, $b = 1 + r$. What is $b$?` : `For decay, $b = 1 - r$. What is $b$?`, [growth ? 'After a year you have all of it (1) plus the increase.' : 'After a year you keep what is left after the decrease.', growth ? 'Add the decimal rate to 1.' : 'Subtract the decimal rate from 1.', growth ? 'The factor should be greater than 1.' : 'The factor should be between 0 and 1.', 'Type the factor as a decimal.'], `$b = ${growth ? `1 + ${dTex(rr)}` : `1 - ${dTex(rr)}`} = ${dTex(factor)}$.`),
+    ]);
   },
   verify(pr) {
     const text = textOf(pr);
@@ -206,27 +232,30 @@ export const genInterpretExponential: GeneratorDef = {
       if (!m || pr.answer.kind !== 'number') return ['cannot read story'];
       const r = Q(m[2]).div(100);
       const want = m[1] === 'increases' ? Q(1).add(r) : Q(1).sub(r);
-      return Q(pr.answer.value).eq(want) ? [] : [`expected ${want.toString()}`];
+      return [...(Q(pr.answer.value).eq(want) ? [] : [`expected ${want.toString()}`]), ...stepErrors(pr, [r])];
     }
     const md = readModel(tex);
     if (!md) return ['cannot read model'];
     const { a, b } = md;
+    // steps, recomputed from a and b read off the printed model
+    const rate = b.sub(1).abs();
     if (pr.answer.kind === 'number') {
-      if (/initial value/.test(text)) return Q(pr.answer.value).eq(a) ? [] : ['initial value wrong'];
-      if (/factor\?/.test(text)) return Q(pr.answer.value).eq(b) ? [] : ['factor wrong'];
+      if (/initial value/.test(text)) return [...(Q(pr.answer.value).eq(a) ? [] : ['initial value wrong']), ...stepErrors(pr, [Q(1)])];
+      if (/factor\?/.test(text)) return [...(Q(pr.answer.value).eq(b) ? [] : ['factor wrong']), ...stepErrors(pr, [a, a.mul(b)])];
       if (/By what percent/.test(text)) {
-        const errs = Q(pr.answer.value).eq(b.sub(1).abs().mul(100)) ? [] : ['percent wrong'];
+        const errs = Q(pr.answer.value).eq(rate.mul(100)) ? [] : ['percent wrong'];
         if (/increase each/.test(text) !== b.gt(1)) errs.push('direction wrong');
-        return errs;
+        return [...errs, ...stepErrors(pr, [rate])];
       }
       return ['unknown question'];
     }
     if (pr.answer.kind !== 'choice') return ['unexpected kind'];
     const label = choiceLabel(pr.answer);
-    if (/growth or exponential decay/.test(text)) return label === (b.gt(1) ? 'Exponential growth' : 'Exponential decay') ? [] : ['type wrong'];
-    if (/represent\?/.test(text)) return /at the start/.test(label) && text.includes(`number $${numStr(a)}$`) ? [] : ['meaning of a wrong'];
-    const want = `${changeWord(b)} by ${pct(b.sub(1).abs())}%`;
-    return label.includes(want) ? [] : [`expected "${want}"`];
+    if (/growth or exponential decay/.test(text)) return [...(label === (b.gt(1) ? 'Exponential growth' : 'Exponential decay') ? [] : ['type wrong']), ...stepErrors(pr, [b])];
+    if (/represent\?/.test(text)) return [...(/at the start/.test(label) && text.includes(`number $${numStr(a)}$`) ? [] : ['meaning of a wrong']), ...stepErrors(pr, [a])];
+    const want = `${changeWord(b)} by ${pct(rate)}%`;
+    const dir = (pr.steps?.[0]?.answer.kind === 'choice' && choiceLabel(pr.steps[0].answer)) || '';
+    return [...(label.includes(want) ? [] : [`expected "${want}"`]), ...stepErrors(pr, [null, rate.mul(100)]), ...(pr.steps && !dir.includes(b.gt(1) ? 'grows' : 'decays') ? ['direction step wrong'] : [])];
   },
 };
 
@@ -352,6 +381,8 @@ export const genWriteExponential: GeneratorDef = {
     let hints: Hints;
     let solution: SolutionStep[];
     let steps: ProblemStep[] | undefined;
+    /** d1/d2 guided steps: find a, find b; the equation itself is the last step */
+    let pre: ProblemStep[] | undefined;
     const tags: Array<'real-world' | 'word' | 'graph' | 'multi-step'> = [];
     if (difficulty === 1) {
       const story = rng.pick(STORIES);
@@ -371,6 +402,10 @@ export const genWriteExponential: GeneratorDef = {
         { text: 'Find the factor.', tex: `b = ${dTex(b)}`, why: `"${opt.phrase}" means multiply by $${dTex(b)}$ each ${story.per}.` },
         { text: 'Write the equation.', tex: expTex(a, b) },
       ];
+      pre = [
+        numStep('What is the starting amount $a$, the value of $y$ when $x = 0$?', a, ['$a$ is the amount before any change happens.', 'When $x = 0$, no time has passed yet.', 'Read the starting amount from the first sentence.', 'Type just the number.'], `$a = ${numStr(a)}$: it is the amount at the start, when $x = 0$.`, [{ value: b, tag: 'growth-decay', feedback: 'That is the factor. The starting amount is the amount when $x = 0$.' }]),
+        numStep(`"${opt.phrase}" tells what $y$ is multiplied by each time $x$ goes up by 1. What is the factor $b$?`, b, ['The factor is what you multiply by each step.', b.gt(1) ? 'The amount gets bigger each step, so $b > 1$.' : 'The amount gets smaller each step, so $0 < b < 1$.', `Ask: the new amount is the old amount times what?`, b.lt(1) ? 'Cutting in half or dividing by a number is the same as multiplying by a fraction.' : 'Doubling means times 2, tripling means times 3.'], `"${opt.phrase}" means multiply by $${dTex(b)}$, so $b = ${dTex(b)}$.`, [{ value: b.inv(), tag: 'growth-decay', feedback: b.gt(1) ? 'A factor less than 1 would make the amount shrink.' : 'A factor greater than 1 would make the amount grow.' }, { value: b.lt(1) ? b.inv().neg() : null, tag: 'growth-decay', feedback: 'The factor is what you multiply by, and it must be positive.' }]),
+      ];
     } else if (difficulty === 2) {
       b = Q(rng.pick(['2', '3', '1.5', '0.5', '0.25', '2.5', '4', '0.2']));
       const den = Number(b.den);
@@ -385,6 +420,10 @@ export const genWriteExponential: GeneratorDef = {
           { text: 'Read the initial value at $x = 0$.', tex: `a = ${numStr(a)}` },
           { text: 'Divide consecutive outputs.', tex: `\\frac{${numStr(yAt(a, b, 1))}}{${numStr(a)}} = \\frac{${numStr(yAt(a, b, 2))}}{${numStr(yAt(a, b, 1))}} = ${dTex(b)}`, why: 'In an exponential function, each output is the previous output times the same factor $b$.' },
           { text: 'Write the equation.', tex: expTex(a, b) },
+        ];
+        pre = [
+          numStep('Read the table. What is $a$, the value of $y$ when $x = 0$?', a, ['In $y = a(b)^{x}$, $a$ is the output when $x = 0$.', 'At $x = 0$, $b^{0} = 1$, so $y = a$.', 'Find the row with $x = 0$.', 'Read its $y$-value.'], `$a = ${numStr(a)}$, the $y$-value at $x = 0$.`, [{ value: yAt(a, b, 1), tag: 'growth-decay', feedback: 'That is the value at $x = 1$. Use the row where $x = 0$.' }]),
+          numStep('Divide each $y$-value by the one before it. What is the factor $b$?', b, ['In an exponential function, each output is the one before it times $b$.', `Divide the $y$-value at $x = 1$ by the $y$-value at $x = 0$.`, `Find $${numStr(yAt(a, b, 1))} \\div ${numStr(a)}$.`, 'Check that the next pair of rows gives the same ratio.'], `$b = \\frac{${numStr(yAt(a, b, 1))}}{${numStr(a)}} = ${dTex(b)}$, and every pair of rows gives the same ratio.`, [{ value: yAt(a, b, 1).sub(a), tag: 'growth-decay', feedback: 'That is the difference. An exponential function multiplies, so divide the outputs.' }, { value: b.inv(), tag: 'growth-decay', feedback: 'Divide each $y$-value by the one before it, not the other way around.' }]),
         ];
       } else {
         tags.push('graph');
@@ -402,6 +441,10 @@ export const genWriteExponential: GeneratorDef = {
           { text: 'Read the $y$-intercept.', tex: `a = ${numStr(a)}`, why: 'At $x = 0$, $b^{0} = 1$, so $y = a$.' },
           { text: 'Divide consecutive $y$-values.', tex: `b = \\frac{${numStr(yAt(a, b, 1))}}{${numStr(a)}} = ${dTex(b)}` },
           { text: 'Write the equation.', tex: expTex(a, b) },
+        ];
+        pre = [
+          numStep('Read the graph. What is $a$, the $y$-intercept?', a, ['The $y$-intercept is where the graph crosses the $y$-axis.', 'On the $y$-axis, $x = 0$.', 'Find the labeled point with $x = 0$.', 'Give its $y$-coordinate.'], `$a = ${numStr(a)}$: at $x = 0$, $b^{0} = 1$, so $y = a$.`, [{ value: yAt(a, b, 1), tag: 'graph-reading', feedback: 'That is the point at $x = 1$. Use the point where the graph crosses the $y$-axis.' }]),
+          numStep('Divide the $y$-value at $x = 1$ by the $y$-value at $x = 0$. What is the factor $b$?', b, ['In an exponential function, each step of 1 in $x$ multiplies $y$ by $b$.', 'Read the labeled points at $x = 0$ and $x = 1$.', `Find $${numStr(yAt(a, b, 1))} \\div ${numStr(a)}$.`, 'Check with the point at $x = 2$.'], `$b = \\frac{${numStr(yAt(a, b, 1))}}{${numStr(a)}} = ${dTex(b)}$.`, [{ value: yAt(a, b, 1).sub(a), tag: 'growth-decay', feedback: 'That is the difference. An exponential function multiplies, so divide the outputs.' }, { value: b.inv(), tag: 'growth-decay', feedback: 'Divide the later $y$-value by the earlier one.' }]),
         ];
       }
     } else {
@@ -455,6 +498,7 @@ export const genWriteExponential: GeneratorDef = {
       solution: solution!,
       misconceptions: mis,
       ...(steps ? { steps } : {}),
+      ...(pre ? { steps: [...pre, finalStep({ answer: { kind: 'equation', value: key, form: 'exponential' }, misconceptions: mis, inputHint: 'Type an equation like y = 50(2)^x or y = 80(0.5)^x.' }, 'Now write the equation $y = a(b)^{x}$.', ['Use the form $y = a(b)^{x}$.', 'Put the starting amount $a$ in front.', 'Put the factor $b$ in parentheses as the base.', 'Keep $x$ as the exponent.'], `$${expTex(a, b)}$: start at $${numStr(a)}$ and multiply by $${dTex(b)}$ each time $x$ goes up by 1.`)] } : {}),
     });
   },
   verify(pr) {

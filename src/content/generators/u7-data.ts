@@ -11,6 +11,7 @@ import { parseInterval, intervalsEqual, type Misconception } from '../../core/ma
 import { Rational } from '../../core/math/rational';
 import { mean, median, fiveNumber, iqr, fences, outliers, variance, stdDev, sorted } from '../../core/math/stats';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
+import { numStep, specStep, choiceStep, finalStep, withSteps, stepShapeErrors, expectSteps, stepLabel, addStepChecks, type H4, type StepMis } from './u7-steps';
 
 type Mis = { value: Rational | null; tag: MisconceptionTag; feedback: string };
 const R = (xs: number[]) => xs.map((x) => Q(x));
@@ -108,7 +109,7 @@ export const genCenter: GeneratorDef = {
       const ans = numAns(v, c.unit);
       const s = sorted(xs);
       const unsortedMiddle = xs[Math.floor(n / 2)];
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.01',
         tags: ['real-world'],
         prompt: [p(`The data show the ${c.what} for ${n} ${c.who}. Find the ${askMean ? 'mean' : 'median'}.${askMean ? ans.note : ''}`), dataBlock(xs)],
@@ -134,6 +135,17 @@ export const genCenter: GeneratorDef = {
               { value: unsortedMiddle.eq(v) ? null : unsortedMiddle, tag: 'statistics-concept', feedback: 'Put the data in order before finding the middle value.' },
               { value: mean(xs).eq(v) ? null : mean(xs).round(1), tag: 'statistics-concept', feedback: 'That is the mean. The median is the middle value of the ordered data.' },
             ]),
+      }), (pr) => {
+        const sum = xs.reduce((a, b) => a.add(b), Q(0));
+        return askMean
+          ? [
+              numStep(`Add all ${n} values. What is their sum?`, sum, ['The mean starts from the total of all the values.', 'Add the values one at a time and keep a running total.', `There are ${n} values. Check that you added every one of them.`, 'Group values that are easy to add together first, like ones that make a multiple of 10.'], `The ${n} values add up to $${fmt(sum)}$.`, [{ value: sum.sub(xs[n - 1]), tag: 'arithmetic-error', feedback: `It looks like one value was left out. Add all ${n} of them.` }]),
+              finalStep(pr, `Divide the sum by the number of values, ${n}. What is the mean?${ans.note}`, ['The mean shares the total equally among all the values.', `Divide your sum by ${n}.`, `Use the sum from the last step, not ${n - 1} or another count.`, ans.note ? 'Divide, then round to one decimal place.' : 'The quotient is the mean.'], 'Mean = sum ÷ number of values: the total shared out equally.'),
+            ]
+          : [
+              numStep(`There are ${n} values. In the ordered list, which position (1st, 2nd, 3rd, ...) is the middle one?`, Q(n + 1, 2), ['The median has as many values below it as above it.', `Set the middle value aside. The other ${n - 1} values split evenly, half below and half above.`, `So ${(n - 1) / 2} values come before the middle one.`, 'The middle value comes right after the values below it: add 1.'], `${(n - 1) / 2} values are below it and ${(n - 1) / 2} are above it.`, [{ value: Q((n - 1) / 2), tag: 'statistics-concept', feedback: 'That is how many values come before the middle one. Which position is the middle value itself?' }]),
+              finalStep(pr, 'Put the values in order from least to greatest and count to that position. What is the median?', ['The median is the middle of the ordered data.', 'Write the values from least to greatest first.', 'Cross off one value from each end, again and again.', 'The value left in the middle is the median.'], 'The median is the middle value once the data are in order.'),
+            ];
       });
     }
     if (difficulty === 2) {
@@ -152,7 +164,7 @@ export const genCenter: GeneratorDef = {
         ? { t: 'table', headers: [`${c.what[0].toUpperCase()}${c.what.slice(1)}`, 'Frequency'], rows: uniq.map((u, i) => [String(u), String(freq[i])]) }
         : { t: 'dataplot', spec: { kind: 'dot', min: uniq[0] - 1, max: uniq[uniq.length - 1] + 1, step: 1, axisLabel: c.what, values: xs.map((x) => x.toNumber()), ariaLabel: `Dot plot of ${n} values: ${uniq.map((u, i) => `${freq[i]} at ${u}`).join(', ')}.` } };
       const distinctMean = mean(R(uniq));
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.01',
         tags: ['real-world'],
         prompt: [p(`The ${useTable ? 'frequency table' : 'dot plot'} shows the ${c.what} for some ${c.who}. Find the ${askMean ? 'mean' : 'median'}.${askMean ? ans.note : ''}`), shown],
@@ -172,6 +184,19 @@ export const genCenter: GeneratorDef = {
         misconceptions: numberMisconceptions(askMean ? v.round(1) : v, [
           { value: askMean ? (distinctMean.eq(v) ? null : distinctMean.round(1)) : median(R(uniq)).eq(v) ? null : median(R(uniq)), tag: 'statistics-concept', feedback: `Each value has to be counted as many times as it appears, not just once.` },
         ]),
+      }), (pr) => {
+        const sum = xs.reduce((a, b) => a.add(b), Q(0));
+        const count = numStep(`How many values are there in all?`, Q(n), [`Each ${useTable ? 'row of the table' : 'stack of dots'} is one value that can appear more than once.`, useTable ? 'Add up the frequency column.' : 'Count every dot, not just the stacks.', `There are ${uniq.length} different values, and some repeat.`, useTable ? 'The total of the frequencies is the number of values.' : 'Count the dots in each stack and add the counts.'], `There are ${n} values in all.`, [{ value: Q(uniq.length), tag: 'statistics-concept', feedback: 'That counts each different value once. Count every value as many times as it appears.' }]);
+        return askMean
+          ? [
+              count,
+              numStep('Find the total of all the values: multiply each value by how many times it appears, then add. What is the total?', sum, ['Each value is added once for every time it appears.', `Multiply each value by its ${useTable ? 'frequency' : 'number of dots'}.`, 'Add those products.', `For example, ${uniq[0]} appears ${freq[0]} time${freq[0] === 1 ? '' : 's'}, so it adds ${uniq[0]} × ${freq[0]}.`], `Multiplying by the frequency adds a value as many times as it appears, so the total is $${fmt(sum)}$.`, [{ value: R(uniq).reduce((a, b) => a.add(b), Q(0)), tag: 'statistics-concept', feedback: 'That adds each different value only once. Multiply each value by how many times it appears.' }]),
+              finalStep(pr, `Divide the total by the number of values. What is the mean?${ans.note}`, ['Mean = total ÷ number of values.', 'Use the total and the count from the last two steps.', 'Divide the total by the count.', ans.note ? 'Round to one decimal place.' : 'The quotient is the mean.'], 'The mean shares the total equally among all the values.'),
+            ]
+          : [
+              count,
+              finalStep(pr, 'Count up from the smallest value to the middle of the data. What is the median?', [n % 2 === 1 ? `With ${n} values, the middle one is value number ${(n + 1) / 2}.` : `With ${n} values, the middle two are values number ${n / 2} and ${n / 2 + 1}.`, `Use the ${useTable ? 'frequencies' : 'dots'} to count up from the smallest value.`, `Keep a running count as you go through the ${useTable ? 'rows' : 'stacks'}.`, n % 2 === 1 ? 'Stop at the middle position; that value is the median.' : 'Average the two middle values.'], n % 2 === 1 ? 'The middle value has the same number of values on each side.' : 'With an even count, the median is halfway between the two middle values.'),
+            ];
       });
     }
     const kind = rng.pick(['better', 'missing', 'effect'] as const);
@@ -181,7 +206,7 @@ export const genCenter: GeneratorDef = {
       const known = randomData(rng, n - 1, c.lo, c.hi);
       const missing = Q(target * n).sub(known.reduce((a, b) => a.add(b), Q(0)));
       if (missing.lt(c.lo) || missing.gt(c.hi)) return genCenter.generate(rng, 3);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.01',
         tags: ['real-world', 'multi-step'],
         prompt: [p(`The mean of the ${c.what} for ${n} ${c.who} is $${target}$. Here are ${n - 1} of the values. What is the missing value?`), dataBlock(known)],
@@ -196,6 +221,13 @@ export const genCenter: GeneratorDef = {
           { value: Q(target * (n - 1)).sub(known.reduce((a, b) => a.add(b), Q(0))), tag: 'statistics-concept', feedback: `There are ${n} values in all, including the missing one. Multiply the mean by ${n}.` },
           { value: mean(known).eq(missing) ? null : mean(known).round(1), tag: 'statistics-concept', feedback: 'That is the mean of the known values. The missing value has to bring the total up to the mean times the count.' },
         ]),
+      }), (pr) => {
+        const knownSum = known.reduce((a, b) => a.add(b), Q(0));
+        return [
+          numStep(`The mean of all ${n} values is $${target}$. What is the total of all ${n} values?`, Q(target * n), ['Mean = total ÷ count.', 'Work backward: undo the division.', `Multiply the mean by the number of values, ${n}.`, `Count the missing value too: there are ${n} values in all.`], `Mean = total ÷ count, so total = mean × count = $${target * n}$.`, [{ value: Q(target * (n - 1)), tag: 'statistics-concept', feedback: `There are ${n} values in all, including the missing one.` }]),
+          numStep(`What is the sum of the ${n - 1} values you know?`, knownSum, ['Add the values shown.', 'Keep a running total.', `There are ${n - 1} values to add.`, 'Check each value once more.'], `The known values add up to $${fmt(knownSum)}$.`),
+          finalStep(pr, 'What is the missing value?', ['The missing value makes up the difference between the two totals.', 'Subtract the known sum from the total.', 'Use your answers from the last two steps.', 'Total of all values − sum of the known values.'], 'The missing value is whatever the known values leave out of the total.'),
+        ];
       });
     }
     // data with one high outlier
@@ -206,7 +238,7 @@ export const genCenter: GeneratorDef = {
     const all = [...xs, out];
     if (kind === 'better') {
       const correct = 'The median, because the outlier pulls the mean up';
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.01',
         tags: ['real-world'],
         prompt: [p(`The data show the ${c.what} for ${n} ${c.who}. Which measure of center better describes a typical value?`), dataBlock(all)],
@@ -217,7 +249,11 @@ export const genCenter: GeneratorDef = {
           { text: 'The median is closer to most of the values, so it describes a typical value better.', why: 'The median is resistant to outliers; the mean is not.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        numStep('Which value is far away from all the others? Type it.', out, ['Look for a value much larger or much smaller than the rest.', 'Most of the values are close together.', 'Check the largest value.', 'Compare the largest value with the next largest.'], `$${fmt(out)}$ is much larger than every other value.`, [{ value: sorted(xs)[0], tag: 'statistics-concept', feedback: 'That is the smallest value, but it is close to the others. Look for a value far from the rest.' }]),
+        choiceStep('Which measure of center gets pulled toward a far-away value?', 'The mean', ['The median', 'Neither one'], ['Think about how each measure is found.', 'The mean uses the size of every value.', 'The median only uses the middle position of the ordered data.', 'A very large value raises the total a lot.'], 'The mean uses every value, so a huge value raises the total and pulls the mean up. The median just counts to the middle.', { 'The median': 'The median only depends on the middle of the ordered data, so one huge value barely moves it.', 'Neither one': 'One of them uses the size of every value, so it is pulled.' }),
+        finalStep(pr, 'Which measure of center better describes a typical value?', ['A typical value should be close to most of the data.', 'The outlier pulls one measure away from most of the data.', 'Pick the measure that is not pulled.', 'That measure is resistant to outliers.'], 'The median is resistant to outliers, so it stays near most of the data.', { feedback: { 'The mean, because it uses every value': 'Using every value is exactly why the mean is pulled toward the outlier.', 'The mean, because the median ignores the largest value': 'The median does not ignore the largest value; it just is not pulled by how big it is.', 'They are always the same, so either one': 'The mean and median are only about the same for symmetric data without outliers.' } }),
+      ]);
     }
     // effect of adding a value on mean and median
     const before = xs;
@@ -231,7 +267,7 @@ export const genCenter: GeneratorDef = {
     if (!ma.sub(mb).abs().round(1).eq(ma.round(1).sub(mb.round(1)).abs())) return genCenter.generate(rng, 3);
     const correct = `The mean ${word(mb, ma)} by about ${ma.sub(mb).abs().round(1).toDecimalString(1)}, and the median ${word(db, da) === 'stays the same' ? 'stays the same' : `${word(db, da)} by ${fmt(da.sub(db).abs())}`}.`;
     if (da.sub(db).abs().mul(3).gt(ma.sub(mb).abs())) return genCenter.generate(rng, 3);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S7.01',
       tags: ['real-world', 'multi-step'],
       prompt: [p(`The data show the ${c.what} for ${n - 1} ${c.who}. Then one more value, $${fmt(out)}$, is added. How do the mean and median change?`), dataBlock(before)],
@@ -247,6 +283,14 @@ export const genCenter: GeneratorDef = {
         { text: correct },
       ],
       misconceptions: [],
+    }), (pr) => {
+      const tenth = (v: Rational) => (v.mul(100).isInteger() ? {} : { roundTo: 1 });
+      return [
+        numStep(`What is the mean of the ${n - 1} values before the new value is added? Round to the nearest tenth if needed.`, mb, ['Add the values and divide by how many there are.', `There are ${n - 1} values.`, 'Add them, keeping a running total.', `Divide the sum by ${n - 1}.`], 'This is the mean before the change.', [], tenth(mb)),
+        numStep(`Now add $${fmt(out)}$ to the data. What is the new mean? Round to the nearest tenth if needed.`, ma, ['Add the new value to the old sum.', `There are now ${n} values.`, `Divide the new sum by ${n}.`, 'Round only at the end.'], 'One big value raised the total a lot, so the mean jumped.', [{ value: ma.round(1).eq(mb.add(out).div(2).round(1)) ? null : mb.add(out).div(2).round(1), tag: 'statistics-concept', feedback: 'Do not average the old mean with the new value. Add the new value to the total and divide by the new count.' }], tenth(ma)),
+        numStep('By how much does the median change? Type 0 if it stays the same.', da.sub(db).abs(), ['Find the median before and after.', 'Order the data each time.', 'With one more value, the middle moves by at most half a position.', 'Subtract the smaller median from the larger.'], 'The middle of the ordered data moves very little when one value is added.', [{ value: ma.sub(mb).abs().round(1), tag: 'statistics-concept', feedback: 'That is how much the mean changed. Find the median before and after.' }]),
+        finalStep(pr, 'How do the mean and median change?', ['Use your answers from the last three steps.', 'Compare the two means.', 'Compare the change in the median with the change in the mean.', 'A large new value moves the mean much more than the median.'], 'The mean uses the size of every value, while the median only depends on the middle position.', { feedback: { [`The mean and the median both ${plural(word(mb, ma))} by about ${ma.sub(mb).abs().round(1).toDecimalString(1)}.`]: 'The median changes much less than the mean. Check your median before and after.', 'Neither one changes, because only one value was added.': 'Even one value changes the total and shifts the middle of the data.' } }),
+      ];
     });
   },
   verify(pr) {
@@ -298,6 +342,21 @@ function boxReadable(boxes: Array<{ min: number; q1: number; median: number; q3:
   return boxes.every((b) => [b.min, b.q1, b.median, b.q3, b.max].every((v) => v >= ax.min && v <= ax.max && Math.abs((v - ax.min) / every - Math.round((v - ax.min) / every)) < 1e-9));
 }
 
+/** Wrong five-number summaries a student is likely to give, written as sequence-terms misconceptions ("a|b|c|d|e"). */
+function fiveSummaryMistakes(s: Rational[], f: ReturnType<typeof fiveNumber>): Misconception[] {
+  const n = s.length;
+  const key = [f.min, f.q1, f.median, f.q3, f.max].map(numStr).join('|');
+  const out: Misconception[] = [];
+  const add = (vals: Rational[], feedback: string) => {
+    const a = vals.map(numStr).join('|');
+    if (a !== key && !out.some((o) => o.answer === a)) out.push({ answer: a, tag: 'statistics-concept', feedback });
+  };
+  if (n % 2 === 1) add([f.min, median(s.slice(0, (n + 1) / 2)), f.median, median(s.slice((n - 1) / 2)), f.max], 'With an odd number of values, leave the median out of both halves when you find Q1 and Q3.');
+  add([f.min, f.q1, mean(s).round(1), f.q3, f.max], 'The middle number of the summary is the median, not the mean.');
+  add([f.min, f.median, f.q1, f.q3, f.max], 'List the summary in order: minimum, Q1, median, Q3, maximum.');
+  return out;
+}
+
 export const genQuartiles: GeneratorDef = {
   id: 'u7.quartiles',
   skillId: 'S7.02',
@@ -318,7 +377,7 @@ export const genQuartiles: GeneratorDef = {
       const shownData = difficulty === 1 ? s : xs;
       const askFive = difficulty === 1 && rng.bool();
       const k = iqr(xs);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.02',
         tags: ['real-world'],
         prompt: [p(`The data show the ${c.what} for ${n} ${c.who}${difficulty === 1 ? ', in order' : ''}. ${askFive ? 'Find the five-number summary.' : 'Find the interquartile range (IQR).'}`), dataBlock(shownData)],
@@ -331,11 +390,21 @@ export const genQuartiles: GeneratorDef = {
           askFive ? { text: 'List the five-number summary.', tex: `${fmt(f.min)},\\ ${fmt(f.q1)},\\ ${fmt(f.median)},\\ ${fmt(f.q3)},\\ ${fmt(f.max)}`, why: 'Minimum, Q1, median, Q3, maximum.' } : { text: 'Subtract.', tex: `\\text{IQR} = ${fmt(f.q3)} - ${fmt(f.q1)} = ${fmt(k)}`, why: 'The IQR is the spread of the middle half of the data.' },
         ],
         misconceptions: askFive
-          ? []
+          ? fiveSummaryMistakes(s, f)
           : numberMisconceptions(k, [
               { value: f.max.sub(f.min), tag: 'statistics-concept', feedback: 'That is the range (max − min). The IQR is Q3 − Q1.' },
               { value: n % 2 === 1 ? median(s.slice(Math.floor(n / 2))).sub(median(s.slice(0, Math.floor(n / 2) + 1))) : null, tag: 'statistics-concept', feedback: 'With an odd number of values, leave the median out of both halves.' },
             ]),
+      }), (pr) => {
+        const incQ1 = n % 2 === 1 ? median(s.slice(0, (n + 1) / 2)) : null;
+        const incQ3 = n % 2 === 1 ? median(s.slice((n - 1) / 2)) : null;
+        const incFb = 'With an odd number of values, leave the median out of both halves.';
+        return [
+          numStep(`${difficulty === 1 ? '' : 'Put the data in order first. '}What is the median of all ${n} values?`, f.median, ['The median is the middle of the ordered data.', difficulty === 1 ? 'The data are already in order.' : 'Write the values from least to greatest.', n % 2 === 1 ? `With ${n} values, the middle one is value number ${(n + 1) / 2}.` : `With ${n} values, the middle two are values number ${n / 2} and ${n / 2 + 1}.`, n % 2 === 1 ? 'Count to that position.' : 'Average the two middle values.'], 'The median splits the data into a lower half and an upper half.', [{ value: mean(xs).round(1), tag: 'statistics-concept', feedback: 'That is the mean. The median is the middle of the ordered data.' }, { value: difficulty === 3 ? xs[Math.floor(n / 2)] : null, tag: 'statistics-concept', feedback: 'Order the data before finding the middle.' }]),
+          numStep('What is Q1, the median of the lower half?', f.q1, ['The lower half is every value below the median.', halfNote, `The lower half has ${Math.floor(n / 2)} values.`, 'Find the middle of the lower half.'], 'Q1 has about a quarter of the data below it.', [{ value: incQ1, tag: 'statistics-concept', feedback: incFb }, { value: s[0], tag: 'statistics-concept', feedback: 'That is the minimum. Q1 is the median of the lower half.' }]),
+          numStep('What is Q3, the median of the upper half?', f.q3, ['The upper half is every value above the median.', halfNote, `The upper half has ${Math.floor(n / 2)} values.`, 'Find the middle of the upper half.'], 'Q3 has about a quarter of the data above it.', [{ value: incQ3, tag: 'statistics-concept', feedback: incFb }, { value: s[n - 1], tag: 'statistics-concept', feedback: 'That is the maximum. Q3 is the median of the upper half.' }]),
+          finalStep(pr, askFive ? 'Write the five-number summary: minimum, Q1, median, Q3, maximum.' : 'What is the interquartile range, IQR = Q3 − Q1?', askFive ? ['You already have Q1, the median and Q3.', 'The minimum is the smallest value and the maximum is the largest.', 'List them from smallest to largest.', 'Separate the five numbers with commas.'] : ['The IQR is the spread of the middle half of the data.', 'Use Q1 and Q3 from the last two steps.', 'Subtract Q1 from Q3.', 'Do not use the minimum and maximum; that would be the range.'], askFive ? 'These five numbers are exactly what a box plot draws.' : 'The IQR measures the spread of the middle 50% of the data.'),
+        ];
       });
     }
     if (difficulty === 2) {
@@ -352,7 +421,7 @@ export const genQuartiles: GeneratorDef = {
       ]);
       const val = ask === 'q1' ? f.q1 : ask === 'median' ? f.median : ask === 'q3' ? f.q3 : ask === 'iqr' ? f.q3.sub(f.q1) : ask === 'range' ? f.max.sub(f.min) : Q(pct.v);
       const question = ask === 'q1' ? 'What is the first quartile, Q1?' : ask === 'median' ? 'What is the median?' : ask === 'q3' ? 'What is the third quartile, Q3?' : ask === 'iqr' ? 'What is the interquartile range (IQR)?' : ask === 'range' ? 'What is the range?' : `About what percent of the ${c.who} had ${c.what} ${pct.text}?`;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.02',
         tags: ['graph', 'real-world'],
         prompt: [p(`The box plot shows the ${c.what} for a group of ${c.who}. ${question}`), { t: 'dataplot', spec }],
@@ -362,7 +431,31 @@ export const genQuartiles: GeneratorDef = {
           { text: 'Read the five-number summary from the box plot.', tex: `${fmt(f.min)},\\ ${fmt(f.q1)},\\ ${fmt(f.median)},\\ ${fmt(f.q3)},\\ ${fmt(f.max)}`, why: 'Minimum, Q1, median, Q3 and maximum are the five lines of the plot.' },
           { text: ask === 'pct' ? `Values ${pct.text} make up ${pct.v / 25} of the four quarters.` : 'Use the values you need.', tex: ask === 'iqr' ? `${fmt(f.q3)} - ${fmt(f.q1)} = ${fmt(val)}` : ask === 'range' ? `${fmt(f.max)} - ${fmt(f.min)} = ${fmt(val)}` : ask === 'pct' ? `${pct.v / 25} \\times 25\\% = ${pct.v}\\%` : `${fmt(val)}`, why: ask === 'pct' ? 'Each quarter holds about 25% of the data.' : undefined },
         ],
-        misconceptions: numberMisconceptions(val, ask === 'iqr' ? [{ value: f.max.sub(f.min), tag: 'statistics-concept', feedback: 'That is the range. The IQR is the width of the box, Q3 − Q1.' }] : ask === 'range' ? [{ value: f.q3.sub(f.q1), tag: 'statistics-concept', feedback: 'That is the IQR. The range uses the whiskers: max − min.' }] : ask === 'pct' ? [{ value: Q(100 - pct.v), tag: 'statistics-concept', feedback: 'Check which side of the value you need.' }] : []),
+        misconceptions: numberMisconceptions(val, ask === 'iqr' ? [{ value: f.max.sub(f.min), tag: 'statistics-concept', feedback: 'That is the range. The IQR is the width of the box, Q3 − Q1.' }] : ask === 'range' ? [{ value: f.q3.sub(f.q1), tag: 'statistics-concept', feedback: 'That is the IQR. The range uses the whiskers: max − min.' }] : ask === 'pct' ? [{ value: Q(100 - pct.v), tag: 'statistics-concept', feedback: 'Check which side of the value you need.' }] : ask === 'q1' ? [{ value: f.median, tag: 'graph-reading', feedback: 'That is the median, the line inside the box. Q1 is the left edge of the box.' }, { value: f.min, tag: 'graph-reading', feedback: 'That is the minimum, the end of the left whisker. Q1 is the left edge of the box.' }] : ask === 'q3' ? [{ value: f.median, tag: 'graph-reading', feedback: 'That is the median, the line inside the box. Q3 is the right edge of the box.' }, { value: f.max, tag: 'graph-reading', feedback: 'That is the maximum, the end of the right whisker. Q3 is the right edge of the box.' }] : [{ value: f.q1, tag: 'graph-reading', feedback: 'That is Q1, the left edge of the box. The median is the line inside the box.' }, { value: f.q3, tag: 'graph-reading', feedback: 'That is Q3, the right edge of the box. The median is the line inside the box.' }]),
+      }), (pr) => {
+        const parts: Record<string, string> = { q1: 'The left edge of the box', median: 'The line inside the box', q3: 'The right edge of the box' };
+        const allParts = ['The left edge of the box', 'The line inside the box', 'The right edge of the box', 'The end of the left whisker', 'The end of the right whisker'];
+        const partFb: Record<string, string> = { 'The left edge of the box': 'The left edge of the box is Q1.', 'The line inside the box': 'The line inside the box is the median.', 'The right edge of the box': 'The right edge of the box is Q3.', 'The end of the left whisker': 'The end of the left whisker is the minimum.', 'The end of the right whisker': 'The end of the right whisker is the maximum.' };
+        const name = ask === 'q1' ? 'first quartile, Q1' : ask === 'median' ? 'median' : 'third quartile, Q3';
+        const readHints: H4 = ['Find that mark on the plot.', 'Look straight down from it to the axis.', `The axis ticks are ${axisFor(f.min.toNumber(), f.max.toNumber()).step} apart.`, 'Read the number at that tick.'];
+        if (ask === 'q1' || ask === 'median' || ask === 'q3')
+          return [
+            choiceStep(`Which part of the box plot shows the ${name}?`, parts[ask], allParts.filter((x) => x !== parts[ask]), ['A box plot has five marks: two whisker ends, two box edges and a line inside the box.', 'The box holds the middle half of the data.', 'The box runs from Q1 to Q3.', 'The median splits the box into two parts.'], `${parts[ask]} is the ${name}.`, partFb),
+            finalStep(pr, `Read the ${name} from the axis.`, readHints, `The ${name} is the value under that mark.`),
+          ];
+        if (ask === 'iqr' || ask === 'range') {
+          const [lo, hi] = ask === 'iqr' ? [f.q1, f.q3] : [f.min, f.max];
+          const [loName, hiName] = ask === 'iqr' ? ['Q1 (the left edge of the box)', 'Q3 (the right edge of the box)'] : ['the minimum (the end of the left whisker)', 'the maximum (the end of the right whisker)'];
+          return [
+            numStep(`What is ${loName}?`, lo, readHints, `That mark is at $${fmt(lo)}$.`, [{ value: ask === 'iqr' ? f.min : f.q1, tag: 'graph-reading', feedback: ask === 'iqr' ? 'That is the minimum. Q1 is the left edge of the box.' : 'That is Q1. The minimum is the end of the left whisker.' }]),
+            numStep(`What is ${hiName}?`, hi, readHints, `That mark is at $${fmt(hi)}$.`, [{ value: ask === 'iqr' ? f.max : f.q3, tag: 'graph-reading', feedback: ask === 'iqr' ? 'That is the maximum. Q3 is the right edge of the box.' : 'That is Q3. The maximum is the end of the right whisker.' }]),
+            finalStep(pr, ask === 'iqr' ? 'What is the IQR, Q3 − Q1?' : 'What is the range, maximum − minimum?', ['Subtract the smaller value from the larger.', 'Use your answers from the last two steps.', ask === 'iqr' ? 'The IQR is the width of the box.' : 'The range is the length of the whole plot, whisker to whisker.', 'A spread is never negative.'], ask === 'iqr' ? 'The IQR is the spread of the middle half of the data.' : 'The range is the spread of all the data.'),
+          ];
+        }
+        return [
+          numStep(`The marks split the data into four sections that each hold about 25% of the data. How many of those sections are ${pct.text}?`, Q(pct.v / 25), ['The four sections are: left whisker, left part of the box, right part of the box, right whisker.', `Find ${pct.text.replace(/^(greater|less) than |^between /, '')} on the plot.`, `Count the sections on the ${/greater/.test(pct.text) ? 'right of' : /less/.test(pct.text) ? 'left of' : 'inside'} that part.`, 'Each whisker and each half of the box is one section.'], 'Each mark of a box plot is a quarter of the way further through the ordered data.', [{ value: Q(4 - pct.v / 25), tag: 'statistics-concept', feedback: 'That counts the sections on the other side. Check which side you need.' }]),
+          finalStep(pr, `About what percent of the ${c.who} had ${c.what} ${pct.text}?`, ['Each section is about 25%.', 'Multiply the number of sections by 25%.', 'Use your count from the last step.', 'Type the percent as a number.'], 'Each of the four sections holds about a quarter of the data.'),
+        ];
       });
     }
     // which box plot matches the data (summaries written as text)
@@ -374,7 +467,7 @@ export const genQuartiles: GeneratorDef = {
       `Min ${fmt(xs[0])}, Q1 ${fmt(f.q1)}, median ${fmt(xs[Math.floor(n / 2)])}, Q3 ${fmt(f.q3)}, max ${fmt(xs[n - 1])}`,
     ].filter((w) => w !== right);
     if (wrongs.length < 2) return genQuartiles.generate(rng, 3);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S7.02',
       tags: ['real-world', 'multi-step'],
       prompt: [p(`The data show the ${c.what} for ${n} ${c.who}. Which five-number summary would a box plot of these data show?`), dataBlock(xs)],
@@ -386,7 +479,12 @@ export const genQuartiles: GeneratorDef = {
         { text: right + '.' },
       ],
       misconceptions: [],
-    });
+    }), (pr) => [
+      numStep('Put the data in order. What is the median?', f.median, ['The median is the middle of the ordered data.', 'Write the values from least to greatest.', n % 2 === 1 ? `With ${n} values, the middle one is value number ${(n + 1) / 2}.` : `With ${n} values, the middle two are values number ${n / 2} and ${n / 2 + 1}.`, n % 2 === 1 ? 'Count to that position.' : 'Average the two middle values.'], 'The median splits the data into two halves.', [{ value: xs[Math.floor(n / 2)], tag: 'statistics-concept', feedback: 'Order the data before finding the middle.' }, { value: mean(xs).round(1), tag: 'statistics-concept', feedback: 'That is the mean. The median is the middle of the ordered data.' }]),
+      numStep('What is Q1?', f.q1, ['Q1 is the median of the lower half.', halfNote, `The lower half has ${Math.floor(n / 2)} values.`, 'Find the middle of the lower half.'], 'About a quarter of the data are below Q1.', [{ value: inclusive ? inclusive.q1 : null, tag: 'statistics-concept', feedback: 'With an odd number of values, leave the median out of both halves.' }]),
+      numStep('What is Q3?', f.q3, ['Q3 is the median of the upper half.', halfNote, `The upper half has ${Math.floor(n / 2)} values.`, 'Find the middle of the upper half.'], 'About a quarter of the data are above Q3.', [{ value: inclusive ? inclusive.q3 : null, tag: 'statistics-concept', feedback: 'With an odd number of values, leave the median out of both halves.' }]),
+      finalStep(pr, 'Which five-number summary matches the data?', ['Use your median, Q1 and Q3.', 'The minimum and maximum are the smallest and largest values.', 'All five numbers must match.', 'Check each choice number by number.'], 'A box plot draws the minimum, Q1, median, Q3 and maximum.', { feedback: { [wrongs[0]]: `Check Q1 and Q3. ${halfNote}`, [`Min ${fmt(f.min)}, Q1 ${fmt(f.q1)}, median ${fmt(mean(xs).round(1))}, Q3 ${fmt(f.q3)}, max ${fmt(f.max)}`]: 'The middle number there is the mean, not the median.', [`Min ${fmt(xs[0])}, Q1 ${fmt(f.q1)}, median ${fmt(xs[Math.floor(n / 2)])}, Q3 ${fmt(f.q3)}, max ${fmt(xs[n - 1])}`]: 'Those use the first, middle and last values of the list as given. Order the data first.' } }),
+    ]);
   },
   verify(pr) {
     const text = textAll(pr);
@@ -478,7 +576,7 @@ function madCompare(rng: Rng, c: Ctx) {
   const cmp = v.gt(d.mul(d)) ? 0 : v.eq(d.mul(d)) ? 1 : 2;
   const correct = SIGMA_VS_MAD[cmp];
   const sdTex = v.isInteger() && Number.isInteger(sd) ? `= ${sd}` : `= \\sqrt{${v.mul(100).isInteger() ? numStr(v) : v.toTex()}} \\approx ${sd.toFixed(2)}`;
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S7.03',
     tags: ['real-world'],
     prompt: [p(`The data show the ${c.what} for ${n} ${c.who}. The mean is $${numStr(m)}$ and the mean absolute deviation (MAD) is $${numStr(d)}$. Find the standard deviation σ (divide by $n$). How does σ compare with the MAD?`), dataBlock(xs)],
@@ -491,6 +589,14 @@ function madCompare(rng: Rng, c: Ctx) {
       { text: `So ${correct}.`, why: cmp === 1 ? 'Every value is the same distance from the mean, so both measures equal that distance.' : 'σ is never smaller than the MAD. It is larger when some values are farther from the mean than others, because squaring counts the far values more.' },
     ],
     misconceptions: [],
+  }), (pr) => {
+    const ss = v.mul(n);
+    const sdExact = v.isInteger() && Number.isInteger(sd);
+    return [
+      numStep(`The mean is $${numStr(m)}$. Square each deviation (value − mean) and add the squares. What is the sum?`, ss, ['Find each deviation: value minus the mean.', 'Square each deviation, so every one is positive.', 'Add the squares.', `There are ${n} squares to add.`], `The squared deviations add to $${numStr(ss)}$.`, [{ value: xs.reduce((a, x) => a.add(x.sub(m).abs()), Q(0)), tag: 'statistics-concept', feedback: 'That adds the distances without squaring them. Square each deviation first.' }]),
+      numStep(`Divide that sum by $n = ${n}$ and take the square root. What is σ${sdExact ? '' : ', rounded to the nearest hundredth'}?`, sdExact ? Q(sd) : sd.toFixed(12), ['σ is the square root of the average squared deviation.', `Divide the sum by ${n}.`, 'Take the square root of the result.', sdExact ? 'The result is a whole number.' : 'Round to two decimal places at the end.'], 'The square root undoes the squaring, so σ is in the original units.', [{ value: v.mul(100).isInteger() ? v : null, tag: 'statistics-concept', feedback: 'That is the variance. Take its square root.' }, { value: sdExact ? Q(Math.round(Math.sqrt(ss.toNumber() / (n - 1)) * 100), 100) : Rational.parse(Math.sqrt(ss.toNumber() / (n - 1)).toFixed(2)), tag: 'statistics-concept', feedback: `Divide by $n = ${n}$, not $n - 1$.` }], sdExact ? {} : { roundTo: 2 }),
+      finalStep(pr, 'Compare your σ with the MAD. Which statement is true?', ['Put the two numbers side by side.', `The MAD is $${numStr(d)}$.`, 'Is σ bigger, smaller or the same?', 'σ is never smaller than the MAD.'], cmp === 1 ? 'Every value is the same distance from the mean, so both measures equal that distance.' : 'Squaring counts the values far from the mean more, so σ comes out larger than the MAD.', { feedback: { 'σ is less than the MAD': 'σ is never smaller than the MAD. Compare the two numbers again.', ...(cmp !== 1 ? { 'σ is equal to the MAD': 'They are equal only when every value is the same distance from the mean. Compare the numbers again.' } : { 'σ is greater than the MAD': 'Here every value is the same distance from the mean. Compare your σ with the MAD again.' }) } }),
+    ];
   });
 }
 
@@ -500,7 +606,7 @@ function madMeaning(rng: Rng, c: Ctx) {
   const m = mean(xs);
   const d = madOf(xs);
   const sd = Math.sqrt(variance(xs).toNumber());
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S7.03',
     tags: ['real-world'],
     prompt: [p(`The data show the ${c.what} for ${xs.length} ${c.who}. The mean is $${numStr(m)}$, the mean absolute deviation (MAD) is $${numStr(d)}$ and the standard deviation is σ ≈ $${sd.toFixed(1)}$. Which statement about the MAD and σ is true?`), dataBlock(xs)],
@@ -516,7 +622,11 @@ function madMeaning(rng: Rng, c: Ctx) {
       { text: MAD_MEANING, why: 'Squaring counts the values far from the mean more heavily, so σ is at least as large as the MAD.' },
     ],
     misconceptions: [],
-  });
+  }), (pr) => [
+    choiceStep('What do the MAD and σ each describe?', 'How far the values typically are from the mean', ['The center of the data', 'The typical value of the data'], ['Both are built from the deviations: value minus mean.', 'A deviation measures a distance from the mean.', 'Measures of center are the mean and the median.', 'Both are measures of spread.'], 'Both start from the deviations from the mean, so both measure spread.', { 'The center of the data': 'The mean and median describe the center. The MAD and σ are built from distances to the mean.', 'The typical value of the data': 'A typical value is a center. The MAD and σ describe distances from the mean.' }),
+    choiceStep('Why is σ a little larger than the MAD here?', 'Squaring gives values far from the mean more weight', ['One of them was calculated wrong', 'σ uses more of the data values than the MAD'], ['Think about what squaring does to big and small numbers.', 'Squaring 1 gives 1, but squaring 5 gives 25.', 'Big deviations grow a lot when they are squared.', 'Both measures use every value.'], 'Squaring makes large deviations count extra, which pushes σ up a little.', { 'One of them was calculated wrong': 'They are different measures, so they usually have different values.', 'σ uses more of the data values than the MAD': 'Both measures use every data value.' }),
+    finalStep(pr, 'Which statement about the MAD and σ is true?', ['Use your answers from the last two steps.', 'Both describe spread.', 'σ is at least as large as the MAD.', 'Look for the statement that says both and gives the reason.'], 'The MAD and σ are both typical distances from the mean; σ weights far values more.', { feedback: { 'Both describe the center of the data, so they should be equal. One of them was calculated wrong.': 'Both describe spread, not center, and they are different measures.', 'The MAD describes spread, but σ describes the typical value of the data.': 'σ also describes spread: a typical distance from the mean.', 'σ is larger, so the values are actually farther from the mean than the data show.': 'σ is larger because of the squaring, not because the data are different.' } }),
+  ]);
 }
 
 export const genStdDev: GeneratorDef = {
@@ -545,7 +655,7 @@ export const genStdDev: GeneratorDef = {
       const devRows = xs.map((x) => [numStr(x), numStr(x.sub(m)), numStr(x.sub(m).mul(x.sub(m)))]);
       const ss = variance(xs).mul(n);
       const sx = Math.sqrt(ss.toNumber() / (n - 1));
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.03',
         tags: ['real-world'],
         prompt: [p(`The data show the ${c.what} for ${n} ${c.who}. ${exact ? `The mean is $${numStr(m)}$. ` : ''}Find the standard deviation σ (divide by $n$).${exact ? '' : ' Round to the nearest tenth.'}`), dataBlock(xs)],
@@ -562,6 +672,13 @@ export const genStdDev: GeneratorDef = {
           { value: Rational.parse(sx.toFixed(1)), tag: 'statistics-concept', feedback: `Divide by $n = ${n}$, not $n - 1$. (Dividing by $n - 1$ gives the sample standard deviation $s_x$.)` },
           { value: Rational.parse((xs.reduce((a, x) => a + Math.abs(x.sub(m).toNumber()), 0) / n).toFixed(1)), tag: 'statistics-concept', feedback: 'That is the average of the distances without squaring. Square the deviations, average them, then take the square root.' },
         ]),
+      }), (pr) => {
+        const varStep = numStep(`Divide the sum by $n = ${n}$. What is the variance?${variance(xs).mul(10000).isInteger() ? '' : ' Round to the nearest hundredth.'}`, variance(xs), ['The variance is the mean of the squared deviations.', `Divide by the number of values, ${n}.`, 'Use the sum from the last step.', 'Do not take the square root yet.'], 'The variance is the average squared distance from the mean.', [{ value: ss.div(n - 1).mul(10000).isInteger() ? ss.div(n - 1) : ss.div(n - 1).round(2), tag: 'statistics-concept', feedback: `Divide by $n = ${n}$, not $n - 1$.` }], variance(xs).mul(10000).isInteger() ? {} : { roundTo: 2 });
+        const ssStep = numStep('Find each deviation (value − mean) and square it. What is the sum of the squared deviations?', ss, ['A deviation is a value minus the mean.', 'Square each deviation, so negatives become positive.', `Add all ${n} squares.`, 'A table with columns x, x − mean and (x − mean)² keeps the work organized.'], 'Squaring makes every deviation positive, so they cannot cancel out.', [{ value: Q(0), tag: 'statistics-concept', feedback: 'The deviations themselves always add to 0. Square each deviation before adding.' }, { value: xs.reduce((a, x) => a.add(x.sub(m).abs()), Q(0)), tag: 'statistics-concept', feedback: 'That adds the distances without squaring. Square each deviation first.' }]);
+        const last = finalStep(pr, `Take the square root of the variance. What is σ?${exact ? '' : ' Round to the nearest tenth.'}`, ['The square root undoes the squaring.', 'Use the variance from the last step.', exact ? 'The result is a whole number.' : 'Use a calculator for the square root.', exact ? 'Which whole number squared gives the variance?' : 'Round only at the end.'], 'σ is back in the same units as the data.');
+        return exact
+          ? [ssStep, varStep, last]
+          : [numStep('What is the mean of the data?', m, ['Add the values.', `Divide by the number of values, ${n}.`, 'Keep the exact decimal.', 'The mean is the balance point of the data.'], `The mean is $${numStr(m)}$.`, [{ value: xs.reduce((a, b) => a.add(b), Q(0)).div(n - 1).round(2), tag: 'statistics-concept', feedback: `Divide by the number of values, ${n}.` }], m.mul(100).isInteger() ? {} : { roundTo: 2 }), ssStep, varStep, last];
       });
     }
     const kind = rng.pick(['compare', 'within', 'shift', 'mad'] as const);
@@ -578,7 +695,7 @@ export const genStdDev: GeneratorDef = {
       const lo = Math.min(...A, ...B) - 1;
       const hi = Math.max(...A, ...B) + 1;
       const correct = stdDev(R(A)) > stdDev(R(B)) ? 'Data set A, because its values are farther from the mean' : 'Data set B, because its values are farther from the mean';
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.03',
         tags: ['graph'],
         prompt: [
@@ -593,12 +710,15 @@ export const genStdDev: GeneratorDef = {
           { text: correct.split(', because')[0] + ' has its dots spread farther from the center.', why: 'Standard deviation is a typical distance from the mean, so more spread means a larger standard deviation.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        choiceStep('What does the standard deviation measure?', 'A typical distance of the values from the mean', ['The middle value of the data', 'How many values there are'], ['It is a measure of spread.', 'It is built from deviations: value minus mean.', 'A deviation is a distance from the mean.', 'Bigger distances mean a bigger standard deviation.'], 'The standard deviation is a typical distance from the mean, so more spread means a larger σ.', { 'The middle value of the data': 'That is the median, a measure of center.', 'How many values there are': 'That is the count, n.' }),
+        finalStep(pr, 'Which data set has the greater standard deviation?', ['Find the center of each dot plot.', 'Look at how far the dots sit from that center.', 'Which plot has more dots far from its center?', 'More spread means a greater standard deviation.'], 'The data set with its dots farther from the center has the larger typical distance from the mean.', { feedback: { [correct.includes('set A') ? 'Data set B, because its values are farther from the mean' : 'Data set A, because its values are farther from the mean']: 'Compare how far the dots are from the center in each plot again.', 'They are equal, because they have the same number of values': 'The number of values does not decide the spread.', 'They are equal, because they have about the same center': 'Standard deviation is about distance from the center, not where the center is.' } }),
+      ]);
     }
     if (kind === 'within') {
       const s = rng.int(2, Math.max(2, Math.floor((c.hi - c.lo) / 6)));
       const m = rng.int(c.lo + s, c.hi - s);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.03',
         tags: ['real-world'],
         prompt: [p(`The ${c.what} for a large group of ${c.who} have a mean of $${m}$ and a standard deviation of $${s}$. Which values are within one standard deviation of the mean? Write an interval.`)],
@@ -614,11 +734,15 @@ export const genStdDev: GeneratorDef = {
           { answer: `[${m - 2 * s}, ${m + 2 * s}]`, tag: 'statistics-concept', feedback: 'That is within two standard deviations. Go one standard deviation each way.' },
           { answer: `[${m}, ${m + s}]`, tag: 'statistics-concept', feedback: 'Go one standard deviation below the mean too.' },
         ] as Misconception[],
-      });
+      }), (pr) => [
+        numStep('What is the low end: one standard deviation below the mean?', Q(m - s), ['Below the mean means subtract.', `The mean is ${m}.`, `The standard deviation is ${s}.`, 'Mean − standard deviation.'], `$${m} - ${s} = ${m - s}$.`, [{ value: Q(m - 2 * s), tag: 'statistics-concept', feedback: 'Go only one standard deviation below the mean.' }]),
+        numStep('What is the high end: one standard deviation above the mean?', Q(m + s), ['Above the mean means add.', `The mean is ${m}.`, `The standard deviation is ${s}.`, 'Mean + standard deviation.'], `$${m} + ${s} = ${m + s}$.`, [{ value: Q(m + 2 * s), tag: 'statistics-concept', feedback: 'Go only one standard deviation above the mean.' }]),
+        finalStep(pr, 'Write the interval of values within one standard deviation of the mean.', ['Use the low end and the high end from the last two steps.', 'Write the low end first.', 'Both ends count.', 'Use square brackets for ends that are included.'], 'Within one standard deviation means from mean − σ to mean + σ.'),
+      ]);
     }
     const k = rng.int(2, 10);
     const correct = `The mean increases by ${k}, and the standard deviation stays the same.`;
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S7.03',
       tags: ['real-world'],
       prompt: [p(`A teacher adds ${k} bonus points to every student's quiz score. What happens to the mean and the standard deviation of the scores?`)],
@@ -629,7 +753,11 @@ export const genStdDev: GeneratorDef = {
         { text: 'Each deviation from the mean is unchanged, so the standard deviation stays the same.', why: 'Standard deviation measures spread, and sliding all the data does not change the spread.' },
       ],
       misconceptions: [],
-    });
+    }), (pr) => [
+      numStep('By how much does the mean change?', Q(k), ['Every score goes up by the same amount.', `The total goes up by ${k} for each student.`, 'The count of students stays the same.', 'So the mean goes up by the same amount as each score.'], `Adding ${k} to every value adds ${k} to the mean.`, [{ value: Q(0), tag: 'statistics-concept', feedback: 'Every score went up, so the center moves up too.' }]),
+      numStep('By how much does each score’s distance from the mean change?', Q(0), ['Each score moves up.', 'The mean moves up by the same amount.', 'Compare a score and the mean after both move.', 'The gap between two things that both move up by the same amount stays the same.'], 'Each deviation is unchanged because the scores and the mean moved together.', [{ value: Q(k), tag: 'statistics-concept', feedback: 'The mean moved up too, so the distance between a score and the mean did not change.' }]),
+      finalStep(pr, 'What happens to the mean and the standard deviation?', ['Use your answers from the last two steps.', 'The mean measures center.', 'The standard deviation is built from the distances to the mean.', 'Sliding all the data does not change its spread.'], 'Shifting the data moves the center but does not change the spread.', { feedback: { [`The mean and the standard deviation both increase by ${k}.`]: 'The distances from the mean did not change, so the spread stays the same.', [`The mean stays the same, and the standard deviation increases by ${k}.`]: 'Every score went up, so the mean goes up; the spread does not change.', 'Neither one changes.': 'Every score went up, so the center moves up.' } }),
+    ]);
   },
   verify(pr) {
     const text = textAll(pr);
@@ -715,7 +843,7 @@ export const genShapeOutliers: GeneratorDef = {
         const want = shape === 'Symmetric' ? 0 : shape === 'Skewed right' ? 1 : -1;
         if (m.sub(md).sign() !== want) return genShapeOutliers.generate(rng, 3);
         const correct = m.gt(md) ? 'The mean is greater than the median.' : m.lt(md) ? 'The mean is less than the median.' : 'The mean and the median are equal.';
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S7.04',
           tags: ['graph'],
           prompt: [p(`The ${asHist ? 'histogram' : 'dot plot'} shows the ${c.what} for a group of ${c.who}. How does the mean compare with the median?`), plot],
@@ -726,9 +854,16 @@ export const genShapeOutliers: GeneratorDef = {
             { text: correct, why: shape === 'Symmetric' ? 'With a symmetric shape, the balance point and the middle are the same.' : 'The values in the tail pull the mean toward the tail, but they do not move the median much.' },
           ],
           misconceptions: [],
+        }), (pr) => {
+          const pull = shape === 'Skewed right' ? 'Up, toward the larger values' : shape === 'Skewed left' ? 'Down, toward the smaller values' : 'Neither way: the two sides balance';
+          return [
+            choiceStep('What is the shape of the distribution?', shape, ['Symmetric', 'Skewed right', 'Skewed left'].filter((o) => o !== shape), ['Find where most of the data pile up.', 'Look for a long tail on one side.', 'A distribution is named for the side of its tail.', 'Mirror-image sides mean symmetric.'], shape === 'Symmetric' ? 'Both sides are mirror images.' : `The tail is on the ${shape === 'Skewed right' ? 'right' : 'left'}.`, { Symmetric: 'One side trails off farther than the other.', 'Skewed right': shape === 'Symmetric' ? 'The two sides are mirror images.' : 'A skewed distribution is named for its tail, not for where the data pile up.', 'Skewed left': shape === 'Symmetric' ? 'The two sides are mirror images.' : 'A skewed distribution is named for its tail, not for where the data pile up.' }),
+            choiceStep('Which way do the values in the tail pull the mean?', pull, ['Up, toward the larger values', 'Down, toward the smaller values', 'Neither way: the two sides balance'].filter((o) => o !== pull), ['The mean is the balance point of the data.', 'Values far out in a tail move the balance point.', 'The median only counts to the middle, so it barely moves.', 'The mean is pulled toward the tail.'], 'The mean is pulled toward the tail; the median stays near the middle.', { 'Up, toward the larger values': 'Check which side the tail is on.', 'Down, toward the smaller values': 'Check which side the tail is on.', 'Neither way: the two sides balance': 'One side has a long tail, so the sides do not balance.' }),
+            finalStep(pr, 'How does the mean compare with the median?', ['Use your answers from the last two steps.', 'The median stays near the middle of the ordered data.', 'The mean moves toward the tail.', 'In a symmetric distribution they are equal.'], 'The tail pulls the mean toward it, so the shape tells you which is larger.', { feedback: { 'The mean is greater than the median.': 'Check which way the tail pulls the mean.', 'The mean is less than the median.': 'Check which way the tail pulls the mean.', 'The mean and the median are equal.': 'One side has a tail, so the mean is pulled away from the median.' } }),
+          ];
         });
       }
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.04',
         tags: ['graph'],
         prompt: [p(`What is the shape of the distribution of the ${c.what}?`), plot],
@@ -739,6 +874,14 @@ export const genShapeOutliers: GeneratorDef = {
           { text: `The shape is ${shape.toLowerCase()}.`, why: 'A skewed distribution is named for the side of its tail.' },
         ],
         misconceptions: [],
+      }), (pr) => {
+        const pile = shape === 'Symmetric' ? 'In the middle' : shape === 'Skewed right' ? 'On the left' : 'On the right';
+        const tail = shape === 'Symmetric' ? 'Neither side: the two sides match' : shape === 'Skewed right' ? 'On the right' : 'On the left';
+        return [
+          choiceStep('Where do most of the data pile up?', pile, ['In the middle', 'On the left', 'On the right'].filter((o) => o !== pile), [`Look at the tallest ${asHist ? 'bars' : 'stacks of dots'}.`, 'The pile is where the most values are.', 'Compare the left side, the middle and the right side.', 'Ignore the short parts at the ends for now.'], `The ${asHist ? 'tallest bars' : 'tallest stacks'} are ${pile.toLowerCase()}.`, { 'In the middle': 'Look again: the tallest part is off to one side.', 'On the left': 'Look again at where the tallest part is.', 'On the right': 'Look again at where the tallest part is.' }),
+          choiceStep('Where is the long tail, the side where the data trail off?', tail, ['Neither side: the two sides match', 'On the left', 'On the right'].filter((o) => o !== tail), ['A tail is a long, low stretch of data.', 'The tail is on the side away from the pile.', 'Compare how far the data stretch out on each side.', 'If both sides look alike, there is no long tail.'], shape === 'Symmetric' ? 'Both sides trail off the same way.' : `The data trail off to the ${shape === 'Skewed right' ? 'right' : 'left'}.`, { 'Neither side: the two sides match': 'One side stretches out farther than the other.', 'On the left': 'The tail is on the side away from the pile.', 'On the right': 'The tail is on the side away from the pile.' }),
+          finalStep(pr, 'What is the shape of the distribution?', ['Use your answers from the last two steps.', 'A skewed distribution is named for the side of its tail.', 'A tail on the right means skewed right.', 'No tail and mirror-image sides means symmetric.'], 'A skewed distribution is named for the side of its tail.', { feedback: { Symmetric: 'One side has a long tail, so the sides are not mirror images.', 'Skewed right': shape === 'Symmetric' ? 'The two sides are mirror images, so there is no tail.' : 'A skewed distribution is named for its tail, not for where the data pile up.', 'Skewed left': shape === 'Symmetric' ? 'The two sides are mirror images, so there is no tail.' : 'A skewed distribution is named for its tail, not for where the data pile up.' } }),
+        ];
       });
     }
     // data with planted outlier(s)
@@ -759,7 +902,7 @@ export const genShapeOutliers: GeneratorDef = {
       if (rng.bool()) {
         const askHi = rng.bool();
         const v = askHi ? fe.hi : fe.lo;
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S7.04',
           tags: ['real-world'],
           prompt: [p(`The ${c.what} for ${n} ${c.who} are shown in order. Find the ${askHi ? 'upper fence, $Q_3 + 1.5 \\cdot \\text{IQR}$' : 'lower fence, $Q_1 - 1.5 \\cdot \\text{IQR}$'}.`), dataBlock(s)],
@@ -774,11 +917,19 @@ export const genShapeOutliers: GeneratorDef = {
             { value: askHi ? f.q3.add(f.q3.sub(f.q1)) : f.q1.sub(f.q3.sub(f.q1)), tag: 'statistics-concept', feedback: 'Multiply the IQR by 1.5 before adding or subtracting.' },
             { value: askHi ? f.median.add(f.q3.sub(f.q1).mul(Q(3, 2))) : f.median.sub(f.q3.sub(f.q1).mul(Q(3, 2))), tag: 'statistics-concept', feedback: `Start from ${askHi ? 'Q3' : 'Q1'}, not the median.` },
           ]),
+        }), (pr) => {
+          const k15 = f.q3.sub(f.q1).mul(Q(3, 2));
+          return [
+            numStep('What is Q1?', f.q1, ['Q1 is the median of the lower half.', 'The data are already in order.', n % 2 === 1 ? 'With an odd number of values, leave the median out of both halves.' : 'The lower half is the first half of the list.', 'Find the middle of the lower half.'], `Q1 = $${fmt(f.q1)}$.`, [{ value: f.median, tag: 'statistics-concept', feedback: 'That is the median of all the data. Q1 is the median of the lower half.' }]),
+            numStep('What is Q3?', f.q3, ['Q3 is the median of the upper half.', 'The data are already in order.', n % 2 === 1 ? 'With an odd number of values, leave the median out of both halves.' : 'The upper half is the second half of the list.', 'Find the middle of the upper half.'], `Q3 = $${fmt(f.q3)}$.`, [{ value: f.median, tag: 'statistics-concept', feedback: 'That is the median of all the data. Q3 is the median of the upper half.' }]),
+            numStep('What is 1.5 × IQR?', k15, ['IQR = Q3 − Q1.', 'Find the IQR first.', 'Then multiply it by 1.5.', '1.5 times a number is the number plus half of it.'], `The IQR is $${fmt(f.q3.sub(f.q1))}$, and $1.5 \\times ${fmt(f.q3.sub(f.q1))} = ${fmt(k15)}$.`, [{ value: f.q3.sub(f.q1), tag: 'statistics-concept', feedback: 'That is the IQR. Multiply it by 1.5.' }]),
+            finalStep(pr, askHi ? 'What is the upper fence, Q3 + 1.5 × IQR?' : 'What is the lower fence, Q1 − 1.5 × IQR?', [askHi ? 'The upper fence is above Q3.' : 'The lower fence is below Q1.', askHi ? 'Start from Q3.' : 'Start from Q1.', askHi ? 'Add 1.5 × IQR.' : 'Subtract 1.5 × IQR.', 'Use your answers from the earlier steps.'], 'Values beyond the fences are outliers.'),
+          ];
         });
       }
       const correct = outs.length === 1 ? `Only ${fmt(outs[0])}` : outs.map(fmt).join(' and ');
       const wrongs = [`None of the values`, `${fmt(s[high ? 0 : s.length - 1])} and ${fmt(Q(out))}`, `${fmt(s[high ? s.length - 2 : 1])} and ${fmt(Q(out))}`].filter((w) => w !== correct);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.04',
         tags: ['real-world', 'multi-step'],
         prompt: [p(`The ${c.what} for ${n} ${c.who} are shown in order. Which values are outliers by the 1.5·IQR rule?`), dataBlock(s)],
@@ -789,7 +940,12 @@ export const genShapeOutliers: GeneratorDef = {
           { text: `Values outside the fences: ${outs.map(fmt).join(', ')}.`, why: 'Anything below the lower fence or above the upper fence is an outlier.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        numStep('Find Q1 and Q3. What is the IQR?', f.q3.sub(f.q1), ['Q1 and Q3 are the medians of the lower and upper halves.', n % 2 === 1 ? 'With an odd number of values, leave the median out of both halves.' : 'Split the ordered list into two equal halves.', 'IQR = Q3 − Q1.', 'Subtract Q1 from Q3.'], `Q1 = $${fmt(f.q1)}$ and Q3 = $${fmt(f.q3)}$, so the IQR is $${fmt(f.q3.sub(f.q1))}$.`, [{ value: f.max.sub(f.min), tag: 'statistics-concept', feedback: 'That is the range. The IQR is Q3 − Q1.' }]),
+        numStep('What is the lower fence, Q1 − 1.5 × IQR?', fe.lo, ['Multiply the IQR by 1.5.', 'Start from Q1.', 'Subtract 1.5 × IQR from Q1.', 'The fence can be negative.'], 'Values below the lower fence are outliers.', [{ value: f.q1.sub(f.q3.sub(f.q1)), tag: 'statistics-concept', feedback: 'Multiply the IQR by 1.5 before subtracting.' }]),
+        numStep('What is the upper fence, Q3 + 1.5 × IQR?', fe.hi, ['Multiply the IQR by 1.5.', 'Start from Q3.', 'Add 1.5 × IQR to Q3.', 'Use the same 1.5 × IQR as before.'], 'Values above the upper fence are outliers.', [{ value: f.q3.add(f.q3.sub(f.q1)), tag: 'statistics-concept', feedback: 'Multiply the IQR by 1.5 before adding.' }]),
+        finalStep(pr, 'Which values are outliers?', ['Compare the smallest values with the lower fence.', 'Compare the largest values with the upper fence.', 'Only values beyond a fence are outliers.', 'Check every value near the ends of the list.'], 'A value is an outlier only if it is below the lower fence or above the upper fence.', { feedback: { 'None of the values': 'Compare the values at the ends of the list with the fences again.', [`${fmt(s[high ? 0 : s.length - 1])} and ${fmt(Q(out))}`]: `$${fmt(s[high ? 0 : s.length - 1])}$ is inside the fences. Check it against both fences.`, [`${fmt(s[high ? s.length - 2 : 1])} and ${fmt(Q(out))}`]: `$${fmt(s[high ? s.length - 2 : 1])}$ is inside the fences. Only values beyond a fence are outliers.` } }),
+      ]);
     }
     // effect of removing the outlier
     const without = xs.slice(0, -1);
@@ -802,7 +958,7 @@ export const genShapeOutliers: GeneratorDef = {
     const b = spreadAsk ? dIqr : dMed;
     if (a < 3 * b || a < 1) return genShapeOutliers.generate(rng, 3);
     const correct = spreadAsk ? 'The standard deviation changes much more than the IQR.' : 'The mean changes much more than the median.';
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S7.04',
       tags: ['real-world', 'multi-step'],
       prompt: [p(`The ${c.what} for ${n} ${c.who} are shown. The value $${out}$ is an outlier. If it is removed, which statement is true?`), dataBlock(xs)],
@@ -813,6 +969,15 @@ export const genShapeOutliers: GeneratorDef = {
         { text: correct, why: spreadAsk ? 'The IQR depends only on the middle half, so it is resistant to outliers.' : 'The median depends only on the middle, so it is resistant to outliers.' },
       ],
       misconceptions: [],
+    }), (pr) => {
+      const tenth = (v: Rational) => (v.mul(100).isInteger() ? {} : { roundTo: 1 });
+      const what = spreadAsk ? 'standard deviation σ (divide by n)' : 'mean';
+      const h4 = (k: number): H4 => spreadAsk ? ['Find the mean, the squared deviations, their average and the square root.', `There are ${k} values.`, 'A calculator or table helps.', 'Round to the nearest tenth at the end.'] : ['Add the values.', `There are ${k} values.`, `Divide the sum by ${k}.`, 'Round to the nearest tenth if needed.'];
+      return [
+        spreadAsk ? numStep(`What is the ${what} of all ${n} values? Round to the nearest tenth.`, stdDev(xs).toFixed(12), h4(n), 'This is the spread with the outlier included.', [], { roundTo: 1 }) : numStep(`What is the ${what} of all ${n} values? Round to the nearest tenth if needed.`, mean(xs), h4(n), 'This is the mean with the outlier included.', [], tenth(mean(xs))),
+        spreadAsk ? numStep(`Now remove $${out}$. What is the ${what} of the other ${n - 1} values? Round to the nearest tenth.`, stdDev(without).toFixed(12), h4(n - 1), 'Without the outlier the values are much closer to their mean.', [], { roundTo: 1 }) : numStep(`Now remove $${out}$. What is the mean of the other ${n - 1} values? Round to the nearest tenth if needed.`, mean(without), h4(n - 1), 'Without the outlier the total drops a lot.', [], tenth(mean(without))),
+        finalStep(pr, 'If the outlier is removed, which statement is true?', [spreadAsk ? 'Compare your two values of σ.' : 'Compare your two means.', spreadAsk ? 'The IQR uses only the middle half of the data.' : 'The median uses only the middle of the ordered data.', 'Removing an extreme value barely moves the middle of the data.', 'Which measure changed a lot?'], spreadAsk ? 'σ uses every value’s distance from the mean, so an outlier affects it a lot; the IQR is resistant.' : 'The mean uses every value, so an outlier affects it a lot; the median is resistant.', { feedback: spreadAsk ? { 'The IQR changes much more than the standard deviation.': 'The IQR uses only the middle half, so one extreme value barely moves it.', 'Neither the standard deviation nor the IQR changes.': 'Your two values of σ are different.', 'Both change by the same amount.': 'σ changes a lot, but the IQR barely changes.' } : { 'The median changes much more than the mean.': 'The median only depends on the middle, so one extreme value barely moves it.', 'Neither the mean nor the median changes.': 'Your two means are different.', 'Both change by the same amount.': 'The mean changes a lot, but the median barely changes.' } }),
+      ];
     });
   },
   verify(pr) {
@@ -901,7 +1066,7 @@ function summaryCompare(rng: Rng) {
   const lowerMean = ma === mb ? loose : ma > mb ? g.b : g.a;
   const correct = `${center}, and ${spreadPhrase(tight)}.`;
   const wrongCenter = ma === mb ? `${((w: string) => `${w} ${has(w)}`)(rng.pick([g.a, g.b]))} the greater mean` : rng.bool() ? `${g.a} and ${g.b} have the same mean` : `${ma > mb ? g.b : g.a} ${has(ma > mb ? g.b : g.a)} the greater mean`;
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S7.05',
     tags: ['real-world'],
     prompt: [
@@ -916,6 +1081,13 @@ function summaryCompare(rng: Rng) {
       { text: correct, why: `${poss(tight)} values are typically only ${Math.min(sa, sb)} ${g.unit} from the mean, while ${poss(loose)} are typically ${Math.max(sa, sb)} ${g.unit} away.` },
     ],
     misconceptions: [],
+  }), (pr) => {
+    const greater = ma === mb ? 'Neither: the means are equal' : ma > mb ? g.a : g.b;
+    return [
+      choiceStep('Which group has the greater mean?', greater, [g.a, g.b, 'Neither: the means are equal'].filter((o) => o !== greater), ['Find the Mean column.', `Compare ${ma} and ${mb}.`, 'The greater mean is the higher typical value.', 'If the numbers match, neither is greater.'], ma === mb ? 'The means are equal.' : `${ma > mb ? g.a : g.b} has the greater mean.`, { [g.a]: 'Compare the two numbers in the Mean column again.', [g.b]: 'Compare the two numbers in the Mean column again.', 'Neither: the means are equal': 'The two means are different numbers.' }),
+      choiceStep('Which group has the smaller standard deviation?', tight, [loose], ['Find the Standard deviation column.', `Compare ${sa} and ${sb}.`, 'A smaller standard deviation means the values stay closer to the mean.', 'Pick the smaller number.'], `${tight} has the smaller standard deviation, so its values stay closer to its mean.`, { [loose]: 'That group has the larger standard deviation.' }),
+      finalStep(pr, 'Which conclusion is supported by the summaries?', ['Use your answers from the last two steps.', 'Center comes from the means.', 'Smaller standard deviation means more consistent.', 'Check both parts of each statement.'], 'A comparison uses the means for center and the standard deviations for spread.', { feedback: { [`${center}, and ${loose} ${is(loose)} more consistent (larger standard deviation).`]: 'A larger standard deviation means less consistent, not more.', [`${wrongCenter}, and ${spreadPhrase(tight)}.`]: 'Check the means again.', [`${lowerMean} ${has(lowerMean)} the greater mean, because ${plural(lowerMean) ? 'their' : 'its'} standard deviation is larger.`]: 'The standard deviation says nothing about which mean is greater.' } }),
+    ];
   });
 }
 function pickTwo(rng: Rng, lo: number, hi: number): [number, number] {
@@ -952,7 +1124,7 @@ function threeBoxes(rng: Rng) {
     const ax = axisFor(lo, hi);
     if (!boxReadable(boxes, ax)) continue;
     const correct = g.names[best];
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S7.05',
       tags: ['graph', 'real-world'],
       prompt: [p(`The box plots compare the ${g.what} for three groups. Which group has the greatest interquartile range (IQR)?`), { t: 'dataplot', spec: { kind: 'box', ...ax, axisLabel: g.what, boxes, ariaLabel: `Three box plots. ${boxes.map((b) => `${b.label}: ${b.min}, ${b.q1}, ${b.median}, ${b.q3}, ${b.max}`).join('. ')}.` } }],
@@ -963,7 +1135,10 @@ function threeBoxes(rng: Rng) {
         { text: `${correct} has the greatest IQR.`, why: `${g.names[wide]} has the longest whiskers (the greatest range), but its box is narrower. Range and IQR measure different spreads.` },
       ],
       misconceptions: [],
-    });
+    }), (pr) => [
+      ...boxes.map((b) => numStep(`What is the IQR of ${b.label}?`, Q(b.q3 - b.q1), ['The IQR is the width of the box.', 'Read Q1 (left edge of the box) and Q3 (right edge).', 'Subtract Q1 from Q3.', 'Do not use the whiskers.'], `${b.label}: $${b.q3} - ${b.q1} = ${b.q3 - b.q1}$.`, [{ value: Q(b.max - b.min), tag: 'statistics-concept', feedback: 'That is the range, whisker to whisker. The IQR is the width of the box.' }])),
+      finalStep(pr, 'Which group has the greatest IQR?', ['Use your three IQRs.', 'Pick the largest one.', 'The whiskers show the range, not the IQR.', 'The widest box has the greatest IQR.'], 'The IQR is the width of the box, so the widest box wins.', { feedback: { [g.names[wide]]: `${g.names[wide]} has the longest whiskers (greatest range), but its box is narrower.`, 'They all have the same IQR': 'Your three IQRs are different.' } }),
+    ]);
   }
   throw new Error('threeBoxes');
 }
@@ -1008,7 +1183,7 @@ export const genCompare: GeneratorDef = {
       const kind = rng.pick(['median', 'iqr', 'diff'] as const);
       if (kind === 'diff') {
         const d = fa.median.sub(fb.median).abs();
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S7.05',
           tags: ['graph', 'real-world'],
           prompt: [p(`The box plots compare the ${g.what} for ${g.a} and ${g.b}. How much greater is the higher median than the lower median?`), plot],
@@ -1016,10 +1191,14 @@ export const genCompare: GeneratorDef = {
           hints: ['The median is the line inside each box.', `Read the median of ${g.a}.`, `Read the median of ${g.b}.`, 'Subtract the smaller from the larger.'],
           solution: [{ text: 'Read the medians.', tex: `${fmt(fa.median)} \\text{ and } ${fmt(fb.median)}` }, { text: 'Subtract.', tex: `${fmt(fa.median.gt(fb.median) ? fa.median : fb.median)} - ${fmt(fa.median.gt(fb.median) ? fb.median : fa.median)} = ${fmt(d)}`, why: 'The difference of the medians compares typical values.' }],
           misconceptions: numberMisconceptions(d, [{ value: fa.max.sub(fb.max).abs(), tag: 'graph-reading', feedback: 'Use the medians (the lines inside the boxes), not the maximums.' }]),
-        });
+        }), (pr) => [
+          numStep(`What is the median of ${g.a}?`, fa.median, ['The median is the line inside the box.', `Find the box for ${g.a}.`, 'Look straight down to the axis.', 'Read the value at that tick.'], `The median of ${g.a} is $${fmt(fa.median)}$.`, [{ value: fa.max, tag: 'graph-reading', feedback: 'That is the maximum. The median is the line inside the box.' }]),
+          numStep(`What is the median of ${g.b}?`, fb.median, ['The median is the line inside the box.', `Find the box for ${g.b}.`, 'Look straight down to the axis.', 'Read the value at that tick.'], `The median of ${g.b} is $${fmt(fb.median)}$.`, [{ value: fb.max, tag: 'graph-reading', feedback: 'That is the maximum. The median is the line inside the box.' }]),
+          finalStep(pr, 'How much greater is the higher median than the lower median?', ['Use your two medians.', 'Subtract the smaller from the larger.', 'A difference is positive here.', 'Use the medians, not the whisker ends.'], 'The difference of the medians compares the typical values of the groups.'),
+        ]);
       }
       const correct = kind === 'median' ? higher : wider;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.05',
         tags: ['graph', 'real-world'],
         prompt: [p(`The box plots compare the ${g.what} for ${g.a} and ${g.b}. Which group has the greater ${kind === 'median' ? 'median' : 'interquartile range (IQR)'}?`), plot],
@@ -1030,12 +1209,22 @@ export const genCompare: GeneratorDef = {
           { text: `${correct} has the greater ${kind === 'median' ? 'median' : 'IQR'}.` },
         ],
         misconceptions: [],
+      }), (pr) => {
+        const [va, vb] = kind === 'median' ? [fa.median, fb.median] : [ia, ib];
+        const what = kind === 'median' ? 'median' : 'IQR';
+        const h = (who: string): H4 => kind === 'median' ? ['The median is the line inside the box.', `Find the box for ${who}.`, 'Look straight down to the axis.', 'Read the value at that tick.'] : ['The IQR is the width of the box: Q3 − Q1.', `Read Q1 and Q3 for ${who}.`, 'Subtract Q1 from Q3.', 'Do not use the whiskers.'];
+        const mis = (f: typeof fa): StepMis[] => kind === 'median' ? [{ value: f.max, tag: 'graph-reading', feedback: 'That is the maximum. The median is the line inside the box.' }] : [{ value: f.max.sub(f.min), tag: 'statistics-concept', feedback: 'That is the range. The IQR is the width of the box.' }];
+        return [
+          numStep(`What is the ${what} of ${g.a}?`, va, h(g.a), `${g.a}: $${fmt(va)}$.`, mis(fa)),
+          numStep(`What is the ${what} of ${g.b}?`, vb, h(g.b), `${g.b}: $${fmt(vb)}$.`, mis(fb)),
+          finalStep(pr, `Which group has the greater ${kind === 'median' ? 'median' : 'interquartile range (IQR)'}?`, ['Use your two values.', 'Pick the larger one.', kind === 'median' ? 'A greater median means a higher typical value.' : 'A wider box means more spread in the middle half.', 'They are the same only if the numbers match.'], kind === 'median' ? 'The greater median belongs to the group with the higher typical value.' : 'The greater IQR belongs to the group with more spread in its middle half.', { feedback: { [other(correct)]: 'Compare your two values again.', 'They are the same': 'Your two values are different.' } }),
+        ];
       });
     }
     if (difficulty === 2) {
       if (rng.bool()) {
         const correct = `${ia.lt(ib) ? g.a : g.b}, because its IQR is smaller`;
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S7.05',
           tags: ['graph', 'real-world'],
           prompt: [p(`The box plots compare the ${g.what} for ${g.a} and ${g.b}. Which group is more consistent?`), plot],
@@ -1043,7 +1232,11 @@ export const genCompare: GeneratorDef = {
           hints: ['Consistent means the values are close together.', 'Compare the spreads, not the centers.', 'The IQR is the width of the box.', 'A smaller IQR means more consistent.'],
           solution: [{ text: 'Find each IQR.', tex: `${fmt(ia)} \\text{ and } ${fmt(ib)}` }, { text: correct + '.', why: 'Less spread means the values are more consistent.' }],
           misconceptions: [],
-        });
+        }), (pr) => [
+          numStep(`What is the IQR of ${g.a}?`, ia, ['The IQR is the width of the box: Q3 − Q1.', `Read Q1 and Q3 for ${g.a}.`, 'Subtract Q1 from Q3.', 'Do not use the whiskers.'], `${g.a}: $${fmt(ia)}$.`, [{ value: fa.max.sub(fa.min), tag: 'statistics-concept', feedback: 'That is the range. The IQR is the width of the box.' }]),
+          numStep(`What is the IQR of ${g.b}?`, ib, ['The IQR is the width of the box: Q3 − Q1.', `Read Q1 and Q3 for ${g.b}.`, 'Subtract Q1 from Q3.', 'Do not use the whiskers.'], `${g.b}: $${fmt(ib)}$.`, [{ value: fb.max.sub(fb.min), tag: 'statistics-concept', feedback: 'That is the range. The IQR is the width of the box.' }]),
+          finalStep(pr, 'Which group is more consistent?', ['Consistent means the values are close together.', 'Compare the spreads, not the centers.', 'Use your two IQRs.', 'The smaller IQR is more consistent.'], 'Less spread means the values are more consistent.', { feedback: { [`${ia.lt(ib) ? g.b : g.a}, because its IQR is larger`]: 'A larger IQR means more spread, so less consistent.', [`${higher}, because its median is greater`]: 'Consistency is about spread, not center.', [`${other(higher)}, because its median is smaller`]: 'Consistency is about spread, not center.' } }),
+        ]);
       }
       // measures: one group has an outlier
       const withOut = rng.bool();
@@ -1062,7 +1255,7 @@ export const genCompare: GeneratorDef = {
         const vb = base.map((d) => cb + d * kb);
         const mn = Math.min(...va, ...vb) - 1;
         const mx = Math.max(...va, ...vb) + 1;
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S7.05',
           tags: ['graph', 'real-world'],
           prompt: [p(`The dot plots show the ${g.what} for ${g.a} and ${g.b}. Which measures of center and spread are best for comparing the two groups?`), { t: 'dataplot', spec: { kind: 'dot', min: mn, max: mx, axisLabel: g.a, values: va, ariaLabel: `Dot plot for ${g.a}: ${va.join(', ')}` } }, { t: 'dataplot', spec: { kind: 'dot', min: mn, max: mx, axisLabel: g.b, values: vb, ariaLabel: `Dot plot for ${g.b}: ${vb.join(', ')}` } }],
@@ -1070,13 +1263,16 @@ export const genCompare: GeneratorDef = {
           hints: ['Look at the shape of each dot plot.', 'Check for outliers.', 'Symmetric data with no outliers: mean and standard deviation.', 'Skewed data or outliers: median and IQR.'],
           solution: [{ text: 'Both dot plots are symmetric with no outliers.' }, { text: correct + '.', why: 'The mean and standard deviation use every value and work well when nothing extreme pulls them.' }],
           misconceptions: [],
-        });
+        }), (pr) => [
+          choiceStep('Look at the shape of each dot plot. What do you see?', 'Both are roughly symmetric with no outliers', ['One group has an outlier', 'Both are strongly skewed'], ['Check each side of each plot.', 'Look for a dot far away from the rest.', 'Look for a long tail on one side.', 'Mirror-image sides mean symmetric.'], 'Both dot plots are mirror images with no far-away dots.', { 'One group has an outlier': 'Look again: no dot is far from the rest.', 'Both are strongly skewed': 'Look again: each plot looks the same on both sides.' }),
+          finalStep(pr, 'Which measures of center and spread are best for comparing the two groups?', ['Use your answer from the last step.', 'Symmetric data with no outliers: mean and standard deviation.', 'Skewed data or outliers: median and IQR.', 'Use one pair of measures for both groups.'], 'The mean and standard deviation use every value, and nothing extreme pulls them here.', { feedback: { 'Median and IQR, because one group has an outlier': 'Neither dot plot has an outlier.', 'Mean and IQR, because the groups have different sizes': 'Use a matching pair: mean with standard deviation, or median with IQR.', 'Median and standard deviation, because the data are skewed': 'The data are symmetric, and the measures should be a matching pair.' } }),
+        ]);
       }
       const fa2 = fiveNumber(A2);
       const oa = outliers(A2);
       if (oa.length !== 1 || oa[0].gt(g.hi)) return genCompare.generate(rng, 2);
       const box2: DataPlotSpec = { kind: 'box', ...axisFor(Math.min(fa2.min.toNumber(), fb.min.toNumber()), Math.max(fa2.max.toNumber(), fb.max.toNumber())), axisLabel: g.what, boxes: [{ ...boxOf(A2, g.a), max: Math.max(...A2.filter((x) => !oa.some((o) => o.eq(x))).map((x) => x.toNumber())), outliers: oa.map((x) => x.toNumber()) }, boxOf(B, g.b)], ariaLabel: `Two box plots. ${g.a} has an outlier at ${oa.map(fmt).join(', ')}.` };
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S7.05',
         tags: ['graph', 'real-world'],
         prompt: [p(`The box plots compare the ${g.what} for ${g.a} and ${g.b}. The dot is an outlier. Which measures of center and spread are best for comparing the two groups?`), { t: 'dataplot', spec: box2 }],
@@ -1084,12 +1280,15 @@ export const genCompare: GeneratorDef = {
         hints: ['Check each plot for outliers or a long tail.', 'Outliers pull the mean and the standard deviation.', 'The median and IQR are resistant to outliers.', 'Use the same pair of measures for both groups.'],
         solution: [{ text: `${g.a} has an outlier.` }, { text: correct + '.', why: 'The median and IQR are not pulled by extreme values, so they describe both groups fairly.' }],
         misconceptions: [],
-      });
+      }), (pr) => [
+        choiceStep('Look at the shape of each box plot. What do you see?', 'One group has an outlier', ['Both are roughly symmetric with no outliers', 'Both are strongly skewed'], ['Check each plot for a separate dot.', 'A dot past a whisker is an outlier.', 'Look at both plots.', 'One extreme value is enough to matter.'], `${g.a} has an outlier, drawn as a dot.`, { 'Both are roughly symmetric with no outliers': 'Look again for a separate dot past a whisker.', 'Both are strongly skewed': 'Look for a separate dot past a whisker.' }),
+        finalStep(pr, 'Which measures of center and spread are best for comparing the two groups?', ['Use your answer from the last step.', 'Outliers pull the mean and standard deviation.', 'The median and IQR are resistant to outliers.', 'Use one pair of measures for both groups.'], 'The median and IQR are not pulled by extreme values, so they describe both groups fairly.', { feedback: { 'Mean and standard deviation, because both groups are roughly symmetric with no outliers': `${g.a} has an outlier, which pulls the mean and standard deviation.`, 'Mean and IQR, because the groups have different sizes': 'Use a matching pair: median with IQR, or mean with standard deviation.', 'Median and standard deviation, because the median ignores outliers': 'The standard deviation is pulled by outliers. Use a matching resistant pair.' } }),
+      ]);
     }
     // full comparison
     const fact = (h: string, w: string) => `${h} typically ${g.more} (greater median), and ${w} had more variability (greater IQR).`;
     const correct = fact(higher, wider);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S7.05',
       tags: ['graph', 'real-world', 'multi-step'],
       prompt: [p(`The box plots compare the ${g.what} for ${g.a} and ${g.b}. Which conclusion is supported by the box plots?`), plot],
@@ -1101,7 +1300,11 @@ export const genCompare: GeneratorDef = {
         { text: correct, why: 'A comparison of distributions should describe both the typical value and the variability.' },
       ],
       misconceptions: [],
-    });
+    }), (pr) => [
+      choiceStep('Which group has the greater median?', higher, [other(higher)], ['The median is the line inside each box.', 'Read both medians from the axis.', 'Compare them.', 'The greater median is the higher typical value.'], `The median of ${g.a} is $${fmt(fa.median)}$ and the median of ${g.b} is $${fmt(fb.median)}$.`, { [other(higher)]: 'Compare the lines inside the boxes again.' }),
+      choiceStep('Which group has the greater IQR?', wider, [other(wider)], ['The IQR is the width of each box.', 'Find Q3 − Q1 for each group.', 'Compare them.', 'Do not use the whiskers.'], `The IQRs are $${fmt(ia)}$ and $${fmt(ib)}$.`, { [other(wider)]: 'Compare the widths of the boxes (Q3 − Q1) again.' }),
+      finalStep(pr, 'Which conclusion is supported by the box plots?', ['Use your answers from the last two steps.', 'A conclusion should describe center and spread.', 'Check both parts of each statement.', 'Overlapping box plots can still be compared.'], 'A comparison of distributions describes both the typical value and the variability.', { feedback: { [fact(other(higher), wider)]: 'Check which group has the greater median.', [fact(higher, other(wider))]: 'Check which group has the greater IQR.', 'The groups cannot be compared, because their box plots overlap.': 'Overlapping groups can still be compared by their medians and IQRs.' } }),
+    ]);
   },
   verify(pr) {
     const text = textAll(pr);
@@ -1154,6 +1357,118 @@ export const genCompare: GeneratorDef = {
     return ['unknown question'];
   },
 };
+
+// ---------------------------------------------------------------------------
+// Guided steps: verify() recomputes every number step from the data shown in the prompt with the
+// simple routines above (not stats.ts), and checks each decision step against the same facts.
+// ---------------------------------------------------------------------------
+const vSum = (xs: Rational[]) => xs.reduce((a, b) => a.add(b), Q(0));
+const vSS = (xs: Rational[]) => vSum(xs.map((x) => x.sub(vMean(xs)).mul(x.sub(vMean(xs)))));
+const labelIs = (pr: Problem, i: number, want: string) => (stepLabel(pr, i) === want ? [] : [`step ${i + 1} should be "${want}"`]);
+const boxOfPrompt = (pr: Problem) => {
+  const b = pr.prompt.find((x) => x.t === 'dataplot' && x.spec.kind === 'box');
+  return b && b.t === 'dataplot' && b.spec.kind === 'box' ? b.spec.boxes : null;
+};
+
+addStepChecks(genCenter, (pr) => {
+  const text = textAll(pr);
+  const xs = dataOf(pr);
+  if (!xs) return ['cannot read data'];
+  if (/missing value/.test(text)) {
+    const m = Number(/mean of the .+? is \$(\d+)\$/.exec(text)![1]);
+    const n = Number(/for (\d+) /.exec(text)![1]);
+    return expectSteps(pr, [m * n, vSum(xs), null]);
+  }
+  if (/better describes a typical value/.test(text)) return [...expectSteps(pr, [vSort(xs)[xs.length - 1], null, null]), ...labelIs(pr, 1, 'The mean')];
+  if (/one more value/.test(text)) {
+    const after = [...xs, Rational.parse(/value, \$([\d.]+)\$/.exec(text)![1])];
+    return expectSteps(pr, [vMean(xs), vMean(after), vMedian(after).sub(vMedian(xs)).abs(), null]);
+  }
+  const grouped = pr.prompt.some((b) => b.t === 'table' || b.t === 'dataplot');
+  if (/Find the mean/.test(text)) return expectSteps(pr, grouped ? [xs.length, vSum(xs), null] : [vSum(xs), null]);
+  return expectSteps(pr, grouped ? [xs.length, null] : [(xs.length + 1) / 2, null]);
+});
+
+addStepChecks(genQuartiles, (pr) => {
+  const text = textAll(pr);
+  const boxes = boxOfPrompt(pr);
+  if (boxes) {
+    const b = boxes[0];
+    if (/IQR\)\?/.test(text)) return expectSteps(pr, [b.q1, b.q3, null]);
+    if (/range\?/.test(text)) return expectSteps(pr, [b.min, b.max, null]);
+    const pm = / (greater|less) than ([\d.]+)\?| between ([\d.]+) and ([\d.]+)\?/.exec(text);
+    if (pm) {
+      const marks = [b.min, b.q1, b.median, b.q3, b.max];
+      const sections = pm[3] ? marks.indexOf(Number(pm[4])) - marks.indexOf(Number(pm[3])) : pm[1] === 'greater' ? 4 - marks.indexOf(Number(pm[2])) : marks.indexOf(Number(pm[2]));
+      return expectSteps(pr, [sections, null]);
+    }
+    const part = /Q1\?/.test(text) ? 'The left edge of the box' : /Q3\?/.test(text) ? 'The right edge of the box' : 'The line inside the box';
+    return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, part)];
+  }
+  const xs = dataOf(pr);
+  if (!xs) return ['cannot read data'];
+  const [q1, med, q3] = vQuartiles(xs);
+  return expectSteps(pr, [med, q1, q3, null]);
+});
+
+addStepChecks(genStdDev, (pr) => {
+  const text = textAll(pr);
+  if (/mean absolute deviation \(MAD\) is/.test(text)) {
+    const xs = dataOf(pr)!;
+    if (/How does σ compare/.test(text)) return expectSteps(pr, [vSS(xs), Math.sqrt(vVar(xs).toNumber()), null]);
+    return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, 'How far the values typically are from the mean'), ...labelIs(pr, 1, 'Squaring gives values far from the mean more weight')];
+  }
+  if (/bonus points/.test(text)) return expectSteps(pr, [Number(/adds (\d+) bonus/.exec(text)![1]), 0, null]);
+  if (/within one standard deviation/.test(text)) {
+    const m = Number(/mean of \$(\d+)\$/.exec(text)![1]);
+    const s = Number(/deviation of \$(\d+)\$/.exec(text)![1]);
+    return expectSteps(pr, [m - s, m + s, null]);
+  }
+  if (pr.prompt.filter((b) => b.t === 'dataplot').length === 2) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, 'A typical distance of the values from the mean')];
+  const xs = dataOf(pr)!;
+  return expectSteps(pr, /The mean is \$/.test(text) ? [vSS(xs), vVar(xs), null] : [vMean(xs), vSS(xs), vVar(xs), null]);
+});
+
+addStepChecks(genShapeOutliers, (pr) => {
+  const text = textAll(pr);
+  const plot = pr.prompt.find((b) => b.t === 'dataplot');
+  if (plot && plot.t === 'dataplot') {
+    // direction of skew from the third central moment of the plotted values, symmetry from the counts
+    const xs = plot.spec.kind === 'histogram' ? plot.spec.bins.flatMap((b) => Array.from({ length: b.count }, () => Q(b.from).add(Q(b.to)).div(2))) : plot.spec.kind === 'dot' ? R(plot.spec.values) : [];
+    const m = vMean(xs);
+    const m3 = vMean(xs.map((x) => x.sub(m).mul(x.sub(m)).mul(x.sub(m)))).sign();
+    if (/What is the shape/.test(text)) return [...labelIs(pr, 0, m3 === 0 ? 'In the middle' : m3 > 0 ? 'On the left' : 'On the right'), ...labelIs(pr, 1, m3 === 0 ? 'Neither side: the two sides match' : m3 > 0 ? 'On the right' : 'On the left')];
+    return [...labelIs(pr, 0, m3 === 0 ? 'Symmetric' : m3 > 0 ? 'Skewed right' : 'Skewed left'), ...labelIs(pr, 1, m3 === 0 ? 'Neither way: the two sides balance' : m3 > 0 ? 'Up, toward the larger values' : 'Down, toward the smaller values')];
+  }
+  const xs = dataOf(pr)!;
+  const [q1, , q3] = vQuartiles(xs);
+  const k = q3.sub(q1);
+  if (/fence/.test(text)) return expectSteps(pr, [q1, q3, k.mul(Q(3, 2)), null]);
+  if (/Which values are outliers/.test(text)) return expectSteps(pr, [k, q1.sub(k.mul(Q(3, 2))), q3.add(k.mul(Q(3, 2))), null]);
+  const out = Rational.parse(/The value \$([\d.-]+)\$ is an outlier/.exec(text)![1]);
+  const idx = xs.findIndex((x) => x.eq(out));
+  const without = xs.filter((_, i) => i !== idx);
+  return /standard deviation σ/.test(JSON.stringify(pr.steps![0].prompt)) ? expectSteps(pr, [Math.sqrt(vVar(xs).toNumber()), Math.sqrt(vVar(without).toNumber()), null]) : expectSteps(pr, [vMean(xs), vMean(without), null]);
+});
+
+addStepChecks(genCompare, (pr) => {
+  const text = textAll(pr);
+  const plots = pr.prompt.filter((b) => b.t === 'dataplot');
+  if (plots.length === 2) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, 'Both are roughly symmetric with no outliers')];
+  const table = pr.prompt.find((x) => x.t === 'table');
+  if (table && table.t === 'table') {
+    const [ra, rb] = table.rows;
+    const [ma, sa, mb, sb] = [Number(ra[1]), Number(ra[2]), Number(rb[1]), Number(rb[2])];
+    return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, ma === mb ? 'Neither: the means are equal' : ma > mb ? ra[0] : rb[0]), ...labelIs(pr, 1, sa < sb ? ra[0] : rb[0])];
+  }
+  const boxes = boxOfPrompt(pr)!;
+  if (boxes.length === 3) return expectSteps(pr, [...boxes.map((b) => b.q3 - b.q1), null]);
+  if (/The dot is an outlier/.test(text)) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, 'One group has an outlier')];
+  const [a, b] = boxes;
+  if (/How much greater|greater median\?/.test(text)) return expectSteps(pr, [a.median, b.median, null]);
+  if (/greater interquartile|more consistent/.test(text)) return expectSteps(pr, [a.q3 - a.q1, b.q3 - b.q1, null]);
+  return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, a.median > b.median ? a.label! : b.label!), ...labelIs(pr, 1, a.q3 - a.q1 > b.q3 - b.q1 ? a.label! : b.label!)];
+});
 
 void iqr;
 export const U7_DATA_GENERATORS: GeneratorDef[] = [genCenter, genQuartiles, genStdDev, genShapeOutliers, genCompare];
