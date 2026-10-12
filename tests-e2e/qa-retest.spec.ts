@@ -121,7 +121,17 @@ test('the save-failure banner appears right after a failed save and clears once 
   await pick(page, s.name);
   const tmp = path.join(dataDir, 'academy.sqlite.tmp');
   // a directory where the temporary file goes makes every save fail
-  fs.mkdirSync(tmp, { recursive: true });
+  // (a save may be writing the temporary file right now, or Windows may have left one behind; replace it)
+  for (let i = 0; ; i++) {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      fs.mkdirSync(tmp);
+      break;
+    } catch (e) {
+      if (i >= 20) throw e;
+      await page.waitForTimeout(100);
+    }
+  }
   fs.writeFileSync(path.join(tmp, 'x'), 'x');
   try {
     await page.getByRole('button', { name: /START LEARNING|CONTINUE LEARNING/ }).click();
