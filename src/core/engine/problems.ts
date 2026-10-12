@@ -53,6 +53,9 @@ export function validateStep(step: ProblemStep, where: string): string[] {
   const self = checkAnswer(step.answer, canonicalInput(step.answer));
   if (self.status !== 'correct') errs.push(`${where}: key not accepted (${self.status}: ${self.message ?? ''})`);
   if (step.hints.length !== 4 || step.hints.some((h) => !h || !h.trim())) errs.push(`${where}: needs 4 hints`);
+  step.hints.forEach((h, i) => {
+    if (leaksAnswer(h, step.answer)) errs.push(`${where}: hint ${i + 1} states the step's answer`);
+  });
   for (const m of step.misconceptions ?? []) {
     const r = checkAnswer(step.answer, m.answer);
     if (r.status === 'correct' || r.status === 'wrong-form') errs.push(`${where}: misconception "${m.answer}" is actually correct`);

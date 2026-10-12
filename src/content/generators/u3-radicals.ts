@@ -244,7 +244,7 @@ function addLikeSteps(tex: string, c1: number, c2: number, r: number, index: 2 |
       prompt: [p(`Combine the numbers in front of $${rootOf(r, index)}$. What is $${c1} + ${c2Tex}$?`)],
       answer: { kind: 'number', value: String(sum) },
       hints: [
-        `A root with no number in front has a $1$ in front: $${rootOf(r, index)} = 1${rootOf(r, index)}$.`,
+        `A root with no number in front has an invisible $1$ in front of it, just like $x$ means $1x$.`,
         `The numbers in front are $${c1}$ and $${c2}$.`,
         c2 < 0 ? 'Adding a negative number is the same as subtracting.' : 'Add the two numbers.',
         `Leave $${rootOf(r, index)}$ out of this step: just combine $${c1}$ and $${c2}$.`,
