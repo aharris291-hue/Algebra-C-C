@@ -964,7 +964,7 @@ export const genInterceptsContext: GeneratorDef = {
       return makeProblem({
         skillId: 'S1.09',
         tags: ['real-world', 'word'],
-        prompt: [p(story), p(`What is the vertical intercept, $${f}(0)$? It tells you ${ctx.outputDesc.replace(/,? (after|for a) .*/, '')} at the start.`)],
+        prompt: [p(story), p(`What is the vertical intercept, $${f}(0)$? It tells you ${ctx.outputDesc.replace(/,? (after|for a) .*/, '').replace(/, in [a-z]+$/, '')} at the start.`)],
         answer: { kind: 'number', value: numStr(b), unit: ctx.outUnit },
         hints: [
           'The vertical intercept is the output when the input is 0.',
@@ -1049,7 +1049,7 @@ export const genInterceptsContext: GeneratorDef = {
         ],
       });
     }
-    const zeroText = ctx.key === 'carwash' ? 'the band breaks even (profit is \\$0)' : `${ctx.outputDesc.replace(/,? (after|for a) .*/, '')} reaches 0`;
+    const zeroText = ctx.key === 'carwash' ? 'the band breaks even (profit is \\$0)' : `${ctx.outputDesc.replace(/,? (after|for a) .*/, '').replace(/, in [a-z]+$/, '')} reaches 0`;
     return makeProblem({
       skillId: 'S1.09',
       tags: ['real-world', 'word'],

@@ -3,8 +3,9 @@ import { stressGenerator } from './harness';
 import { U6_GENERATORS_UNDER_TEST } from './u6-list';
 import { createRng } from '../../src/core/engine/rng';
 import { Rational } from '../../src/core/math/rational';
-import { produceProblem } from '../../src/core/engine/problems';
-import { ALL_GENERATORS } from '../../src/content';
+import { produceProblem, validateStep, canonicalInput } from '../../src/core/engine/problems';
+import { ALL_GENERATORS, GENERATORS, LESSON_CONTENT } from '../../src/content';
+import { checkAnswer } from '../../src/core/math/answers';
 import type { Difficulty, Problem } from '../../src/core/curriculum/types';
 
 describe('Unit 6 generators', () => {
@@ -107,4 +108,29 @@ describe('Unit 6 audit variants', () => {
   checkVariant('u6.exp-domain-range', 2, /function \$f\$ is shown\. .*range/, 40);
   // A.FGR.9.1: reasonable (including discrete) domains in context
   checkVariant('u6.exp-domain-range', 3, /most reasonable domain/, 50);
+});
+
+// ---------------------------------------------------------------------------
+// Guided practice is step by step (Lesson Quality Audit, C4): every guided generator/difficulty in the
+// Unit 6 lessons produces 2-4 steps on every seed, each step's key is accepted by its own checker, and
+// finishing the last step answers the problem.
+// ---------------------------------------------------------------------------
+describe('Unit 6 guided practice is step by step', () => {
+  const pairs = new Set<string>();
+  for (const [id, l] of LESSON_CONTENT) if (id.startsWith('U6')) for (const r of l.guided) pairs.add(`${r.generator}|${r.difficulty}`);
+  it('finds the Unit 6 guided pairs', () => expect(pairs.size).toBeGreaterThanOrEqual(10));
+  for (const pair of [...pairs].sort()) {
+    it(`${pair} gives checked steps on 60 seeds`, () => {
+      const [gid, d] = pair.split('|');
+      const gen = GENERATORS.get(gid)!;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 17 * Number(d), Number(d) as Difficulty);
+        const steps = problem.steps ?? [];
+        expect(steps.length, `${problem.id} has steps`).toBeGreaterThanOrEqual(2);
+        expect(steps.length).toBeLessThanOrEqual(4);
+        steps.forEach((st, i) => expect(validateStep(st, `${problem.id} step ${i + 1}`)).toEqual([]));
+        expect(checkAnswer(problem.answer, canonicalInput(steps[steps.length - 1].answer)).status, `${problem.id} last step`).toBe('correct');
+      }
+    });
+  }
 });

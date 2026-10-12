@@ -79,6 +79,9 @@ function diffOf(ts: Rational[]): Rational | null {
   return d;
 }
 
+/** 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st, 22nd, 23rd ... */
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')}`;
+
 /** n-th term by repeated addition */
 function iterate(a1: Rational, d: Rational, n: number): Rational {
   let v = a1;
@@ -288,7 +291,7 @@ export const genSeqExplicit: GeneratorDef = {
       return makeProblem({
         skillId: 'S1.12',
         tags: [],
-        prompt: [...intro, p(`Find the ${n}th term, $a_{${n}}$.`)],
+        prompt: [...intro, p(`Find the ${ordinal(n)} term, $a_{${n}}$.`)],
         answer: { kind: 'number', value: numStr(an) },
         hints: [
           'Use the explicit formula $a_n = a_1 + (n - 1)d$.',
@@ -298,7 +301,7 @@ export const genSeqExplicit: GeneratorDef = {
         ],
         solution: [
           { text: 'Identify the first term and common difference.', tex: `a_1 = ${a1.toTex()}, \\quad d = ${d.toTex()}` },
-          { text: 'Substitute into the explicit formula.', tex: `a_{${n}} = ${a1.toTex()} + (${n} - 1)${sub(d)}`, why: `There are ${n - 1} jumps of $d$ between the 1st and ${n}th terms, not ${n}.` },
+          { text: 'Substitute into the explicit formula.', tex: `a_{${n}} = ${a1.toTex()} + (${n} - 1)${sub(d)}`, why: `There are ${n - 1} jumps of $d$ between the 1st and ${ordinal(n)} terms, not ${n}.` },
           { text: 'Simplify.', tex: `a_{${n}} = ${a1.toTex()} + ${d.mul(n - 1).toTex()} = ${an.toTex()}` },
         ],
         misconceptions: numberMisconceptions(an, [
@@ -420,7 +423,7 @@ export const genSeqExplicit: GeneratorDef = {
       if (!(a.kind === 'number' && Rational.parse(a.value).eq(d))) return ['difference mismatch'];
       return stepErrors(pr, [ts[1].sub(ts[0]), ts[2].sub(ts[1])]);
     }
-    const tm = /Find the (\d+)th term/.exec(ask);
+    const tm = /Find the (\d+)(?:st|nd|rd|th) term/.exec(ask);
     if (tm) {
       const want = iterate(ts[0], d, Number(tm[1]));
       if (!(a.kind === 'number' && Rational.parse(a.value).eq(want))) return ['term mismatch'];
@@ -533,7 +536,7 @@ export const genSeqRecursive: GeneratorDef = {
         ],
         misconceptions: numberMisconceptions(an, [
           { value: term(a1, d, n + 1), tag: 'sequence-index', feedback: `You applied the rule ${n} times. From $a_1$ to $a_{${n}}$ is only ${n - 1} steps.` },
-          { value: term(a1, d, n - 1), tag: 'sequence-index', feedback: `Count again: you need to reach the ${n}th term.` },
+          { value: term(a1, d, n - 1), tag: 'sequence-index', feedback: `Count again: you need to reach the ${ordinal(n)} term.` },
         ]),
       });
     }
@@ -852,7 +855,7 @@ export const genSeqAsFunction: GeneratorDef = {
       solution: [
         { text: 'Set the rule equal to the value.', tex: `${rule} = ${V.toTex()}`, why: 'We need the input $n$ that gives this output.' },
         { text: 'Solve for $n$.', tex: `${linearTex(d, 0, 'n')} = ${V.sub(a1.sub(d)).toTex()} \\;\\Rightarrow\\; n = ${n}`, why: `Undo the constant, then divide by $${d.toTex()}$.` },
-        { text: 'Check that it makes sense.', why: `$${n}$ is a positive integer, so it is a real term number: the ${n}th term is $${V.toTex()}$.` },
+        { text: 'Check that it makes sense.', why: `$${n}$ is a positive integer, so it is a real term number: the ${ordinal(n)} term is $${V.toTex()}$.` },
       ],
       misconceptions: numberMisconceptions(Q(n), [
         { value: d.mul(V).add(a1.sub(d)), tag: 'inverse-operation', feedback: `That is $f(${V.toTex()})$. Here $${V.toTex()}$ is the output, so solve for $n$.` },
