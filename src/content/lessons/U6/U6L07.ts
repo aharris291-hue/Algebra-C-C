@@ -101,7 +101,7 @@ export const U6L07: LessonContent = {
       steps: [
         { text: 'Divide each term by the one before it.', tex: '\\frac{15}{5} = 3,\\quad \\frac{45}{15} = 3,\\quad \\frac{135}{45} = 3', why: 'All the ratios match, so the sequence is geometric. (The differences $10, 30, 90$ do not match, so it is not arithmetic.)' },
         { text: 'So $r = 3$.', why: 'Each term is $3$ times the term before it.' },
-        { text: 'Keep multiplying by $3$.', tex: '135 \\cdot 3 = 405,\\quad 405 \\cdot 3 = 1215,\\quad 1215 \\cdot 3 = 3645' },
+        { text: 'Keep multiplying by $3$.', tex: '135 \\cdot 3 = 405,\\quad 405 \\cdot 3 = 1215,\\quad 1215 \\cdot 3 = 3645', why: 'A geometric sequence keeps the same ratio forever, so each new term is the term before it times $r = 3$.' },
       ],
       answer: '$r = 3$; the next three terms are $405, 1215, 3645$.',
     },
@@ -135,7 +135,7 @@ export const U6L07: LessonContent = {
       problem: [{ t: 'p', text: 'For $2, 6, 18, 54, \\ldots$, a student finds the 6th term as $2(3)^6 = 1458$. What went wrong?' }],
       steps: [
         { text: 'Count the jumps.', why: 'The first term, $2$, has not been multiplied by $3$ at all. To get from term 1 to term 6 you multiply by $3$ only **5** times, not 6.' },
-        { text: 'Use $n - 1$ as the exponent.', tex: 'a_6 = 2(3)^{6 - 1} = 2(3)^5 = 2 \\cdot 243 = 486' },
+        { text: 'Use $n - 1$ as the exponent.', tex: 'a_6 = 2(3)^{6 - 1} = 2(3)^5 = 2 \\cdot 243 = 486', why: 'The 6th term is $5$ jumps after the 1st term, so the ratio $3$ is multiplied in only $5$ times.' },
         { text: 'Check by listing.', tex: '2,\\ 6,\\ 18,\\ 54,\\ 162,\\ 486', why: 'The 6th number in the list is $486$. The student answer $1458$ is actually the 7th term.' },
         { text: 'Watch for a second trap.', tex: '2(3)^5 \\ne 6^5 = 7776', why: 'Do the exponent before multiplying by $2$. Only the ratio $3$ is raised to the power.' },
       ],
@@ -146,7 +146,7 @@ export const U6L07: LessonContent = {
       kind: 'challenging',
       problem: [{ t: 'p', text: 'In the sequence $5, 10, 20, 40, \\ldots$, which term is $640$?' }],
       steps: [
-        { text: 'Find $r$ and write the explicit formula.', tex: 'r = \\frac{10}{5} = 2; \\quad a_n = 5(2)^{n-1}' },
+        { text: 'Find $r$ and write the explicit formula.', tex: 'r = \\frac{10}{5} = 2; \\quad a_n = 5(2)^{n-1}', why: 'Each term is double the one before, and the first term is $5$, so $a_1 = 5$ and $r = 2$ go into $a_n = a_1(r)^{n-1}$.' },
         { text: 'Set the formula equal to the value.', tex: '5(2)^{n-1} = 640', why: '$640$ is a term **value**, so it goes where $a_n$ is. The unknown is the term **number** $n$.' },
         { text: 'Divide both sides by $5$.', tex: '2^{n-1} = 128', why: 'Undo the multiplication by $5$ before dealing with the exponent.' },
         { text: 'Write $128$ as a power of $2$ and match exponents.', tex: '2^{n-1} = 2^7 \\;\\Rightarrow\\; n - 1 = 7 \\;\\Rightarrow\\; n = 8', why: '$2 \\cdot 2 \\cdot 2 \\cdot 2 \\cdot 2 \\cdot 2 \\cdot 2 = 128$. When the bases are the same, the exponents must be equal.' },
@@ -161,7 +161,7 @@ export const U6L07: LessonContent = {
       steps: [
         { text: 'Start at $81$ and multiply by $-\\frac{1}{3}$ each time.', tex: '81,\\ -27,\\ 9,\\ -3,\\ 1', why: 'Multiplying by $-\\frac{1}{3}$ divides by $3$ and flips the sign: $81 \\cdot \\left(-\\frac{1}{3}\\right) = -27$, $-27 \\cdot \\left(-\\frac{1}{3}\\right) = 9$, and so on.' },
         { text: 'Read off $a_1$ and $r$.', tex: 'a_1 = 81, \\quad r = -\\tfrac{1}{3}', why: 'In $a_n = r \\cdot a_{n-1}$, the number multiplying the term before is the common ratio.' },
-        { text: 'Write the explicit formula.', tex: 'a_n = 81\\left(-\\tfrac{1}{3}\\right)^{n-1}' },
+        { text: 'Write the explicit formula.', tex: 'a_n = 81\\left(-\\tfrac{1}{3}\\right)^{n-1}', why: 'Put $a_1 = 81$ and $r = -\\frac{1}{3}$ into $a_n = a_1(r)^{n-1}$. Keep the negative ratio in parentheses so the sign is raised to the power too.' },
         { text: 'Check with the list.', tex: 'a_5 = 81\\left(-\\tfrac{1}{3}\\right)^{4} = 81 \\cdot \\tfrac{1}{81} = 1 \\checkmark', why: 'An even power of a negative number is positive: $\\left(-\\frac{1}{3}\\right)^4 = \\frac{1}{81}$.' },
       ],
       answer: '$81, -27, 9, -3, 1$; $a_n = 81\\left(-\\frac{1}{3}\\right)^{n-1}$',
@@ -172,7 +172,7 @@ export const U6L07: LessonContent = {
       problem: [{ t: 'p', text: 'Maya drops a ball. Its first bounce reaches $64$ inches, and every bounce after that reaches $\\frac{3}{4}$ of the height of the bounce before. Write a recursive and an explicit formula for the height of bounce $n$. How high is the 4th bounce? Which bounce is the first one lower than $10$ inches?' }],
       steps: [
         { text: 'Write the recursive formula.', tex: 'a_1 = 64, \\quad a_n = \\tfrac{3}{4} \\cdot a_{n-1}', why: 'Bounce 1 is $64$ inches, and each bounce is $\\frac{3}{4}$ of the one before, so $r = \\frac{3}{4} = 0.75$.' },
-        { text: 'Write the explicit formula.', tex: 'a_n = 64\\left(\\tfrac{3}{4}\\right)^{n-1}' },
+        { text: 'Write the explicit formula.', tex: 'a_n = 64\\left(\\tfrac{3}{4}\\right)^{n-1}', why: 'Bounce 1 is $64$, and bounce $n$ comes after $n - 1$ shrinks by $\\frac{3}{4}$, so the exponent is $n - 1$.' },
         { text: 'Find the 4th bounce.', tex: 'a_4 = 64\\left(\\tfrac{3}{4}\\right)^{3} = 64 \\cdot \\tfrac{27}{64} = 27 \\text{ in}', why: 'Check by multiplying: $64 \\to 48 \\to 36 \\to 27$.' },
         { text: 'Keep multiplying by $0.75$ until the height drops below $10$.', tex: '27 \\to 20.25 \\to 15.1875 \\to 11.390625 \\to 8.54296875', why: 'These are bounces 5, 6, 7 and 8. Bounce 7 is still about $11.4$ inches; bounce 8 is about $8.5$ inches.' },
       ],

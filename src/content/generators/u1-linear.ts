@@ -12,6 +12,7 @@ import { Poly, toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr, numberMisconceptions } from './util';
 import { buildContext, DECREASING_KEYS, type LinearContext } from './u1-contexts';
+import { numStep, choiceStep, finalStep, stepErrors, choiceMisc, minusHint } from './u1-steps';
 
 /** "y = mx + b" in parser syntax */
 const yEq = (m: Rational, b: Rational) => `y = ${linearPlain(m, b)}`;
@@ -100,19 +101,21 @@ export const genWriteSlopePoint: GeneratorDef = {
             `The equation becomes $${y1.toTex()} = ${m.toTex()}\\cdot${sub(x1)} + b$.`,
             `Multiply: $${m.toTex()}\\cdot${sub(x1)}$.`,
             `Then subtract that product from $${y1.toTex()}$.`,
-            'Be careful subtracting a negative: it is the same as adding.',
+            minusHint(y1, mx1),
           ],
-          misconceptions: [
-            ...(y1.add(mx1).eq(b) ? [] : [{ answer: numStr(y1.add(mx1)), tag: 'sign-error' as const, feedback: 'Subtract the product from both sides, do not add it.' }]),
-          ],
-          explanation: `$b = ${b.toTex()}$.`,
+          misconceptions: numberMisconceptions(b, [
+            { value: y1.add(mx1), tag: 'sign-error', feedback: 'Subtract the product from both sides, do not add it.' },
+            { value: x1.isZero() ? null : y1, tag: 'equation-setup', feedback: 'A point is only the $y$-intercept if its $x$-coordinate is 0. Solve for $b$.' },
+          ]),
+          explanation: `The point is on the line, so its coordinates make $y = mx + b$ true; subtracting $${m.toTex()}\\cdot${sub(x1)}$ from both sides leaves $b = ${b.toTex()}$.`,
         },
         {
           prompt: [p(`Now write the equation of the line with $m = ${m.toTex()}$ and $b = ${b.toTex()}$.`)],
           answer: { kind: 'equation', value: yEq(m, b), form: 'slope-intercept' },
           inputHint: SI_HINT,
           hints: ['Use $y = mx + b$.', 'Put the slope in front of $x$.', 'Put $b$ at the end.', 'If $b$ is negative, write "minus".'],
-          explanation: `$${yEqTex(m, b)}$.`,
+          misconceptions: lineMisconceptions({ m, b }, [{ m, b: b.neg(), tag: 'sign-error', feedback: 'Check the sign of $b$.' }]),
+          explanation: `Slope-intercept form needs only the slope and the $y$-intercept, so $${yEqTex(m, b)}$.`,
         },
       ],
     });
@@ -130,6 +133,8 @@ export const genWriteSlopePoint: GeneratorDef = {
     const errs: string[] = [];
     if (!line.m.eq(m)) errs.push('slope mismatch');
     if (!line.m.mul(x).add(line.b).eq(y)) errs.push('point not on line');
+    // steps: b = y - m x from the prompt's numbers, then the line
+    errs.push(...stepErrors(pr, [y.sub(m.mul(x)), null]));
     return errs;
   },
 };
@@ -176,6 +181,42 @@ export const genWriteTwoPoints: GeneratorDef = {
         { m: m.neg(), b: y1.add(m.mul(x1)), tag: 'slope-calc', feedback: 'Check the slope. Subtract in the same order on the top and the bottom.' },
         { m, b: y1, tag: 'equation-setup', feedback: 'A point is only the $y$-intercept if its $x$-coordinate is 0. Substitute a point to find $b$.' },
       ]),
+      steps: [
+        numStep(
+          `Find the slope: $m = \\dfrac{${y2.toTex()} - ${sub(y1)}}{${x2.toTex()} - ${sub(x1)}}$.`,
+          m,
+          ['Slope is the change in $y$ divided by the change in $x$.', `Work out the top first: $${y2.toTex()} - ${sub(y1)}$.`, `Then the bottom: $${x2.toTex()} - ${sub(x1)}$.`, 'Divide and simplify. A fraction is fine.'],
+          `The change in $y$ is $${dy.toTex()}$ and the change in $x$ is $${dx.toTex()}$, and their quotient is the slope.`,
+          [
+            { value: dy.isZero() ? null : dx.div(dy), tag: 'rise-run-swap', feedback: 'The change in $y$ goes on top.' },
+            { value: m.neg(), tag: 'slope-calc', feedback: 'Subtract in the same order on the top and the bottom.' },
+          ],
+          'Type the slope. Fractions like -3/4 are fine.',
+        ),
+        numStep(
+          `Substitute the slope and the point $(${x1.toTex()}, ${y1.toTex()})$ into $y = mx + b$. What is $b$?`,
+          b,
+          [
+            `The equation becomes $${y1.toTex()} = ${m.toTex()}\\cdot${sub(x1)} + b$.`,
+            `Multiply first: $${m.toTex()}\\cdot${sub(x1)}$.`,
+            'Then subtract that product from both sides.',
+            minusHint(y1, m.mul(x1)),
+          ],
+          'The point is on the line, so its coordinates make the equation true, and that leaves only $b$ unknown.',
+          [
+            { value: x1.isZero() ? null : y1, tag: 'equation-setup', feedback: 'A point is only the $y$-intercept if its $x$-coordinate is 0. Solve for $b$.' },
+            { value: y1.add(m.mul(x1)), tag: 'sign-error', feedback: 'Subtract the product from both sides; do not add it.' },
+          ],
+        ),
+        finalStep(
+          `Write the equation using your slope and $b$.`,
+          { kind: 'equation', value: yEq(m, b), form: 'slope-intercept' },
+          ['Use $y = mx + b$.', 'Put the slope in front of $x$.', 'Put $b$ at the end, with its sign.', 'Check: the other point should also fit your equation.'],
+          'Slope-intercept form needs exactly the slope and the $y$-intercept, and you found both.',
+          lineMisconceptions({ m, b }, [{ m, b: b.neg(), tag: 'sign-error', feedback: 'Check the sign of $b$.' }]),
+          SI_HINT,
+        ),
+      ],
     });
   },
   verify(pr) {
@@ -184,7 +225,11 @@ export const genWriteTwoPoints: GeneratorDef = {
     const pts = [...text.matchAll(/\$\((.+?), (.+?)\)\$/g)].map((mm) => [mm[1], mm[2]].map((t) => toPoly(parseExpression(texToExpr(t))).constantValue()));
     const line = lineOf(pr.answer.value);
     if (pts.length !== 2 || !line) return ['cannot parse'];
-    return pts.every(([x, y]) => line.m.mul(x).add(line.b).eq(y)) ? [] : ['a point is not on the line'];
+    if (!pts.every(([x, y]) => line.m.mul(x).add(line.b).eq(y))) return ['a point is not on the line'];
+    // steps: slope with the points in reverse order, b from the second point
+    const [[xa, ya], [xb, yb]] = pts;
+    const slope = ya.sub(yb).div(xa.sub(xb));
+    return stepErrors(pr, [slope, yb.sub(slope.mul(xb)), null]);
   },
 };
 
@@ -296,6 +341,29 @@ function pointMeaningProblem(rng: Rng): Problem {
       { answer: idOf(swapped), tag: 'graph-reading', feedback: 'Check the order: the first coordinate is the input on the horizontal axis.' },
       { answer: idOf(rateWrong), tag: 'graph-reading', feedback: 'A single point gives one input and its output, not a rate. A rate compares two points.' },
     ],
+    steps: (() => {
+      const nums = [px, py].sort((u, w) => (u.lt(w) ? -1 : 1));
+      return [
+        choiceStep(
+          `In the point $${ptTex}$, which number is the input: a number of ${ctx.inUnits}?`,
+          nums.map((n) => `$${n.toTex()}$`),
+          nums.indexOf(px),
+          ['An ordered pair is (input, output).', 'The input is on the horizontal axis.', `Read the horizontal axis label: it measures ${ctx.inUnits}.`, 'The first number in the pair is the input.'],
+          `The first coordinate is the input, so the point describes the moment when ${ctx.inWord(px)} have passed.`,
+          [{ index: nums.indexOf(py), tag: 'graph-reading', feedback: 'That is the second coordinate, the output on the vertical axis.' }],
+        ),
+        finalStep(
+          `So what does the point $${ptTex}$ mean?`,
+          answer,
+          ['Use the input you just found and the other number as the output.', 'The right sentence names the input first and then the output.', 'A single point is one moment, not a rate.', startPt ? 'Input 0 is the start of the situation.' : 'Output 0 means the amount has run out.'],
+          `The point pairs the input ${ctx.inWord(px)} with the output ${ctx.outWord(py)}.`,
+          [
+            { answer: idOf(swapped), tag: 'graph-reading', feedback: 'Check the order: the first coordinate is the input on the horizontal axis.' },
+            { answer: idOf(rateWrong), tag: 'graph-reading', feedback: 'A single point gives one input and its output, not a rate.' },
+          ],
+        ),
+      ];
+    })(),
   });
 }
 
@@ -328,6 +396,34 @@ function graphRuleProblem(rng: Rng): Problem {
       ...(rise.isZero() ? [] : [{ answer: linearPlain(g.X.div(rise), b, v), tag: 'rise-run-swap' as const, feedback: 'Check the rate: the change in output goes on top and the change in input on the bottom.' }]),
       { answer: linearPlain(m, g.X, v), tag: 'graph-reading', feedback: 'The starting value is where the graph meets the vertical axis, the output at input 0.' },
     ]),
+    steps: [
+      numStep(
+        `What is the starting value: the output where the graph meets the vertical axis (input 0)?`,
+        b,
+        ['The starting value is the output when the input is 0.', 'Input 0 is on the vertical axis.', 'Look at the marked point on the vertical axis.', 'Its second coordinate is the output.'],
+        `The graph starts at $(0, ${decTex(b)})$: ${ctx.startMeaning}.`,
+        [{ value: g.X, tag: 'graph-reading', feedback: 'That is an input. The starting value is an output, on the vertical axis.' }],
+      ),
+      numStep(
+        `Use the two marked points to find the rate of change in ${ctx.rateUnit}.`,
+        m,
+        ['Rate $= \\dfrac{\\text{change in output}}{\\text{change in input}}$.', `The outputs are $${decTex(b)}$ and $${decTex(g.Y)}$.`, `The inputs are $0$ and $${decTex(g.X)}$.`, m.isNegative() ? 'The graph goes down, so the rate is negative.' : 'The graph goes up, so the rate is positive.'],
+        `The output changes by $${decTex(rise)}$ over $${decTex(g.X)}$ ${ctx.inUnits}, which is $${decTex(m)}$ ${ctx.rateUnit}.`,
+        [
+          { value: m.neg(), tag: 'sign-error', feedback: 'Does the graph go up or down from left to right? Check the sign.' },
+          { value: rise, tag: 'slope-calc', feedback: 'That is the total change. Divide by the change in input.' },
+          { value: rise.isZero() ? null : g.X.div(rise), tag: 'rise-run-swap', feedback: 'The change in output goes on top.' },
+        ],
+      ),
+      finalStep(
+        `Write the rule for $${f}(${v})$.`,
+        { kind: 'expression', value: rule, variables: [v] },
+        ['A linear rule is (rate) $\\times$ (input) $+$ (starting value).', `Multiply the rate by $${v}$.`, 'Add the starting value.', `Check: the rule should give $${decTex(g.Y)}$ when $${v} = ${decTex(g.X)}$.`],
+        'Rate times input, plus the starting value, gives the output for every input.',
+        [],
+        `Type the rule using ${v}.`,
+      ),
+    ],
   });
 }
 
@@ -386,6 +482,36 @@ export const genWriteContext: GeneratorDef = {
         wrong(m, b.neg(), 'sign-error', 'Check the sign of the starting value.'),
         wrong(m.add(b), Q(0), 'equation-setup', 'The starting amount happens once, so it should not be multiplied by the input.'),
       ].filter((x): x is Misconception => x !== null),
+      steps: [
+        numStep(
+          `What is the rate of change, in ${ctx.rateUnit}? Use a negative number if the amount goes down.`,
+          m,
+          [`The rate is the amount that changes every ${ctx.inUnit}.`, `Look for a phrase like "each ${ctx.inUnit}" or "per ${ctx.inUnit}".`, 'Decide whether that amount makes the output go up or down.', 'Going down means a negative rate.'],
+          `${ctx.rateMeaning[0].toUpperCase()}${ctx.rateMeaning.slice(1)}, so the rate is ${decTex(m)} ${ctx.rateUnit}.`,
+          [
+            { value: m.neg(), tag: 'sign-error', feedback: `Is the amount going up or down each ${ctx.inUnit}? Check the sign.` },
+            { value: b, tag: 'equation-setup', feedback: `That amount happens once at the start. The rate is the amount that repeats every ${ctx.inUnit}.` },
+          ],
+        ),
+        numStep(
+          `What is the starting value: the output when $${v} = 0$?`,
+          b,
+          [`The starting value is the amount at the very start, before any ${ctx.inUnits} pass.`, 'It happens only once, so it is not multiplied by the input.', 'Look for a one-time fee or a starting amount.', b.isNegative() ? 'In a profit rule, money spent at the start counts against you, so the starting value is negative.' : `Nothing here starts below zero: ${ctx.outputDesc.replace(/,? (in|after|for a) .*/, '')} begins at a positive amount, so the starting value is positive.`],
+          `When $${v} = 0$, ${ctx.startMeaning}, so the starting value is ${decTex(b)}.`,
+          [
+            { value: b.neg(), tag: 'sign-error', feedback: 'Check the sign of the starting value.' },
+            { value: m, tag: 'equation-setup', feedback: `That amount repeats every ${ctx.inUnit}, so it is the rate, not the starting value.` },
+          ],
+        ),
+        finalStep(
+          `Write the rule for $${f}(${v})$.`,
+          { kind: 'expression', value: rule, variables: [v] },
+          ['A linear rule is (rate) $\\times$ (input) $+$ (starting value).', `Multiply the rate by $${v}$.`, 'Add the starting value, keeping its sign.', `Check: your rule at $${v} = 0$ should give the starting value.`],
+          'The rate is multiplied by the input because it repeats, and the starting value is added once.',
+          [],
+          `Type the rule using ${v}.`,
+        ),
+      ],
     });
   },
   verify(pr) {
@@ -407,6 +533,9 @@ export const genWriteContext: GeneratorDef = {
         if (!drawn.evaluate({ x }).eq(want)) errs.push('drawn line misses the marked points');
       }
       if (!graph.spec.xLabel || !graph.spec.yLabel) errs.push('context graph needs axis labels');
+      // steps: the starting value is the marked point at input 0, the rate comes from the two points
+      const start = pts.find((q) => q.x.isZero());
+      errs.push(...stepErrors(pr, [start ? start.y : null, slope, null]));
       return errs;
     }
     const m = poly.coeff(v, 1);
@@ -416,6 +545,8 @@ export const genWriteContext: GeneratorDef = {
     if (poly.degree() !== 1) errs.push('rule is not linear');
     if (!nums.some((n) => n.eq(m.abs()))) errs.push(`rate ${m} not in situation`);
     if (!nums.some((n) => n.eq(b.abs()))) errs.push(`start ${b} not in situation`);
+    // steps: rate and starting value must agree with the final rule
+    errs.push(...stepErrors(pr, [m, b, null]));
     return errs;
   },
 };
@@ -427,6 +558,10 @@ export const genWriteContext: GeneratorDef = {
 /** Ax + By = C as TeX/plain */
 function standardTex(A: Rational, B: Rational, C: Rational): string {
   return `${polyTex(Poly.fromCoeffs('x', [Q(0), A]).add(Poly.fromCoeffs('y', [Q(0), B])), ['x', 'y'])} = ${C.toTex()}`;
+}
+/** A coefficient times x as TeX, writing 1x and -1x as x and -x. */
+function xTerm(c: Rational): string {
+  return c.eq(1) ? 'x' : c.eq(-1) ? '-x' : `${c.toTex()}x`;
 }
 function standardPlain(A: Rational, B: Rational, C: Rational): string {
   return `${A.toString()}x + ${B.toString()}y = ${C.toString()}`.replace(/\+ -/g, '- ');
@@ -460,12 +595,12 @@ export const genConvertForms: GeneratorDef = {
         inputHint: SI_HINT,
         hints: [
           'Slope-intercept form has $y$ by itself on one side.',
-          `Move the $x$-term: ${A.isNegative() ? 'add' : 'subtract'} $${A.abs().toTex()}x$ ${A.isNegative() ? 'to' : 'from'} both sides.`,
+          `Move the $x$-term: ${A.isNegative() ? 'add' : 'subtract'} $${xTerm(A.abs())}$ ${A.isNegative() ? 'to' : 'from'} both sides.`,
           `You should have $${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = ${yTerm}$. Now divide every term by $${B.toTex()}$.`,
           'Divide both the $x$-term and the constant by the coefficient of $y$, then write the $x$-term first.',
         ],
         solution: [
-          { text: `${A.isNegative() ? 'Add' : 'Subtract'} $${A.abs().toTex()}x$ on both sides.`, tex: `${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = ${yTerm}`, why: 'Get the $y$-term alone on one side.' },
+          { text: `${A.isNegative() ? 'Add' : 'Subtract'} $${xTerm(A.abs())}$ on both sides.`, tex: `${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = ${yTerm}`, why: 'Get the $y$-term alone on one side.' },
           { text: `Divide every term by $${B.toTex()}$.`, tex: yEqTex(m, b), why: 'Dividing both sides by the same nonzero number keeps the equation balanced. Every term must be divided.' },
         ],
         misconceptions: lineMisconceptions({ m, b }, [
@@ -473,6 +608,37 @@ export const genConvertForms: GeneratorDef = {
           { m: A.neg().div(B), b: C, tag: 'arithmetic-error', feedback: 'Divide every term by the coefficient of $y$, including the constant.' },
           { m: A.div(B), b: C.div(B), tag: 'sign-error', feedback: 'When you move the $x$-term to the other side, its sign changes.' },
         ]),
+        steps: [
+          {
+            prompt: [p(`First get the $y$-term alone: ${A.isNegative() ? 'add' : 'subtract'} $${xTerm(A.abs())}$ ${A.isNegative() ? 'to' : 'from'} both sides. The equation becomes $${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = \\;?$ Type the right side.`)],
+            answer: { kind: 'expression', value: linearPlain(A.neg(), C), variables: ['x'] },
+            inputHint: 'Type an expression in x, like -2x + 6.',
+            hints: [
+              'Slope-intercept form has $y$ by itself, so the $x$-term has to move to the right side.',
+              `To move $${xTerm(A)}$, do the opposite on both sides.`,
+              'When a term moves to the other side of the equals sign, its sign changes.',
+              `The right side keeps $${C.toTex()}$ and gains the $x$-term with the opposite sign.`,
+            ],
+            misconceptions: [{ answer: linearPlain(A, C), tag: 'sign-error' as const, feedback: 'When the $x$-term moves to the other side, its sign changes.' }],
+            explanation: `Doing the same thing to both sides keeps the equation balanced and leaves only the $y$-term on the left.`,
+          },
+          finalStep(
+            `Now divide every term by $${B.toTex()}$ and write the equation in the form $y = mx + b$.`,
+            { kind: 'equation', value: yEq(m, b), form: 'slope-intercept' },
+            [
+              `Divide both sides by $${B.toTex()}$, the number multiplying $y$.`,
+              'Every term on the right must be divided, the $x$-term and the constant.',
+              B.eq(1) ? 'Dividing by 1 changes nothing, so you may already be done.' : 'Watch the signs when you divide by a negative number.',
+              'Write the $x$-term first, then the constant.',
+            ],
+            'Dividing every term by the same nonzero number keeps the equation true and leaves $y$ alone.',
+            lineMisconceptions({ m, b }, [
+              { m: A.neg(), b: C.div(B), tag: 'arithmetic-error', feedback: 'Divide every term by the coefficient of $y$, including the $x$-term.' },
+              { m: A.neg().div(B), b: C, tag: 'arithmetic-error', feedback: 'Divide every term by the coefficient of $y$, including the constant.' },
+            ]),
+            SI_HINT,
+          ),
+        ],
       });
     }
     if (difficulty === 2) {
@@ -505,7 +671,7 @@ export const genConvertForms: GeneratorDef = {
         ],
         solution: [
           { text: `Multiply every term by $${den}$.`, tex: `${den}y = ${linearTex(Q(num), b.mul(den))}`, why: 'This clears the fraction so all coefficients are integers.' },
-          { text: `${num > 0 ? 'Subtract' : 'Add'} $${Math.abs(num)}x$ on both sides.`, tex: standardTex(Q(-num), Q(den), b.mul(den)), why: 'Standard form keeps both variable terms on the left.' },
+          { text: `${num > 0 ? 'Subtract' : 'Add'} $${xTerm(Q(Math.abs(num)))}$ on both sides.`, tex: standardTex(Q(-num), Q(den), b.mul(den)), why: 'Standard form keeps both variable terms on the left.' },
           ...(A.eq(-num) ? [] : [{ text: 'Make $A$ positive (and divide out any common factor).', tex: standardTex(A, B, C), why: 'Multiplying or dividing every term by the same nonzero number gives an equivalent equation.' }]),
         ],
         misconceptions: [
@@ -518,6 +684,35 @@ export const genConvertForms: GeneratorDef = {
             return false;
           }
         }),
+        steps: [
+          {
+            // the slope is shown in lowest terms, so clear its own denominator
+            prompt: [p(`Clear the fraction: multiply every term on both sides by $${Q(m.den).toTex()}$. The equation becomes $${Q(m.den).toTex()}y = \\;?$ Type the right side.`)],
+            answer: { kind: 'expression', value: linearPlain(Q(m.num), b.mul(Q(m.den))), variables: ['x'] },
+            inputHint: 'Type an expression in x, like 3x - 8.',
+            hints: [
+              'Standard form needs integer coefficients, so the fraction has to go.',
+              `Multiplying by the denominator, $${Q(m.den).toTex()}$, cancels the fraction.`,
+              `Multiply the $x$-term: $${Q(m.den).toTex()}\\cdot ${m.toTex()}x$.`,
+              `Do not forget to multiply the constant $${b.toTex()}$ by $${Q(m.den).toTex()}$ as well.`,
+            ],
+            misconceptions: [{ answer: linearPlain(Q(m.num), b), tag: 'arithmetic-error' as const, feedback: 'Multiply **every** term by the denominator, including the constant.' }],
+            explanation: 'Multiplying both sides by the same number keeps the equation true and clears the fraction.',
+          },
+          finalStep(
+            'Now move the $x$-term to the left side and write the equation in standard form with $A$ positive.',
+            { kind: 'equation', value: standardPlain(A, B, C), form: 'standard' },
+            [
+              'Standard form is $Ax + By = C$: both variable terms on the left, the constant on the right.',
+              `${m.isNegative() ? 'Add' : 'Subtract'} $${xTerm(Q(m.num).abs())}$ on both sides.`,
+              'If the $x$ coefficient is negative, multiply every term by $-1$.',
+              'If all three numbers share a factor, divide it out.',
+            ],
+            'Moving the $x$-term keeps the equation balanced, and multiplying every term by $-1$ (if needed) makes $A$ positive without changing the line.',
+            [{ answer: standardPlain(Q(m.num), Q(m.den), b.mul(Q(m.den))), tag: 'sign-error' as const, feedback: 'When you move the $x$-term to the other side, its sign changes.' }].filter((mc) => !equationsEquivalent(parseRelation(mc.answer), parseRelation(standardPlain(A, B, C)))),
+            'Type an equation like 3x + 4y = 12.',
+          ),
+        ],
       });
     }
     // difficulty 3: point-slope -> slope-intercept, or write point-slope form
@@ -549,6 +744,29 @@ export const genConvertForms: GeneratorDef = {
           { m, b: m.mul(x1).neg().sub(y1), tag: 'sign-error', feedback: 'To undo subtracting on the left, add on both sides.' },
           { m, b: y1.sub(x1), tag: 'distribution', feedback: 'Distribute the slope to **both** terms in the parentheses.' },
         ]),
+        steps: [
+          {
+            prompt: [p(`Distribute the slope on the right side. What is $${m.toTex()}(${x1.isNegative() ? 'x + ' + x1.abs().toTex() : 'x - ' + x1.toTex()})$ without parentheses?`)],
+            answer: { kind: 'expression', value: linearPlain(m, m.mul(x1).neg()), variables: ['x'] },
+            inputHint: 'Type an expression in x.',
+            hints: [
+              'Distributing means multiplying the number outside by each term inside.',
+              `Multiply $${m.toTex()}$ by $x$.`,
+              `Multiply $${m.toTex()}$ by $${sub(x1.neg())}$.`,
+              'A negative times a negative is positive.',
+            ],
+            misconceptions: m.eq(1) ? [] : [{ answer: linearPlain(m, x1.neg()), tag: 'distribution' as const, feedback: 'Multiply the slope by **both** terms in the parentheses.' }],
+            explanation: 'The distributive property multiplies the slope by each term inside the parentheses.',
+          },
+          finalStep(
+            `Now ${y1.isNegative() ? 'subtract ' + y1.abs().toTex() : 'add ' + y1.toTex()} on both sides and write $y = mx + b$.`,
+            { kind: 'equation', value: yEq(m, b), form: 'slope-intercept' },
+            ['Get $y$ by itself on the left.', `Undo the ${y1.isNegative() ? '$+' + y1.abs().toTex() + '$' : '$-' + y1.toTex() + '$'} next to $y$ by doing the opposite.`, 'Combine the two constant terms on the right.', 'Write the $x$-term first.'],
+            'Doing the same to both sides keeps the equation balanced and leaves $y$ alone.',
+            lineMisconceptions({ m, b }, [{ m, b: m.mul(x1).neg().sub(y1), tag: 'sign-error', feedback: 'To undo subtracting on the left, add on both sides.' }]),
+            SI_HINT,
+          ),
+        ],
       });
     }
     return makeProblem({
@@ -561,11 +779,11 @@ export const genConvertForms: GeneratorDef = {
         'Point-slope form uses one point $(x_1, y_1)$ and the slope $m$.',
         `Here $x_1 = ${x1.toTex()}$, $y_1 = ${y1.toTex()}$ and $m = ${m.toTex()}$.`,
         `Substitute: $y - ${sub(y1)} = ${m.toTex()}(x - ${sub(x1)})$.`,
-        'Subtracting a negative becomes adding, so clean up the signs.',
+        x1.isNegative() || y1.isNegative() ? 'Subtracting a negative becomes adding, so clean up the signs.' : 'Both coordinates are positive, so both parentheses show subtraction.',
       ],
       solution: [
         { text: 'Substitute the point and slope into point-slope form.', tex: `y - ${sub(y1)} = ${m.toTex()}(x - ${sub(x1)})`, why: 'Point-slope form is built directly from a point and a slope.' },
-        { text: 'Simplify the signs.', tex: pointSlopeTex, why: 'Subtracting a negative is the same as adding.' },
+        { text: 'Simplify the signs.', tex: pointSlopeTex, why: x1.isNegative() || y1.isNegative() ? 'Subtracting a negative is the same as adding.' : 'Both coordinates are positive, so the subtractions stay as they are.' },
       ],
       misconceptions: [
         { answer: `y - (${x1.toString()}) = (${m.toString()})(x - (${y1.toString()}))`, tag: 'graph-reading' as const, feedback: 'The $y$-coordinate goes with $y$, and the $x$-coordinate goes with $x$.' },
@@ -585,13 +803,31 @@ export const genConvertForms: GeneratorDef = {
       const [m, x, y] = [mm[1], mm[2], mm[3]].map((t) => toPoly(parseExpression(texToExpr(t))).constantValue());
       ref = `y = ${linearPlain(m, y.sub(m.mul(x)))}`;
     }
-    return equationsEquivalent(parseRelation(ref), parseRelation(pr.answer.value)) ? [] : ['answer is not equivalent to the given line'];
+    if (!equationsEquivalent(parseRelation(ref), parseRelation(pr.answer.value))) return ['answer is not equivalent to the given line'];
+    if (!given || !pr.steps) return [];
+    // steps: the first step is the right side after one move, rebuilt from the given equation's coefficients
+    const r = parseRelation(ref);
+    const lhs = toPoly(r.lhs);
+    const rhs = toPoly(r.rhs);
+    let first: string;
+    if (pr.answer.form === 'standard') {
+      // y = mx + b: multiply the right side by the denominator of the slope
+      const den = rhs.coeff('x', 1).den;
+      first = `${den}*(${ref.split('=')[1]})`;
+    } else if (!lhs.coeff('x', 1).isZero()) {
+      // Ax + By = C: the y-term equals C - Ax
+      first = `${rhs.evaluate({ x: Q(0), y: Q(0) }).toString()} - (${lhs.coeff('x', 1).toString()})*x`;
+    } else first = ref.split('=')[1]; // point-slope: the right side, distributed
+    return stepErrors(pr, [first, null]);
   },
 };
 
 // ---------------------------------------------------------------------------
 // S1.09: intercepts
 // ---------------------------------------------------------------------------
+
+const X_ZERO = '$x = 0$';
+const Y_ZERO = '$y = 0$';
 
 export const genIntercepts: GeneratorDef = {
   id: 'u1.intercepts',
@@ -649,6 +885,44 @@ export const genIntercepts: GeneratorDef = {
         ...(!askX && !yInt.neg().eq(yInt) ? [{ answer: `(0, ${numStr(yInt.neg())})`, tag: 'sign-error' as const, feedback: 'Check the signs when you solve for $y$.' }] : []),
         ...(askX && !yInt.eq(0) ? [{ answer: `(0, ${numStr(yInt)})`, tag: 'graph-reading' as const, feedback: 'That point is on the $y$-axis. The $x$-intercept is on the $x$-axis, where $y = 0$.' }] : []),
       ],
+      steps: [
+        choiceStep(
+          `At the ${which}, which variable equals 0?`,
+          [X_ZERO, Y_ZERO],
+          askX ? 1 : 0,
+          [
+            askX ? 'The $x$-intercept is the point where the line crosses the $x$-axis.' : 'The $y$-intercept is the point where the line crosses the $y$-axis.',
+            askX ? 'Think of any point on the $x$-axis, like $(5, 0)$. What is its height?' : 'Think of any point on the $y$-axis, like $(0, 5)$. How far left or right is it?',
+            askX ? 'Points on the $x$-axis have height 0.' : 'Points on the $y$-axis are 0 units left or right of the origin.',
+            'The variable that is 0 is the one the intercept is NOT named after.',
+          ],
+          askX ? 'Every point on the $x$-axis has height 0, so $y = 0$ there.' : 'Every point on the $y$-axis is 0 units from the origin left or right, so $x = 0$ there.',
+          [{ index: askX ? 0 : 1, tag: 'graph-reading', feedback: askX ? 'Points on the $x$-axis can have any $x$-value; it is their $y$-value that is 0.' : 'Points on the $y$-axis can have any $y$-value; it is their $x$-value that is 0.' }],
+        ),
+        numStep(
+          askX ? 'Substitute $y = 0$ into the equation and solve. What is $x$?' : 'Substitute $x = 0$ into the equation and solve. What is $y$?',
+          askX ? xInt : yInt,
+          askX
+            ? ['Replace $y$ with 0. That term disappears.', difficulty === 1 ? 'You get $0 = mx + b$. Undo the constant first.' : `You get $${A.toTex()}x = ${C.toTex()}$.`, difficulty === 1 ? 'Then divide by the slope.' : `Divide both sides by $${A.toTex()}$.`, 'A fraction answer is fine.']
+            : ['Replace $x$ with 0. That term disappears.', difficulty === 1 ? 'In $y = mx + b$, what is left when $x = 0$?' : `You get $${B.toTex()}y = ${C.toTex()}$.`, difficulty === 1 ? 'Only the constant term is left.' : `Divide both sides by $${B.toTex()}$.`, 'A fraction answer is fine.'],
+          askX ? 'With $y = 0$ only the $x$-term and the constant are left, so solving gives the crossing point on the $x$-axis.' : 'With $x = 0$ the $x$-term vanishes, so what is left gives the crossing point on the $y$-axis.',
+          askX
+            ? [
+                { value: xInt.neg(), tag: 'sign-error', feedback: 'Check the signs when you solve for $x$.' },
+                { value: yInt, tag: 'graph-reading', feedback: 'That is where the line crosses the $y$-axis. Use $y = 0$ to find the $x$-intercept.' },
+              ]
+            : [{ value: yInt.neg(), tag: 'sign-error', feedback: 'Check the signs when you solve for $y$.' }],
+          'Fractions are fine.',
+        ),
+        finalStep(
+          'Write the intercept as an ordered pair.',
+          { kind: 'point', x: numStr(key.x), y: numStr(key.y) },
+          ['An ordered pair is $(x, y)$.', askX ? 'You found $x$; the other coordinate is 0.' : 'You found $y$; the other coordinate is 0.', askX ? 'The $x$-intercept has the form $(x, 0)$.' : 'The $y$-intercept has the form $(0, y)$.', 'Put the $x$-coordinate first.'],
+          askX ? 'The $x$-intercept is the point $(x, 0)$ where the line meets the $x$-axis.' : 'The $y$-intercept is the point $(0, y)$ where the line meets the $y$-axis.',
+          askX ? [{ answer: `(0, ${numStr(xInt)})`, tag: 'graph-reading' as const, feedback: 'Put the coordinates in order: $x$ first, then $y$.' }].filter(() => !xInt.isZero()) : [{ answer: `(${numStr(yInt)}, 0)`, tag: 'graph-reading' as const, feedback: 'Put the coordinates in order: $x$ first, then $y$.' }].filter(() => !yInt.isZero()),
+          'Type an ordered pair like (4, 0).',
+        ),
+      ],
     });
   },
   verify(pr) {
@@ -664,6 +938,14 @@ export const genIntercepts: GeneratorDef = {
     const ask = (pr.prompt[0] as { text: string }).text;
     if (ask.includes('$x$-intercept') && !y.isZero()) errs.push('x-intercept must have y = 0');
     if (ask.includes('$y$-intercept') && !x.isZero()) errs.push('y-intercept must have x = 0');
+    // steps: solve L(t) = R(t) on the axis, from the equation's values at two points
+    const askX = ask.includes('$x$-intercept');
+    const g = (t: Rational) => {
+      const pt = askX ? { x: t, y: Q(0) } : { x: Q(0), y: t };
+      return toPoly(r.lhs).evaluate(pt).sub(toPoly(r.rhs).evaluate(pt));
+    };
+    const root = g(Q(0)).neg().div(g(Q(1)).sub(g(Q(0))));
+    errs.push(...stepErrors(pr, [askX ? Y_ZERO : X_ZERO, root, null]));
     return errs;
   },
 };
@@ -686,7 +968,7 @@ export const genInterceptsContext: GeneratorDef = {
       return makeProblem({
         skillId: 'S1.09',
         tags: ['real-world', 'word'],
-        prompt: [p(story), p(`What is the vertical intercept, $${f}(0)$? It tells you ${ctx.outputDesc.replace(/,? (after|for a) .*/, '')} at the start.`)],
+        prompt: [p(story), p(`What is the vertical intercept, $${f}(0)$? It tells you ${ctx.outputDesc.replace(/,? (after|for a) .*/, '').replace(/, in [a-z]+$/, '')} at the start.`)],
         answer: { kind: 'number', value: numStr(b), unit: ctx.outUnit },
         hints: [
           'The vertical intercept is the output when the input is 0.',
@@ -699,6 +981,22 @@ export const genInterceptsContext: GeneratorDef = {
           { text: 'Simplify.', tex: `${f}(0) = ${decTex(b)}`, why: `This means ${ctx.startMeaning}.` },
         ],
         misconceptions: m.eq(b) ? [] : [{ answer: numStr(m), tag: 'graph-reading', feedback: `That is the rate of change (${ctx.rateUnit}). The intercept is the value at the start, when $${v} = 0$.` }],
+        steps: [
+          numStep(
+            `The vertical intercept is on the vertical axis. What is the input $${v}$ at every point on that axis?`,
+            Q(0),
+            ['The vertical axis is where the horizontal distance is zero.', `The input $${v}$ is measured along the horizontal axis.`, 'A point on the vertical axis has not moved left or right at all.', `So how many ${ctx.inUnits} have passed there?`],
+            `Points on the vertical axis have input 0, which is the start of the situation.`,
+            [{ value: b, tag: 'graph-reading', feedback: 'That is an output. The question asks for the input on the vertical axis.' }],
+          ),
+          finalStep(
+            `Substitute $${v} = 0$ into the rule. What is $${f}(0)$?`,
+            { kind: 'number', value: numStr(b), unit: ctx.outUnit },
+            [`Replace $${v}$ with 0.`, `$${decTex(m)} \\cdot 0 = 0$.`, 'Only the constant term is left.', 'Keep the sign of the constant.'],
+            `Any rate times 0 is 0, so $${f}(0)$ is just the constant term: ${ctx.startMeaning}.`,
+            m.eq(b) ? [] : [{ answer: numStr(m), tag: 'graph-reading', feedback: 'That is the rate. Multiply it by 0 and keep the constant.' }],
+          ),
+        ],
       });
     }
     const zero = b.neg().div(m);
@@ -728,9 +1026,34 @@ export const genInterceptsContext: GeneratorDef = {
           { value: below, tag: 'other', feedback: 'Check the profit for that many cars: it is still below \\$0. Round so that the band does not lose money.' },
           { value: b.abs(), tag: 'graph-reading', feedback: 'That is the cost of supplies, the starting value. Find how many cars make the profit reach 0.' },
         ]),
+        steps: [
+          numStep(
+            `Set the profit equal to 0: $${rule} = 0$. Add $${decTex(b.abs())}$ to both sides. What does $${linearTex(m, 0, v, true)}$ equal?`,
+            b.neg(),
+            ['Undo the subtraction first.', `Adding $${decTex(b.abs())}$ to $0$ gives the right side.`, 'Do the same to both sides to keep the equation balanced.', 'The supplies cost has to be earned back.'],
+            `Adding the supply cost to both sides shows how much money the cars must bring in.`,
+            [{ value: b, tag: 'sign-error', feedback: 'Adding to 0 gives a positive number here.' }],
+          ),
+          numStep(
+            `Divide by $${decTex(m)}$. What is $${v}$? (A fraction or decimal is fine here.)`,
+            zero,
+            [`Divide both sides by $${decTex(m)}$.`, `Work out $${decTex(b.abs())} \\div ${decTex(m)}$.`, 'It will not be a whole number.', 'You can type a fraction like 15/2.'],
+            `Dividing by the price per car gives the exact break-even number of cars, which is not a whole number.`,
+            [{ value: b.abs().mul(m), tag: 'inverse-operation', feedback: 'To undo multiplying, divide.' }],
+            'Type a fraction or decimal.',
+          ),
+          finalStep(
+            'The band can only wash whole cars. What is the least whole number of cars that breaks even or makes a profit?',
+            { kind: 'number', value: numStr(need), unit: ctx.inUnits },
+            ['The break-even number is between two whole numbers.', 'Rounding down leaves the band a little short of \\$0.', 'Round up to the next whole number.', 'Check the profit for your number of cars: it should be \\$0 or more.'],
+            `With ${decTex(below)} cars the profit is still negative, so the band needs the next whole number of cars.`,
+            numberMisconceptions(need, [{ value: below, tag: 'other', feedback: 'Check the profit for that many cars: it is still below \\$0. Round up.' }]),
+            `Type a whole number of ${ctx.inUnits}.`,
+          ),
+        ],
       });
     }
-    const zeroText = ctx.key === 'carwash' ? 'the band breaks even (profit is \\$0)' : `${ctx.outputDesc.replace(/,? (after|for a) .*/, '')} reaches 0`;
+    const zeroText = ctx.key === 'carwash' ? 'the band breaks even (profit is \\$0)' : `${ctx.outputDesc.replace(/,? (after|for a) .*/, '').replace(/, in [a-z]+$/, '')} reaches 0`;
     return makeProblem({
       skillId: 'S1.09',
       tags: ['real-world', 'word'],
@@ -752,6 +1075,23 @@ export const genInterceptsContext: GeneratorDef = {
         ...(b.eq(zero) ? [] : [{ answer: numStr(b), tag: 'graph-reading' as const, feedback: 'That is the vertical intercept, the starting value. Find the input that makes the output 0.' }]),
         ...(zero.neg().eq(zero) ? [] : [{ answer: numStr(zero.neg()), tag: 'sign-error' as const, feedback: 'Check your signs: the number of ' + ctx.inUnits + ' should be positive here.' }]),
       ],
+      steps: [
+        numStep(
+          `Set the output to 0: $${linearTex(m, b, v, true)} = 0$. ${b.isNegative() ? 'Add' : 'Subtract'} $${decTex(b.abs())}$ on both sides. What does $${linearTex(m, 0, v, true)}$ equal?`,
+          b.neg(),
+          ['The horizontal intercept is where the output is 0.', 'Undo the constant term first.', `${b.isNegative() ? 'Adding' : 'Subtracting'} $${decTex(b.abs())}$ from 0 gives the right side.`, 'Do the same to both sides.'],
+          'Removing the constant from both sides keeps the equation balanced and leaves the rate term alone.',
+          [{ value: b, tag: 'sign-error', feedback: 'Do the opposite of the constant term: check the sign.' }],
+        ),
+        finalStep(
+          `Divide both sides by $${decTex(m)}$. What is $${v}$?`,
+          { kind: 'number', value: numStr(zero), unit: ctx.inUnits },
+          [`Divide $${decTex(b.neg())}$ by $${decTex(m)}$.`, 'A negative divided by a negative is positive.', 'Decimals and fractions are fine.', `The answer is a number of ${ctx.inUnits}, so it should be positive.`],
+          `Dividing undoes multiplying by the rate, so this is when ${zeroText}.`,
+          numberMisconceptions(zero, [{ value: zero.neg(), tag: 'sign-error', feedback: 'Check the sign: a negative divided by a negative is positive.' }]),
+          `Type the number of ${ctx.inUnits}.`,
+        ),
+      ],
     });
   },
   verify(pr) {
@@ -771,6 +1111,7 @@ export const genInterceptsContext: GeneratorDef = {
       const fits = pr.answer.options.filter((o) => !/\bevery\b/.test(o.label) && numbersInOrder(o.label).join(',') === `${px},${py}`);
       if (fits.length !== 1) errs.push(`${fits.length} statements fit the point`);
       else if (fits[0].id !== pr.answer.correct) errs.push('keyed statement does not fit the point');
+      errs.push(...stepErrors(pr, [`$${px.toString()}$`, null]));
       return errs;
     }
     if (pr.answer.kind !== 'number') return ['wrong kind'];
@@ -780,17 +1121,21 @@ export const genInterceptsContext: GeneratorDef = {
     const poly = toPoly(parseExpression(texToExpr(rm[3])));
     const ans = Rational.parse(pr.answer.value);
     const ask = (pr.prompt[1] as { text: string }).text;
-    if (ask.includes('vertical intercept')) return poly.evaluate({ [rm[2]]: Q(0) }).eq(ans) ? [] : ['f(0) mismatch'];
+    if (ask.includes('vertical intercept')) return poly.evaluate({ [rm[2]]: Q(0) }).eq(ans) ? stepErrors(pr, [Q(0), poly.evaluate({ [rm[2]]: Q(0) })]) : ['f(0) mismatch'];
+    // horizontal intercepts: the rate term must equal minus the constant, then divide by the rate
+    const c0 = poly.evaluate({ [rm[2]]: Q(0) });
+    const rate = poly.evaluate({ [rm[2]]: Q(1) }).sub(c0);
     if (ask.includes('least whole number')) {
       // independent check: the answer is a whole number with profit >= 0, and one fewer gives a loss
       const errs: string[] = [];
       if (!ans.isInteger() || ans.isNegative()) errs.push('not a whole number');
       if (poly.evaluate({ [rm[2]]: ans }).isNegative()) errs.push('profit still negative');
       if (!poly.evaluate({ [rm[2]]: ans.sub(1) }).isNegative()) errs.push('a smaller count already breaks even');
+      errs.push(...stepErrors(pr, [c0.neg(), c0.neg().div(rate), null]));
       return errs;
     }
     if (!poly.evaluate({ [rm[2]]: ans }).isZero()) return ['f(answer) is not 0'];
-    return ans.isNegative() ? ['negative input'] : [];
+    return ans.isNegative() ? ['negative input'] : stepErrors(pr, [c0.neg(), null]);
   },
 };
 
@@ -799,6 +1144,8 @@ export const genInterceptsContext: GeneratorDef = {
 // ---------------------------------------------------------------------------
 
 const LETTERS = ['A', 'B', 'C', 'D'] as const;
+const INCREASING = 'Increasing';
+const DECREASING = 'Decreasing';
 
 /** "Which graph shows y = mx + b?": four labeled line graphs, one of them right. */
 function whichGraphProblem(rng: Rng): Problem {
@@ -851,6 +1198,38 @@ function whichGraphProblem(rng: Rng): Problem {
       .map((k, pos) => ({ k, id: LETTERS[pos] }))
       .filter((o) => o.k !== 0)
       .map((o) => ({ answer: o.id, tag: o.k === 3 ? ('formula-error' as const) : o.k === 1 ? ('sign-error' as const) : ('graph-reading' as const), feedback: lines[o.k].feedback })),
+    steps: [
+      numStep(
+        `Read the equation $y = ${rule}$. What is the $y$-intercept $b$?`,
+        b,
+        ['In $y = mx + b$, the $y$-intercept is the constant term.', 'It is the number that is not multiplied by $x$.', 'Keep its sign: a minus sign in front of the constant makes $b$ negative.', 'It is the $y$-value where the line crosses the $y$-axis.'],
+        `When $x = 0$ the $x$-term is 0, so the line crosses the $y$-axis at $(0, ${b.toTex()})$.`,
+        [
+          { value: m, tag: 'formula-error', feedback: 'That number multiplies $x$, so it is the slope. The $y$-intercept is the constant term.' },
+          { value: b.neg(), tag: 'sign-error', feedback: 'Keep the sign of the constant term.' },
+        ],
+      ),
+      numStep(
+        'What is the slope $m$?',
+        m,
+        ['In $y = mx + b$, the slope is the number multiplied by $x$.', 'If there is only a minus sign in front of $x$, the slope is $-1$.', 'If nothing is written in front of $x$, the slope is 1.', 'A positive slope rises from left to right; a negative slope falls.'],
+        `The slope $${m.toTex()}$ means the line ${m.isNegative() ? 'falls' : 'rises'} ${m.abs().toTex()} for every 1 step to the right.`,
+        [
+          { value: b, tag: 'formula-error', feedback: 'That is the constant term, the $y$-intercept. The slope multiplies $x$.' },
+          { value: m.neg(), tag: 'sign-error', feedback: 'Keep the sign of the number in front of $x$.' },
+        ],
+      ),
+      finalStep(
+        `Find the graph that crosses the $y$-axis at $(0, ${b.toTex()})$ and has slope $${m.toTex()}$.`,
+        { kind: 'choice', options: LETTERS.map((L) => ({ id: L, label: `Graph ${L}` })), correct },
+        [`Cross out graphs that do not pass through $(0, ${b.toTex()})$.`, `From $(0, ${b.toTex()})$, move 1 right and ${m.isNegative() ? 'down' : 'up'} ${m.abs().toTex()}.`, `That point is $(1, ${m.add(b).toTex()})$. Which remaining graph passes through it?`, 'Exactly one graph passes through both points.'],
+        'Two points fix a line, and only one graph passes through both the intercept and the point one step to the right.',
+        order
+          .map((k, pos) => ({ k, id: LETTERS[pos] }))
+          .filter((o) => o.k !== 0)
+          .map((o) => ({ answer: o.id, tag: o.k === 3 ? ('formula-error' as const) : o.k === 1 ? ('sign-error' as const) : ('graph-reading' as const), feedback: lines[o.k].feedback })),
+      ),
+    ],
   });
 }
 
@@ -885,6 +1264,35 @@ function endBehaviorProblem(rng: Rng): Problem {
       { answer: idOf(up ? opts.down : opts.up), tag: 'sign-error', feedback: `Check the direction: is $x$ moving left or right, and does the line rise or fall that way?` },
       { answer: idOf(opts.b), tag: 'graph-reading', feedback: 'That is the $y$-intercept, the output when $x = 0$. Far from 0, a line keeps going up or down forever.' },
       { answer: idOf(opts.zero), tag: 'graph-reading', feedback: 'A non-horizontal line never levels off toward a number. Substitute a very large input and look at the output.' },
+    ],
+    steps: [
+      numStep(
+        `What is the slope of $f(x) = ${rule}$?`,
+        m,
+        ['The slope is the number multiplied by $x$.', 'It tells you how much $f(x)$ changes for each step of 1 to the right.', 'Keep its sign.', 'The constant term is not the slope.'],
+        `The slope $${m.toTex()}$ means the line ${m.isNegative() ? 'falls' : 'rises'} as you move right.`,
+        [
+          { value: b, tag: 'graph-reading', feedback: 'That is the $y$-intercept. The slope multiplies $x$.' },
+          { value: m.neg(), tag: 'sign-error', feedback: 'Keep the sign of the number in front of $x$.' },
+        ],
+      ),
+      numStep(
+        `Test a far-away input. What is $f(${right ? '1000' : '-1000'})$?`,
+        m.mul(right ? 1000 : -1000).add(b),
+        [`Substitute $x = ${right ? '1000' : '-1000'}$.`, `Multiply $${m.toTex()}$ by $${right ? '1000' : '-1000'}$ first.`, `Then ${b.isNegative() ? 'subtract ' + b.abs().toTex() : 'add ' + b.toTex()}.`, 'Look at the sign and size of the result.'],
+        'The output is far from 0, because the slope term grows without limit while the constant stays small.',
+        [{ value: m.mul(right ? -1000 : 1000).add(b), tag: 'sign-error', feedback: `Check the sign of the input: $x$ is moving ${right ? 'right (positive)' : 'left (negative)'}.` }],
+      ),
+      finalStep(
+        `So as $x \\to ${right ? '\\infty' : '-\\infty'}$, what happens to $f(x)$?`,
+        answer,
+        ['Use the sign of the output you just found.', 'A huge positive output means the graph heads up forever.', 'A huge negative output means the graph heads down forever.', 'A line never levels off unless its slope is 0.'],
+        `Inputs even farther out give outputs even farther from 0 with the same sign, so $f(x) \\to ${up ? '\\infty' : '-\\infty'}$.`,
+        [
+          { answer: idOf(up ? opts.down : opts.up), tag: 'sign-error', feedback: 'Look at the sign of the output you found for the far-away input.' },
+          { answer: idOf(opts.b), tag: 'graph-reading', feedback: 'That is the $y$-intercept, the output at $x = 0$, not far away.' },
+        ],
+      ),
     ],
   });
 }
@@ -927,6 +1335,20 @@ function maxMinProblem(rng: Rng): Problem {
       { value: otherVal, tag: 'graph-reading', feedback: `That is the output at the other endpoint. Check whether $f$ is increasing or decreasing, and which end gives the ${askMax ? 'largest' : 'smallest'} output.` },
       { value: Q(atX), tag: 'graph-reading', feedback: `That is the $x$-value where the ${word} happens. The question asks for the ${word} **value** of $f(x)$, the output.` },
     ]),
+    steps: [
+      numStep(`Evaluate the left endpoint. What is $f(${lo})$?`, fLo, [`Substitute $x = ${lo}$.`, 'Multiply first.', 'Then add or subtract the constant.', 'Fractions are fine.'], 'A line is straight, so its extreme values on an interval happen at the endpoints; this is one of them.', [{ value: fLo.neg(), tag: 'sign-error', feedback: 'Check the signs when you substitute.' }]),
+      numStep(`Evaluate the right endpoint. What is $f(${hi})$?`, fHi, [`Substitute $x = ${hi}$.`, 'Multiply first.', 'Then add or subtract the constant.', 'Fractions are fine.'], 'This is the output at the other endpoint.', [{ value: fHi.neg(), tag: 'sign-error', feedback: 'Check the signs when you substitute.' }]),
+      finalStep(
+        `Which output is the ${word} value of $f(x)$ on the interval?`,
+        { kind: 'number', value: numStr(best) },
+        ['Every output inside the interval is between the two endpoint outputs.', `The ${word} is the ${askMax ? 'larger' : 'smaller'} of the two.`, 'Compare them on a number line if they are negative.', 'Give the output, not the $x$-value.'],
+        `A line rises or falls steadily, so the ${word} is the ${askMax ? 'larger' : 'smaller'} endpoint output.`,
+        numberMisconceptions(best, [
+          { value: otherVal, tag: 'graph-reading', feedback: `That is the ${askMax ? 'smaller' : 'larger'} of the two outputs.` },
+          { value: Q(atX), tag: 'graph-reading', feedback: 'That is an $x$-value. Give the output.' },
+        ]),
+      ),
+    ],
   });
 }
 
@@ -962,7 +1384,29 @@ export const genKeyFeatures: GeneratorDef = {
           { text: kind === 'inc' ? 'The line rises, so $y$ gets larger as $x$ gets larger.' : kind === 'dec' ? 'The line falls, so $y$ gets smaller as $x$ gets larger.' : 'The line is flat, so $y$ stays the same.', tex: `m = ${m.toTex()}` },
           { text: `The function is ${kind === 'inc' ? 'increasing' : kind === 'dec' ? 'decreasing' : 'constant'}.` },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisc(answer, [
+          { label: 'Increasing', tag: 'sign-error', feedback: 'Trace the line from left to right. Increasing means it goes up as you move right. Does it?' },
+          { label: 'Decreasing', tag: 'sign-error', feedback: 'Trace the line from left to right. Decreasing means it goes down as you move right. Does it?' },
+          { label: 'Constant', tag: 'graph-reading', feedback: 'A constant function is a flat (horizontal) line. Is this line flat?' },
+        ]),
+        steps: [
+          numStep(
+            'Find the slope of the line. (Pick two points where the line crosses grid corners.)',
+            m,
+            ['Slope is rise over run.', `The line crosses the $y$-axis at $(0, ${b.toTex()})$.`, 'From a point where the line crosses grid corners, move 1 to the right along the line and see how far up or down it goes.', 'Going down counts as negative; a flat line has slope 0.'],
+            m.isZero() ? 'The line is flat, so the rise is 0 and the slope is 0.' : `For each step right the line goes ${m.isNegative() ? 'down' : 'up'} ${m.abs().toTex()}, so the slope is $${m.toTex()}$.`,
+            [
+              { value: m.neg(), tag: 'sign-error', feedback: 'Check the direction: does the line go up or down as you move right?' },
+              { value: b, tag: 'graph-reading', feedback: 'That is where the line crosses the $y$-axis. The slope is the rise for each step right.' },
+            ],
+          ),
+          finalStep(
+            'So is the function increasing, decreasing, or constant?',
+            answer,
+            ['Use the sign of the slope you found.', 'A positive slope means the outputs grow as $x$ grows.', 'A negative slope means the outputs shrink as $x$ grows.', 'A slope of 0 means the outputs stay the same.'],
+            'The sign of the slope tells whether $y$ goes up, goes down, or stays the same as $x$ increases.',
+          ),
+        ],
       });
     }
     // positive / negative interval for y = mx + b
@@ -1011,6 +1455,40 @@ export const genKeyFeatures: GeneratorDef = {
         { answer: other, tag: 'inequality-direction', feedback: `Check which side of the intercept is ${word}: substitute a test value.` },
         ...(b.isZero() || r.eq(b) ? [] : [{ answer: right ? `(${numStr(b)}, ∞)` : `(-∞, ${numStr(b)})`, tag: 'graph-reading' as const, feedback: 'The sign changes at the $x$-intercept, not the $y$-intercept.' }]),
       ],
+      steps: [
+        numStep(
+          `Find the $x$-intercept: solve $${rule} = 0$. What is $x$?`,
+          r,
+          ['The $x$-intercept is where the output is 0.', 'Undo the constant term first.', 'Then divide by the slope.', 'A fraction answer is fine.'],
+          'A line changes sign only where it crosses the $x$-axis, so this is the boundary of the interval.',
+          [
+            { value: r.neg(), tag: 'sign-error', feedback: 'Check the signs when you solve.' },
+            { value: b, tag: 'graph-reading', feedback: 'That is the $y$-intercept. Solve $f(x) = 0$ for $x$.' },
+          ],
+          'Fractions are fine.',
+        ),
+        choiceStep(
+          `Is $f$ increasing or decreasing?`,
+          [INCREASING, DECREASING],
+          m.isNegative() ? 1 : 0,
+          ['Look at the slope, the number multiplied by $x$.', 'A positive slope rises from left to right.', 'A negative slope falls from left to right.', `The slope here is $${m.toTex()}$.`],
+          `The slope $${m.toTex()}$ is ${m.isNegative() ? 'negative, so $f$ is decreasing' : 'positive, so $f$ is increasing'}.`,
+          [{ index: m.isNegative() ? 0 : 1, tag: 'sign-error', feedback: 'Check the sign of the slope.' }],
+        ),
+        finalStep(
+          `So over what interval is $f(x)$ ${word}?`,
+          { kind: 'interval', value: iv },
+          [
+            `Start at the $x$-intercept $${r.toTex()}$.`,
+            m.isNegative() ? 'A decreasing line is above the $x$-axis on the left and below it on the right.' : 'An increasing line is below the $x$-axis on the left and above it on the right.',
+            `Pick the side where the outputs are ${word}.`,
+            'Use a parenthesis at the intercept, because the output there is 0.',
+          ],
+          `On that side of $x = ${r.toTex()}$ every output is ${word}, and at the intercept itself the output is 0.`,
+          [{ answer: other, tag: 'inequality-direction', feedback: `That side has the other sign. Substitute a test value.` }],
+          'Type an interval like (2, ∞) or an inequality like x > 2.',
+        ),
+      ],
     });
   },
   verify(pr) {
@@ -1027,7 +1505,9 @@ export const genKeyFeatures: GeneratorDef = {
       };
       const matches = graphs.filter((g) => same(g.spec.functions![0].expr)).map((g) => (g.caption ?? '').replace('Graph ', ''));
       if (matches.length !== 1) return [`${matches.length} graphs match`];
-      return matches[0] === pr.answer.correct ? [] : ['keyed graph does not match'];
+      if (matches[0] !== pr.answer.correct) return ['keyed graph does not match'];
+      const b0 = target.evaluate({ x: Q(0) });
+      return stepErrors(pr, [b0, target.evaluate({ x: Q(1) }).sub(b0), null]);
     }
     const eb = /For \$f\(x\) = (.+?)\$, as \$x \\to (-?)\\infty\$/.exec(text);
     if (eb) {
@@ -1041,7 +1521,8 @@ export const genKeyFeatures: GeneratorDef = {
       const goesDown = v.lt(0) && v2.lt(v);
       if (!goesUp && !goesDown) return ['no end behavior to infinity'];
       const label = choiceLabel(pr.answer);
-      return label === (goesUp ? '$f(x) \\to \\infty$' : '$f(x) \\to -\\infty$') ? [] : ['end behavior mismatch'];
+      if (label !== (goesUp ? '$f(x) \\to \\infty$' : '$f(x) \\to -\\infty$')) return ['end behavior mismatch'];
+      return stepErrors(pr, [poly.evaluate({ x: Q(1) }).sub(poly.evaluate({ x: Q(0) })), poly.evaluate({ x: Q(eb[2] === '-' ? -1000 : 1000) }), null]);
     }
     const mm2 = /\$f\(x\) = (.+?)\$ is used only on the interval \$(?:\[(-?\d+), (-?\d+)\]|(-?\d+) \\le x \\le (-?\d+))\$\. What is the (maximum|minimum)/.exec(text);
     if (mm2) {
@@ -1052,7 +1533,8 @@ export const genKeyFeatures: GeneratorDef = {
       // sample the whole interval (13 evenly spaced inputs) and take the extreme output
       const outs = Array.from({ length: 13 }, (_, i) => poly.evaluate({ x: lo.add(hi.sub(lo).mul(i).div(12)) }));
       const best = outs.reduce((a, c) => (mm2[6] === 'maximum' ? (c.gt(a) ? c : a) : c.lt(a) ? c : a));
-      return best.eq(Rational.parse(pr.answer.value)) ? [] : [`expected ${best}`];
+      if (!best.eq(Rational.parse(pr.answer.value))) return [`expected ${best}`];
+      return stepErrors(pr, [outs[0], outs[12], best]);
     }
     if (pr.answer.kind === 'choice') {
       const g = pr.prompt.find((b) => b.t === 'graph') as { spec: { functions: Array<{ expr: string }> } };
@@ -1060,7 +1542,8 @@ export const genKeyFeatures: GeneratorDef = {
       const slope = poly.evaluate({ x: Q(1) }).sub(poly.evaluate({ x: Q(0) }));
       const label = choiceLabel(pr.answer);
       const expect = slope.isZero() ? 'Constant' : slope.isNegative() ? 'Decreasing' : 'Increasing';
-      return label === expect ? [] : [`expected ${expect}`];
+      if (label !== expect) return [`expected ${expect}`];
+      return stepErrors(pr, [slope, expect]);
     }
     if (pr.answer.kind !== 'interval') return ['wrong kind'];
     const mm = /\$f\(x\) = (.+?)\$, over what interval is \$f\(x\)\$ (positive|negative)/.exec(text);
@@ -1076,6 +1559,10 @@ export const genKeyFeatures: GeneratorDef = {
     const sgn = mm[2] === 'positive' ? 1 : -1;
     if (poly.evaluate({ x: inside }).sign() !== sgn) errs.push('test point inside has the wrong sign');
     if (poly.evaluate({ x: outside }).sign() === sgn) errs.push('test point outside has the same sign');
+    // steps: the zero solved from two values of the rule, then the direction from the sign of the slope
+    const p0 = poly.evaluate({ x: Q(0) });
+    const sl = poly.evaluate({ x: Q(1) }).sub(p0);
+    errs.push(...stepErrors(pr, [p0.neg().div(sl), sl.isNegative() ? DECREASING : INCREASING, null]));
     return errs;
   },
 };

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { stressGenerator } from './harness';
 import { U3_GENERATORS_UNDER_TEST } from './u3-list';
-import { produceProblem } from '../../src/core/engine/problems';
+import { produceProblem, validateStep, canonicalInput } from '../../src/core/engine/problems';
+import { GENERATORS, LESSON_CONTENT } from '../../src/content';
+import { checkAnswer } from '../../src/core/math/answers';
 import { createRng } from '../../src/core/engine/rng';
 import { Rational } from '../../src/core/math/rational';
 import type { Difficulty, GeneratorDef, Problem } from '../../src/core/curriculum/types';
@@ -95,4 +97,99 @@ describe('Unit 3 audit variants occur, verify, and reject corrupted keys', () =>
       expect(rejected).toBe(0);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Guided practice is step by step (Lesson Quality Audit, C4): every guided generator/difficulty in the
+// Unit 3 lessons produces 2-4 steps on every seed, each step is well formed and its key is accepted by
+// its own checker, the problem's verify() (which recomputes the steps) passes, and finishing the last
+// step answers the problem.
+// ---------------------------------------------------------------------------
+describe('Unit 3 guided practice is step by step', () => {
+  const pairs = new Set<string>();
+  for (const [id, l] of LESSON_CONTENT) if (id.startsWith('U3')) for (const r of l.guided) pairs.add(`${r.generator}|${r.difficulty}`);
+  for (const pair of [...pairs].sort()) {
+    it(`${pair} gives checked steps on 60 seeds`, () => {
+      const [gid, d] = pair.split('|');
+      const gen = GENERATORS.get(gid)!;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 17 * Number(d), Number(d) as Difficulty);
+        const steps = problem.steps ?? [];
+        expect(steps.length, `${problem.id} has steps`).toBeGreaterThanOrEqual(2);
+        expect(steps.length).toBeLessThanOrEqual(4);
+        steps.forEach((st, i) => {
+          expect(validateStep(st, `${problem.id} step ${i + 1}`)).toEqual([]);
+          expect(checkAnswer(st.answer, canonicalInput(st.answer)).status, `${problem.id} step ${i + 1} key`).toBe('correct');
+        });
+        expect(gen.verify(problem), `${problem.id} verify`).toEqual([]);
+        expect(checkAnswer(problem.answer, canonicalInput(steps[steps.length - 1].answer)).status, `${problem.id} last step`).toBe('correct');
+      }
+    });
+  }
+});
+
+describe('Unit 3 verify() checks every guided step', () => {
+  const pairs = new Set<string>();
+  for (const [id, l] of LESSON_CONTENT) if (id.startsWith('U3')) for (const r of l.guided) pairs.add(`${r.generator}|${r.difficulty}`);
+  for (const pair of [...pairs].sort()) {
+    it(`${pair} rejects a corrupted step key`, () => {
+      const [gid, d] = pair.split('|');
+      const gen = GENERATORS.get(gid)!;
+      for (let s = 1; s <= 12; s++) {
+        const { problem } = produceProblem(gen, s * 6151 + Number(d), Number(d) as Difficulty);
+        (problem.steps ?? []).forEach((st, i) => {
+          const bad = corrupt(st.answer);
+          if (!bad) return;
+          const steps = problem.steps!.map((x, j) => (j === i ? { ...x, answer: bad } : x));
+          expect(gen.verify({ ...problem, steps }).length, `${problem.id} step ${i + 1} corrupted`).toBeGreaterThan(0);
+        });
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Error-specific feedback (Lesson Quality Audit): every wrong option of these multiple-choice
+// generators carries a misconception, and choosing it returns that feedback. Expression answers
+// (add-radicals at difficulty 3) carry misconceptions for the common wrong answers.
+// ---------------------------------------------------------------------------
+describe('Unit 3 wrong answers get error-specific feedback', () => {
+  const pairs: Array<[string, Difficulty]> = [
+    ['u3.classify-number', 2],
+    ['u3.classify-number', 3],
+    ['u3.closure-type', 2],
+    ['u3.closure-type', 3],
+    ['u3.which-irrational', 2],
+  ];
+  for (const [gid, d] of pairs) {
+    it(`${gid}|${d}: every wrong option has feedback on 60 seeds`, () => {
+      const gen = GENERATORS.get(gid)!;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 101 * d, d);
+        const a = problem.answer;
+        expect(a.kind).toBe('choice');
+        if (a.kind !== 'choice') continue;
+        for (const o of a.options) {
+          if (o.id === a.correct) continue;
+          const m = problem.misconceptions.find((x) => x.answer === o.id);
+          expect(m, `${problem.id} option ${o.id} (${o.label}) has a misconception`).toBeTruthy();
+          const r = checkAnswer(a, o.id, problem.misconceptions);
+          expect(r.status).toBe('incorrect');
+          expect(r.message).toBe(m!.feedback);
+        }
+      }
+    });
+  }
+  it('u3.add-radicals|3: common wrong answers get their feedback on 60 seeds', () => {
+    const gen = GENERATORS.get('u3.add-radicals')!;
+    for (let s = 1; s <= 60; s++) {
+      const { problem } = produceProblem(gen, s * 7919 + 303, 3);
+      expect(problem.misconceptions.length, `${problem.id} has misconceptions`).toBeGreaterThanOrEqual(2);
+      for (const m of problem.misconceptions) {
+        const r = checkAnswer(problem.answer, m.answer, problem.misconceptions);
+        expect(r.status, `${problem.id} ${m.answer}`).toBe('incorrect');
+        expect(r.message).toBe(m.feedback);
+      }
+    }
+  });
 });

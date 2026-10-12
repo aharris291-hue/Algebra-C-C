@@ -5,10 +5,10 @@
 import type { GeneratorDef, Rng, Difficulty, Block, ProblemStep } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
 import { linearTex } from '../../core/math/format';
-import { Q, p, makeProblem, numStr, makeChoice, choiceLabel, stringMisconceptions, texValue } from './util';
+import { Q, p, makeProblem, numStr, makeChoice, choiceLabel, stringMisconceptions, texValue, numberMisconceptions } from './util';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
-import { Op, OP_TEX, FLIP_OP, TOGGLE_STRICT, isStrict, isGreater, pickOp, relTexToPlain, sameOneVarSolutions, holds } from './u2-common';
+import { Op, OP_TEX, FLIP_OP, TOGGLE_STRICT, isStrict, isGreater, pickOp, relTexToPlain, sameOneVarSolutions, holds, stepChoice, idOf, lastStepErrors, stepLabel, optionMisList } from './u2-common';
 
 const ineqPlain = (v: string, op: Op, k: Rational) => `${v} ${op} ${numStr(k)}`;
 const ineqTex = (v: string, op: Op, k: Rational) => `${v} ${OP_TEX[op]} ${k.toTex()}`;
@@ -155,7 +155,7 @@ export const genSolveIneq: GeneratorDef = {
             explanation: `$${ineqTex('x', s.solOp, s.k)}$.`,
           },
         ]
-      : undefined;
+      : oneStepSteps(s, orig, answer);
     return makeProblem({
       skillId: 'S2.01',
       tags: difficulty === 3 ? ['multi-step'] : [],
@@ -186,9 +186,143 @@ export const genSolveIneq: GeneratorDef = {
     // the boundary makes both sides equal
     if (!holds(orig.replace(/<=|>=|<|>/, '='), k)) errs.push('boundary does not make the sides equal');
     if (!sameOneVarSolutions(orig, ans, k)) errs.push('solution set differs from the original inequality');
+    if (pr.steps?.length === 3) {
+      // one-step forms: re-read a and b from the left side a·x + b, and the number on the right
+      const [l, r] = orig.split(/<=|>=|<|>/);
+      const L = toPoly(parseExpression(l));
+      const b = L.evaluate({ x: Q(0) });
+      const a = L.evaluate({ x: Q(1) }).sub(b);
+      const c = toPoly(parseExpression(r)).constantValue();
+      const num = pr.steps.find((st) => st.answer.kind === 'number');
+      if (!num || num.answer.kind !== 'number' || !Rational.parse(num.answer.value).eq(c.sub(b).div(a))) errs.push('boundary step is not (c - b) / a');
+      const lab = stepLabel(pr.steps.find((st) => st.answer.kind === 'choice'));
+      if (a.eq(Q(1))) {
+        if (!new RegExp(`^${b.isNegative() ? 'Add' : 'Subtract'} \\$${b.abs().toTex()}\\$ .*both sides`).test(lab)) errs.push(`operation step "${lab}" does not undo ${b}`);
+      } else if (/flips/.test(lab) !== a.isNegative()) errs.push('symbol step disagrees with the sign of the coefficient');
+    }
+    errs.push(...lastStepErrors(pr));
     return errs;
   },
 };
+
+/** Wording of the four symbol-decision options for a one-step multiply problem. */
+export const SYMBOL_STAYS = (a: Rational) => `It stays the same, because $${a.toTex()}$ is positive.`;
+export const SYMBOL_FLIPS = (a: Rational) => `It flips, because $${a.toTex()}$ is negative.`;
+const SYMBOL_FLIPS_RIGHT = (c: Rational) => `It flips, because $${c.toTex()}$ on the right side is negative.`;
+const SYMBOL_NEVER = 'It stays the same, because dividing never changes the symbol.';
+const SYMBOL_DIVIDED = 'It flips, because you divided both sides.';
+
+/**
+ * Guided steps for the one-step forms (difficulty 1): x + b op c and a x op c.
+ * Add form: choose the inverse operation, find the new right side, write the solution.
+ * Multiply form: find the boundary c / a, decide whether the symbol flips, write the solution.
+ */
+function oneStepSteps(s: SolveCase, orig: string, answer: string): ProblemStep[] | undefined {
+  const c = texValue(s.rhs);
+  const solved: ProblemStep = {
+    prompt: [p(`Now write the solution of $${orig}$ with $x$ alone on the left.`)],
+    answer: { kind: 'inequality', value: answer, form: 'solved' },
+    inputHint: 'Type an inequality like x >= -3 (or x ≥ -3).',
+    hints: [
+      'The boundary number goes on the right and $x$ on the left.',
+      s.kind === 'one-step-add' ? 'Adding or subtracting the same number on both sides never changes the symbol.' : 'Use the symbol you decided on in the last step.',
+      'Check with a test value: a number that fits your answer should make the original inequality true.',
+      `Write $x$, then the symbol, then the number $${s.k.toTex()}$.`,
+    ],
+    misconceptions: stringMisconceptions(answer, [
+      { answer: ineqPlain('x', FLIP_OP[s.solOp], s.k), tag: 'inequality-direction', feedback: s.kind === 'one-step-add' || !s.coef.isNegative() ? 'The symbol only flips when you multiply or divide by a **negative** number. Here it keeps its direction.' : 'You divided by a negative number, so the symbol must flip.' },
+      { answer: ineqPlain('x', TOGGLE_STRICT[s.solOp], s.k), tag: 'inequality-direction', feedback: 'Keep the "or equal to" part exactly as it was. Solving never adds or removes it.' },
+    ]),
+    explanation: `$${ineqTex('x', s.solOp, s.k)}$: ${s.coef.isNegative() ? 'the symbol flipped because you divided by a negative number' : 'the symbol kept its direction'}.`,
+  };
+  if (s.kind === 'one-step-add') {
+    const b = c.sub(s.k); // the left side is x + b
+    const sub = !b.isNegative();
+    const right = `${sub ? 'Subtract' : 'Add'} $${b.abs().toTex()}$ ${sub ? 'from' : 'to'} both sides.`;
+    const wrong = `${sub ? 'Add' : 'Subtract'} $${b.abs().toTex()}$ ${sub ? 'to' : 'from'} both sides.`;
+    const left = `${sub ? 'Subtract' : 'Add'} $${b.abs().toTex()}$ on the left side only.`;
+    const opAns = stepChoice(right, [wrong, left], c.toNumber() + b.toNumber());
+    return [
+      {
+        prompt: [p(`To get $x$ alone in $${orig}$, what should you do?`)],
+        answer: opAns,
+        hints: [
+          'Undo what is being done to $x$ by using the **opposite** operation.',
+          `On the left, $${b.abs().toTex()}$ is ${sub ? 'added to' : 'subtracted from'} $x$.`,
+          'Whatever you do to one side, do to the other side too, so the two sides stay balanced.',
+          `The opposite of ${sub ? 'adding' : 'subtracting'} is ${sub ? 'subtracting' : 'adding'}.`,
+        ],
+        misconceptions: [
+          { answer: idOf(opAns, wrong), tag: 'inverse-operation', feedback: `That would make the left side $x ${sub ? '+' : '-'} ${b.abs().mul(Q(2)).toTex()}$. Use the **opposite** operation to undo it.` },
+          { answer: idOf(opAns, left), tag: 'inverse-operation', feedback: 'Changing only one side breaks the balance. Do the same thing to **both** sides.' },
+        ],
+        explanation: `${right.replace(/\.$/, '')}: the opposite operation leaves $x$ by itself and keeps the inequality true.`,
+      },
+      {
+        prompt: [p(`${right} What number is on the right side now?`)],
+        answer: { kind: 'number', value: numStr(s.k) },
+        hints: [
+          `The right side starts as $${c.toTex()}$.`,
+          `${sub ? 'Subtract' : 'Add'} $${b.abs().toTex()}$ ${sub ? 'from' : 'to'} it.`,
+          'Use a number line if the signs are tricky.',
+          `Start at $${c.toTex()}$ and move $${b.abs().toTex()}$ to the ${sub ? 'left' : 'right'}.`,
+        ],
+        misconceptions: numberMisconceptions(s.k, [
+          { value: c.add(b), tag: 'inverse-operation', feedback: `You ${sub ? 'added' : 'subtracted'}. Undo the ${sub ? 'addition' : 'subtraction'} with the opposite operation.` },
+          { value: s.k.neg(), tag: 'sign-error', feedback: 'Check the sign of your result with a number line.' },
+        ]),
+        explanation: `$${c.toTex()} ${sub ? '-' : '+'} ${b.abs().toTex()} = ${s.k.toTex()}$.`,
+      },
+      solved,
+    ];
+  }
+  if (s.kind === 'one-step-mul') {
+    const a = s.coef;
+    const flips = a.isNegative();
+    const correct = flips ? SYMBOL_FLIPS(a) : SYMBOL_STAYS(a);
+    const distract = flips
+      ? [SYMBOL_NEVER, `It stays the same, because $${c.toTex()}$ on the right side is ${c.isNegative() ? 'negative' : 'positive'}.`]
+      : [SYMBOL_DIVIDED, ...(c.isNegative() ? [SYMBOL_FLIPS_RIGHT(c)] : [])];
+    const symAns = stepChoice(correct, distract, a.toNumber() * 7 + c.toNumber());
+    return [
+      {
+        prompt: [p(`To get $x$ alone in $${orig}$, divide both sides by $${a.toTex()}$. What is $${c.toTex()} \\div ${a.isNegative() ? `(${a.toTex()})` : a.toTex()}$?`)],
+        answer: { kind: 'number', value: numStr(s.k) },
+        hints: [
+          `$${linearTex(a, Q(0))}$ means $${a.toTex()}$ times $x$, so dividing by $${a.toTex()}$ undoes it.`,
+          'Divide the numbers first, then decide the sign.',
+          'Same signs give a positive quotient; different signs give a negative quotient.',
+          `Think: $${a.toTex()}$ times what number gives $${c.toTex()}$?`,
+        ],
+        misconceptions: numberMisconceptions(s.k, [
+          { value: s.k.neg(), tag: 'sign-error', feedback: 'Check the sign: same signs give a positive answer, different signs give a negative answer.' },
+          { value: c.sub(a), tag: 'inverse-operation', feedback: `$${linearTex(a, Q(0))}$ is a multiplication, so undo it by **dividing**, not subtracting.` },
+        ]),
+        explanation: `$${c.toTex()} \\div ${a.isNegative() ? `(${a.toTex()})` : a.toTex()} = ${s.k.toTex()}$, so the boundary is $${s.k.toTex()}$.`,
+      },
+      {
+        prompt: [p(`You divided both sides of $${orig}$ by $${a.toTex()}$. What happens to the inequality symbol?`)],
+        answer: symAns,
+        hints: [
+          'Only one move ever flips an inequality symbol.',
+          'Multiplying or dividing both sides by a **negative** number reverses the order of numbers: $2 < 5$ but $-2 > -5$.',
+          'The sign of the number on the right side does not matter. Only the number you divide by does.',
+          `Is $${a.toTex()}$ positive or negative?`,
+        ],
+        misconceptions: symAns.options
+          .filter((o) => o.id !== symAns.correct)
+          .map((o) => ({
+            answer: o.id,
+            tag: 'inequality-direction' as const,
+            feedback: o.label === SYMBOL_NEVER ? 'Dividing by a **negative** number does change the symbol, because it reverses the order of numbers.' : o.label === SYMBOL_DIVIDED ? 'Dividing by a **positive** number keeps numbers in the same order, so the symbol does not flip.' : /right/.test(o.label) ? 'The number on the right side does not decide a flip. Only dividing (or multiplying) by a negative number does.' : `Look again at the number you divided by, $${a.toTex()}$.`,
+          })),
+        explanation: flips ? `$${a.toTex()}$ is negative, so the symbol flips: $${OP_TEX[s.op]}$ becomes $${OP_TEX[s.solOp]}$.` : `$${a.toTex()}$ is positive, so the symbol keeps its direction.`,
+      },
+      solved,
+    ];
+  }
+  return undefined;
+}
 
 function addOrSub(s: SolveCase): string {
   // one-step-add: the left side is x + b and the right side is k + b
@@ -238,6 +372,68 @@ function numberLineBlock(k: number, op: Op): Block {
   };
 }
 
+const circleLabel = (k: number, closed: boolean, included: boolean) =>
+  `${closed ? 'Closed' : 'Open'} circle: $${k}$ ${included ? '**is**' : 'is **not**'} a solution, so the symbol is ${included ? '$\\le$ or $\\ge$' : '$<$ or $>$'}.`;
+const sideLabel = (k: number, greater: boolean) => `Numbers ${greater ? 'greater' : 'less'} than $${k}$`;
+
+/** Guided steps for reading a number line (difficulty 1): the circle, the shading, then the inequality. */
+function numberLineSteps(k: number, op: Op, answer: string): ProblemStep[] {
+  const closed = !isStrict(op);
+  const greater = isGreater(op);
+  const circle = stepChoice(circleLabel(k, closed, closed), [circleLabel(k, !closed, !closed), circleLabel(k, closed, !closed), circleLabel(k, !closed, closed)], k + 9);
+  const side = stepChoice(sideLabel(k, greater), [sideLabel(k, !greater)], k + (closed ? 1 : 0));
+  return [
+    {
+      prompt: [p(`Look at the circle at $${k}$. Is it open or closed, and what does that tell you?`)],
+      answer: circle,
+      hints: [
+        'The circle marks the boundary number. Its style tells you whether the boundary itself is a solution.',
+        'A filled-in circle is **closed**. An empty circle is **open**.',
+        'Closed means the boundary is included ($\\le$ or $\\ge$). Open means it is left out ($<$ or $>$).',
+        'First decide whether the circle is filled in, then match it with its meaning.',
+      ],
+      misconceptions: circle.options
+        .filter((o) => o.id !== circle.correct)
+        .map((o) => ({
+          answer: o.id,
+          tag: 'graph-reading' as const,
+          feedback: o.label.startsWith(closed ? 'Closed' : 'Open')
+            ? `You read the circle correctly, but ${closed ? 'a closed circle **includes** the boundary' : 'an open circle **leaves out** the boundary'}.`
+            : `Look again: this circle is ${closed ? 'filled in, so it is closed' : 'empty, so it is open'}.`,
+        })),
+      explanation: closed ? `The circle is closed, so $${k}$ is a solution and the symbol has "or equal to".` : `The circle is open, so $${k}$ is not a solution and the symbol is strict.`,
+    },
+    {
+      prompt: [p(`The shading goes to the **${greater ? 'right' : 'left'}** of $${k}$. Which numbers are solutions?`)],
+      answer: side,
+      hints: [
+        'The shaded part of the line shows every solution.',
+        'On a number line, numbers get larger as you move to the right.',
+        'Pick a number in the shaded part and compare it with the boundary.',
+        `Is $${greater ? k + 2 : k - 2}$, a shaded number, bigger or smaller than $${k}$?`,
+      ],
+      misconceptions: [{ answer: side.options.find((o) => o.id !== side.correct)!.id, tag: 'graph-reading', feedback: 'Numbers get larger to the right on a number line and smaller to the left.' }],
+      explanation: `Shading to the ${greater ? 'right' : 'left'} means the solutions are ${greater ? 'greater' : 'less'} than $${k}$.`,
+    },
+    {
+      prompt: [p('Now write the inequality in $x$ shown by the number line.')],
+      answer: { kind: 'inequality', value: answer, form: 'solved' },
+      inputHint: 'Type an inequality like x < 4 or x >= -2.',
+      hints: [
+        'Put $x$ on the left and the boundary number on the right.',
+        `${greater ? 'Greater' : 'Less'} than means the symbol points ${greater ? 'away from' : 'toward'} $x$: $x ${greater ? '>' : '<'} \\ldots$`,
+        `${closed ? 'A closed circle adds "or equal to".' : 'An open circle means no "or equal to".'}`,
+        'Combine the direction and the circle type into one symbol.',
+      ],
+      misconceptions: stringMisconceptions(answer, [
+        { answer: ineqPlain('x', TOGGLE_STRICT[op], Q(k)), tag: 'graph-reading', feedback: closed ? 'The circle is closed, so the boundary counts: use a symbol with "or equal to".' : 'The circle is open, so the boundary does not count: leave out "or equal to".' },
+        { answer: ineqPlain('x', FLIP_OP[op], Q(k)), tag: 'inequality-direction', feedback: `The shading goes to the ${greater ? 'right' : 'left'}, toward ${greater ? 'larger' : 'smaller'} numbers.` },
+      ]),
+      explanation: `$${ineqTex('x', op, Q(k))}$.`,
+    },
+  ];
+}
+
 export const genIneqNumberLine: GeneratorDef = {
   id: 'u2.ineq-numberline',
   skillId: 'S2.01',
@@ -266,13 +462,17 @@ export const genIneqNumberLine: GeneratorDef = {
           { text: `The shading goes to the ${isGreater(op) ? 'right' : 'left'}, toward ${isGreater(op) ? 'larger' : 'smaller'} numbers.`, tex: ineqTex('x', op, K), why: 'Numbers get larger to the right on a number line.' },
         ],
         misconceptions: stringMisconceptions(answer, [{ answer: ineqPlain('x', op, K.neg()), tag: 'graph-reading', feedback: 'Read the boundary number again; check its sign.' }]),
+        steps: numberLineSteps(k, op, answer),
       });
     }
     let promptTex: string;
     let solveSteps: Array<{ text: string; tex?: string; why?: string }> = [];
+    /** what most likely leads to shading the wrong side, for the feedback on that distractor */
+    let dirFb = 'This graph shades the wrong side. Pick a number on its shaded side and test it in the inequality: a solution makes it true.';
     if (difficulty === 2) {
       // sometimes written with the number first, e.g. 4 > x
       if (rng.bool()) {
+        dirFb = `The inequality has $x$ on the right. Read it with $x$ first: turn the whole statement around and the symbol turns with it. Then shade toward the solutions.`;
         promptTex = `${K.toTex()} ${OP_TEX[FLIP_OP[op]]} x`;
         solveSteps = [{ text: 'Read it with $x$ first.', tex: ineqTex('x', op, K), why: `"$${K.toTex()} ${OP_TEX[FLIP_OP[op]]} x$" and "$${ineqTex('x', op, K)}$" say the same thing; the symbol still points at the smaller side.` }];
       } else promptTex = ineqTex('x', op, K);
@@ -281,6 +481,7 @@ export const genIneqNumberLine: GeneratorDef = {
       if (rng.next() < 0.7) m = m.neg();
       const b = Q(rng.nonzeroInt(-9, 9));
       const rawOp = m.isNegative() ? FLIP_OP[op] : op;
+      if (m.isNegative()) dirFb = `Solving means dividing both sides by $${m.toTex()}$, a negative number, and that flips the inequality symbol. Then shade toward the solutions.`;
       promptTex = `${linearTex(m, b)} ${OP_TEX[rawOp]} ${m.mul(K).add(b).toTex()}`;
       solveSteps = [
         { text: `Undo the constant: ${b.isNegative() ? 'add' : 'subtract'} $${b.abs().toTex()}$ on both sides.`, tex: `${linearTex(m, Q(0))} ${OP_TEX[rawOp]} ${m.mul(K).toTex()}`, why: 'Adding or subtracting keeps the symbol the same.' },
@@ -289,6 +490,14 @@ export const genIneqNumberLine: GeneratorDef = {
     }
     const { correct, distractors } = allDescriptions(K, op);
     const answer = makeChoice(rng, correct, distractors);
+    const circleFb = isStrict(op)
+      ? 'This graph uses a closed circle, but the symbol has no "or equal to", so the boundary number is **not** a solution: that needs an open circle.'
+      : 'This graph uses an open circle, but the symbol includes "or equal to", so the boundary number **is** a solution: that needs a closed circle.';
+    const misconceptions = optionMisList(answer, [
+      [distractors[0], 'interval-endpoint', circleFb],
+      [distractors[1], 'inequality-direction', dirFb],
+      [distractors[2], 'inequality-direction', `Both parts need another look. ${circleFb} Also, ${dirFb[0].toLowerCase()}${dirFb.slice(1)}`],
+    ]);
     return makeProblem({
       skillId: 'S2.01',
       tags: ['graph'],
@@ -305,7 +514,7 @@ export const genIneqNumberLine: GeneratorDef = {
         { text: `The boundary is $${K.toTex()}$. ${isStrict(op) ? 'It is not included, so use an open circle.' : 'It is included, so use a closed circle.'}`, why: isStrict(op) ? '$<$ and $>$ do not include the boundary.' : '$\\le$ and $\\ge$ include the boundary.' },
         { text: `Test $x = ${k + 1}$: it ${isGreater(op) ? 'is' : 'is not'} a solution, so shade to the ${isGreater(op) ? 'right' : 'left'}.`, why: 'The shaded side is the side whose numbers make the inequality true.' },
       ],
-      misconceptions: [],
+      misconceptions,
     });
   },
   verify(pr) {
@@ -319,6 +528,13 @@ export const genIneqNumberLine: GeneratorDef = {
       for (const d of [0, 0.5, 1, 7, -0.5, -1, -7]) {
         const t = Q(ray.from).add(Q(d * 2, 2));
         if (inGraph(t) !== holds(pr.answer.value, t)) errs.push(`graph and answer disagree at ${t}`);
+      }
+      if (pr.steps) {
+        // the circle step and the shading step, read against the picture
+        const circle = stepLabel(pr.steps[0]);
+        if (circle.startsWith('Closed') !== ray.closed || /is \*\*not\*\*/.test(circle) === ray.closed) errs.push('circle step disagrees with the graph');
+        if (/greater/.test(stepLabel(pr.steps[1])) !== (ray.dir === 'right')) errs.push('shading step disagrees with the graph');
+        errs.push(...lastStepErrors(pr));
       }
       return errs;
     }

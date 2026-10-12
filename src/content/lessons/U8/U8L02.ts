@@ -42,7 +42,7 @@ export const U8L02: LessonContent = {
   ],
   instruction: [
     { t: 'p', text: '### Halfway on a number line' },
-    { t: 'p', text: 'The point halfway between $-2$ and $6$ is the **average** of the two numbers: $\\frac{-2 + 6}{2} = \\frac{4}{2} = 2$. Check by counting: $-2$ to $2$ is $4$ steps and $2$ to $6$ is $4$ steps.' },
+    { t: 'p', text: 'The point halfway between $-2$ and $6$ is the **average** of the two numbers: $\\frac{-2 + 6}{2} = \\frac{4}{2} = 2$. Check by counting: $-2$ to $2$ is $4$ steps and $2$ to $6$ is $4$ steps. Why does the average land in the middle? Because adding the two numbers and halving the total splits the distance between them into two equal parts: the average is as far above the smaller number as it is below the larger one.' },
     { t: 'p', text: '### Halfway on the coordinate plane' },
     { t: 'p', text: 'A segment on the plane moves in two directions at once. The midpoint is halfway **across** and halfway **up**, so you average the $x$-coordinates and average the $y$-coordinates separately. For $A(-4, 1)$ and $B(2, 5)$:' },
     { t: 'math', tex: 'M = \\left( \\frac{-4 + 2}{2}, \\; \\frac{1 + 5}{2} \\right) = \\left( \\frac{-2}{2}, \\; \\frac{6}{2} \\right) = (-1, 3)' },

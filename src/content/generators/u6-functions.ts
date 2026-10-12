@@ -3,7 +3,7 @@
  * domain, range and intervals (S6.03), average rate of change (S6.05) and transformations (S6.06).
  * verify() re-reads the printed function (or graph) and re-derives the answer from a, b and k.
  */
-import type { GeneratorDef, Rng, Block, ProblemStep, GraphSpec } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, Block, ProblemStep, GraphSpec, Problem } from '../../core/curriculum/types';
 import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { parseInterval, intervalsEqual, parseRelation, checkAnswer } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
@@ -12,6 +12,7 @@ import { parseExpression } from '../../core/math/parser';
 import { evalNumeric } from '../../core/math/evaluate';
 import { mathBlocks, graphOf } from './u4-common';
 import { dTex, commas, texExact } from './u5-common';
+import { numStep, specStep, choiceStep, finalStep, withSteps, stepErrors } from './u5-steps';
 import { type ExpFn, expFn, valueAt, rhsTex, rhsPlain, readFn, increasing, windowFor, ptLabel, parseLabel, textAll } from './u6-common';
 
 type Mis = { value: Rational | null; tag: MisconceptionTag; feedback: string };
@@ -84,8 +85,11 @@ export const genEvaluateExp: GeneratorDef = {
         { value: f.a.isInteger() && f.b.isInteger() && x >= 0 && x <= 6 ? f.a.mul(f.b).pow(x) : null, tag: 'order-of-operations', feedback: 'Only the base is raised to the power. Find the power first, then multiply by the number in front.' },
         { value: x < 0 ? f.a.mul(f.b.pow(-x)).neg() : null, tag: 'exponent-rule', feedback: 'A negative exponent means a reciprocal, not a negative number.' },
         { value: x === 0 ? Q(0) : null, tag: 'exponent-rule', feedback: 'Any nonzero number to the zero power is 1, not 0.' },
+        { value: !f.b.isInteger() && x > 0 ? f.a.mul(f.b.inv().pow(x)) : null, tag: 'growth-decay', feedback: 'The base is less than 1, so each factor makes the value smaller. Multiply by the base itself; do not divide by it.' },
+        { value: !f.a.eq(1) ? bx : null, tag: 'order-of-operations', feedback: 'You found the power but did not multiply it by the number in front.' },
+        { value: x >= 2 ? f.a.mul(f.b.pow(x - 1)) : null, tag: 'exponent-rule', feedback: `Count the factors: the exponent ${x} means ${x} factors of the base, so you used one too few.` },
       ];
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.01',
         tags: [],
         prompt: [p(`Evaluate $${name}(${x})$.`), { t: 'math', tex: fx }],
@@ -98,7 +102,10 @@ export const genEvaluateExp: GeneratorDef = {
           { text: 'Multiply.', tex: `${dTex(f.a)} \\cdot ${bx.toTex()} = ${v.toTex()}` },
         ],
         misconceptions: numberMisconceptions(v, mis),
-      });
+      }), (pr) => [
+        numStep(`Substitute $x = ${x}$. Exponents come first: what is $${f.b.isInteger() ? dTex(f.b) : `\\left(${dTex(f.b)}\\right)`}^{${x}}$?`, bx, [x < 0 ? 'A negative exponent means one over the positive power.' : x === 0 ? 'Think about the pattern of powers: each time the exponent goes down by 1, you divide by the base.' : `The exponent ${x} means ${x} factors of the base multiplied together.`, x < 0 ? `First find $${f.b.isInteger() ? dTex(f.b) : `\\left(${dTex(f.b)}\\right)`}^{${-x}}$.` : x === 0 ? 'Any nonzero number to the zero power has the same value.' : `Write out the ${x} factors of $${dTex(f.b)}$.`, x < 0 ? 'Then take the reciprocal of that result.' : x === 0 ? 'It is not 0.' : 'Multiply them in order.', 'Leave the number in front for the next step.'], x < 0 ? `$${f.b.isInteger() ? dTex(f.b) : `\\left(${dTex(f.b)}\\right)`}^{${x}} = \\frac{1}{${f.b.isInteger() ? dTex(f.b) : `\\left(${dTex(f.b)}\\right)`}^{${-x}}} = ${bx.toTex()}$: a negative exponent means a reciprocal.` : x === 0 ? 'Any nonzero number to the zero power is 1.' : `${x} factors of $${dTex(f.b)}$ multiply to $${bx.toTex()}$.`, [{ value: f.b.mul(x), tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication of the base, not the base times the exponent.' }, { value: x < 0 ? f.b.pow(-x).neg() : null, tag: 'exponent-rule', feedback: 'A negative exponent means a reciprocal, not a negative number.' }, { value: x === 0 ? Q(0) : null, tag: 'exponent-rule', feedback: 'Any nonzero number to the zero power is 1, not 0.' }, { value: !f.b.isInteger() && x > 0 ? f.b.inv().pow(x) : null, tag: 'growth-decay', feedback: 'The base is less than 1, so its powers get smaller. Multiply the base by itself; do not flip it over.' }], { inputHint: 'Type a number or a fraction.' }),
+        finalStep(pr, f.a.eq(1) ? `The number in front is 1. What is $${name}(${x})$?` : `Now multiply by the number in front, $${dTex(f.a)}$. What is $${name}(${x})$?`, ['The function is the number in front times the power.', 'Use the value of the power from the last step.', f.a.eq(1) ? 'Multiplying by 1 changes nothing.' : `Multiply $${dTex(f.a)}$ by that value.`, 'Simplify any fraction.'], `$${name}(${x}) = ${dTex(f.a)} \\cdot ${bx.toTex()} = ${v.toTex()}$.`),
+      ]);
     }
     const kind = rng.pick(['compute', 'interpret', 'solve'] as const);
     if (kind === 'solve') {
@@ -107,7 +114,7 @@ export const genEvaluateExp: GeneratorDef = {
       const n = rng.int(2, b === 2 ? 6 : 3);
       const f = expFn(a, b);
       const target = valueAt(f, n);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.01',
         tags: ['multi-step'],
         prompt: [p(`For the function below, find $x$ so that $${name}(x) = ${target.toTex()}$.`), { t: 'math', tex: `${name}(x) = ${rhsTex(f)}` }],
@@ -122,7 +129,10 @@ export const genEvaluateExp: GeneratorDef = {
           { value: target.div(a * b), tag: 'exponent-rule', feedback: `After dividing by ${a}, write the result as a power of ${b}. Dividing by ${b} does not undo the exponent.` },
           { value: target.div(a), tag: 'inverse-operation', feedback: `That is the value of $${b}^{x}$. Now find the exponent $x$.` },
         ]),
-      });
+      }), (pr) => [
+        numStep(`Set $${rhsTex(f)} = ${target.toTex()}$ and divide both sides by ${a}. What does $${b}^{x}$ equal?`, target.div(a), [`The ${a} multiplies the power, so undo it first.`, `Divide both sides by ${a}.`, `Find $${target.toTex()} \\div ${a}$.`, 'The power is now alone on the left.'], `$${b}^{x} = ${target.toTex()} \\div ${a} = ${target.div(a).toTex()}$.`, [{ value: target.sub(a), tag: 'inverse-operation', feedback: `The ${a} multiplies the power. Undo it by dividing, not subtracting.` }, { value: target.div(a * b), tag: 'exponent-rule', feedback: `Only divide by ${a}; the base ${b} is part of the power.` }]),
+        finalStep(pr, `Write $${target.div(a).toTex()}$ as a power of $${b}$. What is $x$?`, [`Multiply $${b}$ by itself until you reach $${target.div(a).toTex()}$.`, `Count the factors of $${b}$.`, 'Equal powers of the same base have equal exponents.', 'Check by substituting your answer.'], `$${target.div(a).toTex()} = ${b}^{${n}}$, so $x = ${n}$.`),
+      ]);
     }
     const c = rng.pick(CONTEXTS);
     const f = expFn(rng.pick(c.a), rng.pick(c.b));
@@ -131,7 +141,7 @@ export const genEvaluateExp: GeneratorDef = {
     const fx = `${c.fn}(${c.v}) = ${rhsTex(f, c.v)}`;
     if (kind === 'compute') {
       const places = c.round;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.01',
         tags: ['real-world'],
         prompt: [p(`The function below gives ${c.what}.`), { t: 'math', tex: fx }, p(`Find $${c.fn}(${t})$. ${places === 2 ? 'Round to the nearest cent.' : 'Round to the nearest whole number.'}`)],
@@ -143,7 +153,10 @@ export const genEvaluateExp: GeneratorDef = {
           { text: 'Evaluate and round.', tex: `${c.fn}(${t}) \\approx ${places === 2 ? v.round(2).toDecimalString(2) : commas(v.round(0))}`, why: 'Exponents first, then multiply.' },
         ],
         misconceptions: numberMisconceptions(v.round(places), [{ value: f.a.mul(f.b).mul(t).round(places), tag: 'exponent-rule', feedback: 'Raise the factor to the power; do not multiply it by the input.' }]),
-      });
+      }), (pr) => [
+        numStep(`Substitute $${c.v} = ${t}$. Exponents come first: what is $\\left(${dTex(f.b)}\\right)^{${t}}$?${f.b.pow(t).mul(10000).isInteger() ? '' : ' Round to 4 decimal places.'}`, f.b.pow(t), [`$${c.fn}(${t})$ means the output when $${c.v} = ${t}$.`, `The exponent ${t} means ${t} factors of $${dTex(f.b)}$.`, 'Use the power key on a calculator, or multiply step by step.', 'Do not multiply by the number in front yet.'], `$\\left(${dTex(f.b)}\\right)^{${t}} ${f.b.pow(t).mul(10000).isInteger() ? '=' : '\\approx'} ${f.b.pow(t).mul(10000).isInteger() ? dTex(f.b.pow(t)) : f.b.pow(t).round(4).toDecimalString(4)}$.`, [{ value: f.b.mul(t), tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication, not the factor times the input.' }], f.b.pow(t).mul(10000).isInteger() ? {} : { roundTo: 4 }),
+        finalStep(pr, `Multiply by $${dTex(f.a)}$. What is $${c.fn}(${t})$? ${places === 2 ? 'Round to the nearest cent.' : 'Round to the nearest whole number.'}`, ['The output is the number in front times the power.', 'Use the unrounded power if you can.', `Multiply by $${dTex(f.a)}$.`, 'Round only at the very end.'], `$${c.fn}(${t}) = ${dTex(f.a)}\\left(${dTex(f.b)}\\right)^{${t}} \\approx ${places === 2 ? v.round(2).toDecimalString(2) : commas(v.round(0))}$, the ${c.noun} after ${t} ${c.per}s.`),
+      ]);
     }
     // interpret a statement P(t) = value
     const shown = c.round === 2 ? v.round(0) : v.round(0);
@@ -152,7 +165,7 @@ export const genEvaluateExp: GeneratorDef = {
     const valPhrase = `about $${vText}$${unitWord}`;
     const vPlain = vText.replace(/\{,\}/g, ',');
     const correct = `${t} ${c.per}s after the start, the ${c.noun} is ${valPhrase}.`;
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S6.01',
       tags: ['real-world'],
       prompt: [p(`The function below gives ${c.what}.`), { t: 'math', tex: fx }, p(`What does the statement $${c.fn}(${t}) \\approx ${vText}$ mean?`)],
@@ -168,7 +181,11 @@ export const genEvaluateExp: GeneratorDef = {
         { text: correct },
       ],
       misconceptions: [],
-    });
+    }), (pr) => [
+      numStep(`In $${c.fn}(${t}) \\approx ${vText}$, the number inside the parentheses is the input. What is the value of $${c.v}$?`, Q(t), ['Function notation is name(input) = output.', 'The input goes inside the parentheses.', `In this model the input $${c.v}$ counts ${c.per}s since the start.`, 'Read the number inside the parentheses.'], `The input is $${c.v} = ${t}$: ${t} ${c.per}s after the start.`, [{ value: shown, tag: 'other', feedback: 'That number is after the equals sign, so it is the output. The input is inside the parentheses.' }]),
+      choiceStep(`What does the output $${vText}$ measure?`, [`The ${c.noun}`, `The number of ${c.per}s`], 0, ['The output is the value the function gives back.', `$${c.fn}(${c.v})$ is defined as ${c.what.replace(/ \$\w\$ .*$/, '')}.`, `The input counts ${c.per}s, so the output is the other quantity.`, 'Read the first sentence of the problem again.'], `$${c.fn}$ gives the ${c.noun}, so $${vText}$ is the ${c.noun}.`, [{ index: 1, tag: 'other', feedback: `The input counts ${c.per}s. The output is the ${c.noun}.` }]),
+      finalStep(pr, `Put the two parts together. What does $${c.fn}(${t}) \\approx ${vText}$ mean?`, [`The input ${t} tells when.`, `The output ${vPlain} tells how much.`, 'The statement is about one moment, not a change.', 'Pick the sentence that uses the input as the time and the output as the amount.'], correct),
+    ]);
   },
   verify(pr) {
     const text = textAll(pr);
@@ -182,15 +199,21 @@ export const genEvaluateExp: GeneratorDef = {
       const shown = Q(m[2].replace(/\{,\}/g, ''));
       const errs = valueAt(f, t).round(0).eq(shown) ? [] : ['statement value wrong'];
       if (!new RegExp(`^${t} \\w+s after the start, the .+ is about \\$${m[2].replace(/[{}]/g, '\\$&')}\\$`).test(choiceLabel(pr.answer))) errs.push('choice wrong');
-      return errs;
+      return [...errs, ...stepErrors(pr, [Q(t), null, null])];
     }
     if (pr.answer.kind !== 'number') return ['unexpected kind'];
     const ev = /^Evaluate \$\w\((-?\d+)\)\$/.exec(text) ?? /Find \$\w\((\d+)\)\$/.exec(text);
-    if (ev) return valueAt(f, Number(ev[1])).eq(Q(pr.answer.value)) ? [] : ['value wrong'];
+    // step 1 is the power b^x, recomputed by repeated multiplication (or division for x < 0)
+    const powIter = (b: Rational, x: number) => {
+      let v = Q(1);
+      for (let i = 0; i < Math.abs(x); i++) v = x > 0 ? v.mul(b) : v.div(b);
+      return v;
+    };
+    if (ev) return [...(valueAt(f, Number(ev[1])).eq(Q(pr.answer.value)) ? [] : ['value wrong']), ...stepErrors(pr, [powIter(f.b, Number(ev[1])), null])];
     const sv = /= ([\d{},]+)\$\./.exec(text);
     if (!sv) return ['cannot read'];
     const x = Q(pr.answer.value).toInt();
-    return valueAt(f, x).eq(Q(sv[1])) ? [] : ['x does not give the value'];
+    return [...(valueAt(f, x).eq(Q(sv[1])) ? [] : ['x does not give the value']), ...stepErrors(pr, [Q(sv[1]).sub(f.k).div(f.a), null])];
   },
 };
 
@@ -232,7 +255,7 @@ function xIntercept(rng: Rng) {
   const target = k.neg().div(a);
   const fx = `f(x) = ${rhsTex(f)}`;
   const powT = `\\left(${dTex(b)}\\right)^{x}`;
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S6.02',
     tags: ['multi-step'],
     prompt: [p('What is the $x$-intercept of the graph of $f$? Give the $x$-value.'), { t: 'math', tex: fx }],
@@ -250,7 +273,10 @@ function xIntercept(rng: Rng) {
       { value: Q(-n), tag: 'sign-error', feedback: 'Check by substituting your answer: the output should be 0.' },
       { value: k.neg(), tag: 'inverse-operation', feedback: 'After moving the constant, divide by the number in front, then find the exponent.' },
     ]),
-  });
+  }), (pr) => [
+    numStep(`At the $x$-intercept, $f(x) = 0$. Set $${rhsTex(f)} = 0$ and get the power alone. What does $${powT}$ equal?`, target, ['The graph crosses the $x$-axis where the output is 0.', `Move the constant to the other side by ${k.isNegative() ? 'adding' : 'subtracting'} $${dTex(k.abs())}$.`, a.eq(1) ? 'Now the power is alone.' : `Then divide both sides by $${dTex(a)}$.`, 'Simplify the fraction.'], `$${powT} = ${dTex(target)}$.`, [{ value: k.neg(), tag: 'inverse-operation', feedback: a.eq(1) ? 'Check the sign when you move the constant.' : `You also need to divide by $${dTex(a)}$.` }, { value: k.div(a), tag: 'sign-error', feedback: 'Moving the constant to the other side changes its sign.' }]),
+    finalStep(pr, `Write $${dTex(target)}$ as a power of $${dTex(b)}$. What is the $x$-intercept?`, [`Try small whole-number exponents of $${dTex(b)}$, including negative ones.`, 'A negative exponent means one over the positive power.', 'Equal powers of the same base have equal exponents.', 'Check: substituting your answer should make $f(x) = 0$.'], `$${dTex(target)} = \\left(${dTex(b)}\\right)^{${n}}$, so $x = ${n}$.`),
+  ]);
 }
 
 /** "Which graph is f(x) = ...?" with four labeled candidate graphs (A.FGR.9.2). */
@@ -273,7 +299,7 @@ function matchGraph(rng: Rng, f: ExpFn) {
   });
   const correct = letters[order.indexOf(0)];
   const inc = increasing(f);
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S6.02',
     tags: ['graph'],
     prompt: [p('Which graph shows this function?'), { t: 'math', tex: `f(x) = ${rhsTex(f)}` }, ...graphs],
@@ -286,7 +312,12 @@ function matchGraph(rng: Rng, f: ExpFn) {
       { text: `Graph ${correct} is the only graph with all three features.`, why: `In the others, ${order.filter((ci) => ci !== 0).map((ci) => cands[ci].why).join('; ')}.` },
     ],
     misconceptions: [],
-  });
+  }), (pr) => [
+    numStep('Find the horizontal asymptote $y = k$. What is $k$?', f.k, ['In $a(b)^{x} + k$, the power part gets closer and closer to 0 on one side.', 'Then the outputs get close to the number added at the end.', 'If nothing is added, that number is 0.', 'Watch the sign of the added number.'], `The asymptote is $y = ${numStr(f.k)}$.`, [{ value: f.k.neg(), tag: 'sign-error', feedback: 'Check the sign of the number added at the end.' }, { value: f.a, tag: 'graph-reading', feedback: 'The number in front stretches the graph. The asymptote comes from the number added.' }]),
+    numStep('Find the $y$-intercept: what is $f(0)$?', f.a.add(f.k), ['Substitute $x = 0$.', 'Any nonzero base to the power 0 is 1.', 'So the power part is just the number in front.', 'Then add the constant at the end.'], `$f(0) = ${dTex(f.a)}(1) ${f.k.isNegative() ? '-' : '+'} ${dTex(f.k.abs())} = ${dTex(f.a.add(f.k))}$.`, [{ value: f.k.isZero() ? null : f.a, tag: 'graph-reading', feedback: 'Do not forget to add the constant at the end.' }, { value: f.a.mul(f.b).add(f.k), tag: 'exponent-rule', feedback: 'At $x = 0$ the power is 1, not the base.' }]),
+    choiceStep('Is $f$ increasing or decreasing?', ['Increasing', 'Decreasing'], inc ? 0 : 1, ['Look at the base and the sign of the number in front.', '$b > 1$ makes the power grow; $0 < b < 1$ makes it shrink.', 'A negative number in front flips the graph upside down, which reverses the direction.', `Here $b = ${dTex(f.b)}$ and $a = ${dTex(f.a)}$.`], `$b = ${dTex(f.b)}$ is ${f.b.gt(1) ? 'greater than 1' : 'between 0 and 1'} and $a$ is ${f.a.sign() > 0 ? 'positive' : 'negative'}, so $f$ is ${inc ? 'increasing' : 'decreasing'}.`, [{ index: inc ? 1 : 0, tag: 'growth-decay', feedback: f.a.sign() < 0 ? 'A negative number in front reverses the direction of the power.' : 'Compare the base with 1.' }]),
+    finalStep(pr, 'Which graph has this asymptote, this $y$-intercept and this direction?', ['Check the dashed line of each graph first.', 'Then check the labeled point at $x = 0$.', 'Then check whether the curve rises or falls from left to right.', 'Only one graph has all three features.'], `Graph ${correct} is the only graph with all three features.`),
+  ]);
 }
 
 /** Read an exponential a(b)^x + k back from its graph: dashed asymptote and labeled points (verify route). */
@@ -318,7 +349,7 @@ export const genExpFeatures: GeneratorDef = {
     if (ask === 'match') return matchGraph(rng, f);
     const intro: Block[] = difficulty === 3 ? [p('The graph of an exponential function $f$ is shown. Points on the graph are labeled.'), graphBlock(f, 'f')] : [{ t: 'math', tex: fx }];
     if (ask === 'yint') {
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.02',
         tags: difficulty === 3 ? ['graph'] : [],
         prompt: [p(difficulty === 3 ? 'What is the $y$-intercept of the graph? Give the $y$-value.' : 'What is the $y$-intercept of the graph of $f$? Give the $y$-value.'), ...intro],
@@ -334,11 +365,19 @@ export const genExpFeatures: GeneratorDef = {
           { value: f.k.isZero() ? null : f.k, tag: 'graph-reading', feedback: 'That is the asymptote. The $y$-intercept is $f(0)$.' },
           { value: f.a.mul(f.b).add(f.k), tag: 'exponent-rule', feedback: 'At $x = 0$ the power $b^{0}$ is 1, not $b$.' },
         ]),
-      });
+      }), (pr) => difficulty === 3
+        ? [
+            numStep('The $y$-intercept is on the $y$-axis. What is the $x$-coordinate of every point on the $y$-axis?', Q(0), ['The $y$-axis is the vertical axis.', 'It crosses the $x$-axis at the origin.', 'Points on it are not to the left or right of the origin.', 'So their $x$-coordinate is the same small number.'], 'Every point on the $y$-axis has $x = 0$.', [{ value: Q(1), tag: 'graph-reading', feedback: 'A point with $x = 1$ is one unit to the right of the $y$-axis.' }]),
+            finalStep(pr, 'Find the labeled point with $x = 0$. What is the $y$-intercept?', ['Look for the label that starts with $(0,$.', 'The second coordinate is the $y$-value.', 'Do not use the dashed line; that is the asymptote.', 'Give just the $y$-value.'], `The point $(0, ${numStr(yInt)})$ is on the $y$-axis, so the $y$-intercept is $${dTex(yInt)}$.`),
+          ]
+        : [
+            numStep(`Substitute $x = 0$. What is $\\left(${dTex(f.b)}\\right)^{0}$?`, Q(1), ['The $y$-intercept is where $x = 0$.', 'Think of the pattern: each time the exponent goes down by 1, you divide by the base.', 'Any nonzero number to the zero power has the same value.', 'It is not 0.'], 'Any nonzero number to the zero power is 1.', [{ value: Q(0), tag: 'exponent-rule', feedback: 'The zero power is 1, not 0.' }, { value: f.b, tag: 'exponent-rule', feedback: 'That is the power with exponent 1. Use exponent 0.' }]),
+            finalStep(pr, f.k.isZero() ? `So $f(0) = ${dTex(f.a)} \\cdot 1$. What is the $y$-intercept?` : `So $f(0) = ${dTex(f.a)} \\cdot 1 ${f.k.isNegative() ? '-' : '+'} ${dTex(f.k.abs())}$. What is the $y$-intercept?`, ['Multiply the number in front by 1.', f.k.isZero() ? 'Nothing is added at the end.' : 'Then add the number at the end, keeping its sign.', 'Watch negative signs.', 'Give just the $y$-value.'], `$f(0) = ${dTex(yInt)}$.`),
+          ]);
     }
     if (ask === 'asym') {
       const key = ASYM(f.k);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.02',
         tags: difficulty === 3 ? ['graph'] : [],
         prompt: [p('Write the equation of the horizontal asymptote of the graph of $f$.'), ...intro],
@@ -359,11 +398,19 @@ export const genExpFeatures: GeneratorDef = {
           { answer: ASYM(f.a), tag: 'graph-reading', feedback: 'The number in front stretches the graph; the asymptote comes from the number added at the end.' },
           { answer: ASYM(f.k.neg()), tag: 'sign-error', feedback: 'Check the sign of the number added at the end.' },
         ]),
-      });
+      }), (pr) => difficulty === 3
+        ? [
+            choiceStep('Which part of the picture is the horizontal asymptote?', ['The dashed horizontal line', 'The $y$-axis', 'A horizontal line through the $y$-intercept'], 0, ['An asymptote is a line the curve gets closer and closer to but never touches.', 'Look at where the curve flattens out.', 'The graph marks the asymptote in a special way.', 'Read the caption under the graph.'], 'The caption says the dashed line is the horizontal asymptote; the curve flattens out along it.', [{ index: 1, tag: 'graph-reading', feedback: 'The $y$-axis is vertical. A horizontal asymptote is a horizontal line.' }, { index: 2, tag: 'graph-reading', feedback: 'The curve passes through the $y$-intercept, so that line is not one it approaches without touching.' }]),
+            finalStep(pr, 'At what height is the dashed line? Write its equation.', ['A horizontal line has an equation like $y = c$.', 'Read where the dashed line crosses the $y$-axis.', 'Use the grid labels on the $y$-axis.', 'Write $y =$ that number.'], `The dashed line is $${ASYM(f.k)}$.`),
+          ]
+        : [
+            numStep(`As $x \\to ${f.b.gt(1) ? '-\\infty' : '\\infty'}$, what number does $\\left(${dTex(f.b)}\\right)^{x}$ get closer and closer to?`, Q(0), [f.b.gt(1) ? 'Try $x = -1, -2, -3$: negative exponents give reciprocals.' : 'Try $x = 1, 2, 3$: you keep multiplying by a number less than 1.', 'The values get smaller and smaller but stay positive.', 'They never reach that number.', 'Think about what tiny positive numbers are close to.'], `The power gets as close to 0 as you like, but it is never 0.`, [{ value: Q(1), tag: 'exponent-rule', feedback: 'The power equals 1 only at $x = 0$. Keep going far out.' }]),
+            finalStep(pr, f.k.isZero() ? 'So the whole expression gets close to 0 times the number in front. Write the equation of the horizontal asymptote.' : 'So the power part gets close to 0. What does the whole expression get close to? Write the equation of the horizontal asymptote.', ['A horizontal asymptote is a line $y = c$.', f.k.isZero() ? 'A number close to 0 times $a$ is still close to 0.' : 'The power part shrinks toward 0, but the number added at the end stays.', 'Watch the sign of the number added.', 'Write $y =$ that number.'], `The outputs approach $${numStr(f.k)}$, so the asymptote is $${ASYM(f.k)}$.`),
+          ]);
     }
     if (ask === 'inc') {
       const inc = increasing(f);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.02',
         tags: [],
         prompt: [p('Is the function increasing or decreasing?'), ...intro],
@@ -374,7 +421,11 @@ export const genExpFeatures: GeneratorDef = {
           { text: `$a = ${dTex(f.a)}$ is ${f.a.sign() > 0 ? 'positive, so that stays the same' : 'negative, which reverses it'}.`, why: inc ? 'So the function is increasing.' : 'So the function is decreasing.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        choiceStep(`Look at the base $b = ${dTex(f.b)}$. What does the power $\\left(${dTex(f.b)}\\right)^{x}$ do as $x$ increases?`, ['It increases', 'It decreases'], f.b.gt(1) ? 0 : 1, ['Compare the base with 1.', 'Multiplying a positive number by more than 1 makes it bigger.', 'Multiplying by a number between 0 and 1 makes it smaller.', `Is $${dTex(f.b)}$ greater than 1?`], `$${dTex(f.b)}$ is ${f.b.gt(1) ? 'greater than 1, so the power increases' : 'between 0 and 1, so the power decreases'}.`, [{ index: f.b.gt(1) ? 1 : 0, tag: 'growth-decay', feedback: 'Compare the base with 1.' }]),
+        choiceStep(`Now look at $a = ${dTex(f.a)}$. Does it keep or reverse that direction?`, ['Keeps it ($a$ is positive)', 'Reverses it ($a$ is negative)'], f.a.sign() > 0 ? 0 : 1, ['A positive number in front stretches the graph but keeps its direction.', 'A negative number in front flips the graph across a horizontal line.', 'Flipping turns rising into falling.', 'The number added at the end only moves the graph up or down.'], f.a.sign() > 0 ? 'A positive $a$ keeps the direction.' : 'A negative $a$ flips the graph, which reverses the direction.', [{ index: f.a.sign() > 0 ? 1 : 0, tag: 'sign-error', feedback: 'Check the sign of the number in front.' }]),
+        finalStep(pr, 'Put the two facts together. Is the function increasing or decreasing?', ['Start with the direction of the power.', 'Reverse it only if $a$ is negative.', 'The vertical shift does not change the direction.', 'Two facts give one direction.'], inc ? 'So the function is increasing.' : 'So the function is decreasing.'),
+      ]);
     }
     // end behavior
     const toPlus = rng.bool();
@@ -382,7 +433,7 @@ export const genExpFeatures: GeneratorDef = {
     const limit = grows ? (f.a.sign() > 0 ? '\\infty' : '-\\infty') : numStr(f.k);
     const opts = ['\\infty', '-\\infty', numStr(f.k), numStr(yInt)].map((s) => `$f(x) \\to ${s}$`);
     const correct = `$f(x) \\to ${limit}$`;
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S6.02',
       tags: ['graph'],
       prompt: [p(`Describe the end behavior: as $x \\to ${toPlus ? '\\infty' : '-\\infty'}$, what happens to $f(x)$?`), ...intro],
@@ -393,7 +444,10 @@ export const genExpFeatures: GeneratorDef = {
         { text: grows ? (f.a.sign() > 0 ? 'The outputs keep going up without bound.' : 'The outputs keep going down without bound.') : `The outputs approach the asymptote $y = ${numStr(f.k)}$ but never reach it.`, tex: correct.replace(/\$/g, '') },
       ],
       misconceptions: [],
-    });
+    }), (pr) => [
+      choiceStep(`Follow the curve far to the ${toPlus ? 'right' : 'left'}. What does it do?`, ['It flattens out along the dashed line', 'It keeps going up', 'It keeps going down'], grows ? (f.a.sign() > 0 ? 1 : 2) : 0, ['One side of an exponential graph flattens out; the other side does not.', `Compare the gaps between the labeled points as you move ${toPlus ? 'right' : 'left'}.`, 'If the gaps get bigger, the curve is running away from the asymptote.', 'If the curve hugs the dashed line, it is flattening out.'], grows ? `On the ${toPlus ? 'right' : 'left'} the curve moves away from the dashed line and keeps going ${f.a.sign() > 0 ? 'up' : 'down'}.` : `On the ${toPlus ? 'right' : 'left'} the curve flattens out along the dashed line.`, [{ index: grows ? 0 : f.a.sign() > 0 ? 1 : 2, tag: 'graph-reading', feedback: `Look again at the ${toPlus ? 'right' : 'left'} side of the graph, not the other side.` }]),
+      finalStep(pr, `So as $x \\to ${toPlus ? '\\infty' : '-\\infty'}$, what happens to $f(x)$?`, ['Flattening out along a line means the outputs approach that line\'s $y$-value.', 'Going up without bound means $f(x) \\to \\infty$.', 'Going down without bound means $f(x) \\to -\\infty$.', 'Use what the curve did in the last step.'], grows ? (f.a.sign() > 0 ? 'The outputs keep going up without bound.' : 'The outputs keep going down without bound.') : `The outputs approach $${numStr(f.k)}$ but never reach it.`),
+    ]);
   },
   verify(pr) {
     const graphs = pr.prompt.filter((b): b is Extract<Block, { t: 'graph' }> => b.t === 'graph');
@@ -409,14 +463,15 @@ export const genExpFeatures: GeneratorDef = {
         if ([-2, -1, 0, 1, 2].some((x) => Math.abs(evalNumeric(node, { x }) - valueAt(fg, x).toNumber()) > 1e-9)) return ['labels do not match the drawn curve'];
         if ([-2, -1, 0, 1, 2, 3].every((x) => Math.abs(evalNumeric(node, { x }) - valueAt(f0, x).toNumber()) < 1e-9)) matches.push(gb.caption ?? '');
       }
-      return matches.length === 1 && matches[0] === choiceLabel(pr.answer) ? [] : ['graph match wrong'];
+      return [...(matches.length === 1 && matches[0] === choiceLabel(pr.answer) ? [] : ['graph match wrong']), ...stepErrors(pr, [f0.k, valueAt(f0, 0), increasing(f0) ? 'Increasing' : 'Decreasing', null])];
     }
     if (/\$x\$-intercept/.test(textAll(pr))) {
       const f0 = readFn(mathBlocks(pr)[0]);
       if (!f0 || pr.answer.kind !== 'number') return ['cannot read'];
       const zeros: number[] = [];
       for (let x = -12; x <= 12; x++) if (valueAt(f0, x).isZero()) zeros.push(x);
-      return zeros.length === 1 && Q(pr.answer.value).eq(zeros[0]) ? [] : ['x-intercept wrong'];
+      // step 1: the power alone, b^x = -k/a, checked as the value of the power at the zero
+      return [...(zeros.length === 1 && Q(pr.answer.value).eq(zeros[0]) ? [] : ['x-intercept wrong']), ...stepErrors(pr, [zeros.length === 1 ? f0.b.pow(zeros[0]) : null, null])];
     }
     const g = graphOf(pr);
     let f: ExpFn | null;
@@ -434,20 +489,25 @@ export const genExpFeatures: GeneratorDef = {
     } else f = readFn(mathBlocks(pr)[0]);
     if (!f) return ['cannot read function'];
     const text = textAll(pr);
-    if (pr.answer.kind === 'number') return Q(pr.answer.value).eq(f.a.add(f.k)) ? [] : ['y-intercept wrong'];
+    if (pr.answer.kind === 'number') return [...(Q(pr.answer.value).eq(f.a.add(f.k)) ? [] : ['y-intercept wrong']), ...stepErrors(pr, [g ? Q(0) : f.b.pow(0), null])];
     if (pr.answer.kind === 'equation') {
       const r = parseRelation(pr.answer.value);
-      return r.lhs.type === 'var' && r.lhs.name === 'y' && r.rhs.type !== 'var' && checkAnswer(pr.answer, ASYM(f.k)).status === 'correct' ? [] : ['asymptote wrong'];
+      return [...(r.lhs.type === 'var' && r.lhs.name === 'y' && r.rhs.type !== 'var' && checkAnswer(pr.answer, ASYM(f.k)).status === 'correct' ? [] : ['asymptote wrong']), ...stepErrors(pr, [g ? 'The dashed horizontal line' : Q(0), null])];
     }
     if (pr.answer.kind !== 'choice') return ['unexpected kind'];
     const label = choiceLabel(pr.answer);
-    if (/increasing or decreasing/.test(text)) return label === (increasing(f) ? 'Increasing' : 'Decreasing') ? [] : ['direction wrong'];
+    if (/increasing or decreasing/.test(text)) {
+      // steps: the power's own direction (compare b^1 with b^0), then whether a reverses it
+      const powUp = f.b.pow(1).gt(f.b.pow(0));
+      return [...(label === (increasing(f) ? 'Increasing' : 'Decreasing') ? [] : ['direction wrong']), ...stepErrors(pr, [powUp ? 'It increases' : 'It decreases', f.a.sign() > 0 ? 'Keeps it ($a$ is positive)' : 'Reverses it ($a$ is negative)', null])];
+    }
     const toPlus = /x \\to \\infty\$, what/.test(text);
     // numerically: far out, compare with the asymptote
     const far = toPlus ? 60 : -60;
     const val = valueAt(f, far).toNumber();
     const want = Math.abs(val - f.k.toNumber()) < 1e-6 ? numStr(f.k) : val > 0 ? '\\infty' : '-\\infty';
-    return label === `$f(x) \\to ${want}$` ? [] : [`expected ${want}`];
+    const look = want === '\\infty' ? 'It keeps going up' : want === '-\\infty' ? 'It keeps going down' : 'It flattens out along the dashed line';
+    return [...(label === `$f(x) \\to ${want}$` ? [] : [`expected ${want}`]), ...stepErrors(pr, [look, null])];
   },
 };
 
@@ -494,7 +554,7 @@ function discreteDomain(rng: Rng) {
     wrongs = [`The integers $0, 1, 2, \\dots, ${T}$`, 'The positive integers $1, 2, 3, \\dots$', 'All real numbers'];
     why = `Time passes continuously, so any time from the start, $t = 0$, to the end, $t = ${T}$, makes sense, including times like 2.5 hours.`;
   }
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S6.03',
     tags: ['real-world'],
     prompt: [p(story), p('What is the most reasonable domain for this situation?')],
@@ -505,7 +565,21 @@ function discreteDomain(rng: Rng) {
       { text: `So the reasonable domain is: ${correct}.`, why: 'The formula works for every real number, but the situation only uses these inputs.' },
     ],
     misconceptions: [],
-  });
+  }), (pr) => [
+    choiceStep('What kind of quantity is the input?', ['Something counted in whole numbers', 'Time, which can take any value in between'], kind === 'continuous' ? 1 : 0, ['Read what the input letter stands for.', 'Ask: could the input be 2.5 in this situation?', 'Rounds, bounces and engines are counted one at a time.', 'Time keeps passing between whole hours.'], kind === 'continuous' ? 'The input is time watched continuously, so in-between values like 2.5 hours make sense.' : 'The input counts things one at a time, so only whole numbers make sense.', [{ index: kind === 'continuous' ? 0 : 1, tag: 'interval-endpoint', feedback: kind === 'continuous' ? 'The culture is watched continuously, so times between whole hours count too.' : 'You cannot have half a round, half a bounce or half an engine.' }]),
+    numStep('What is the smallest input that makes sense in the situation?', Q(kind === 'tournament' || kind === 'continuous' ? 0 : 1), ['Think about where the situation starts.', kind === 'tournament' ? 'Before any games, no rounds have been played.' : kind === 'continuous' ? 'The experiment starts when the clock starts.' : 'Counting starts with the first one.', 'Negative inputs do not make sense here.', kind === 'bounce' ? 'The first bounce is bounce number one; there is no bounce before it.' : kind === 'engines' ? 'The first engine is engine number one; there is no engine before it.' : 'The start is before anything has changed.'], kind === 'tournament' ? 'The count of rounds starts at $r = 0$, before any games.' : kind === 'continuous' ? 'Time starts at $t = 0$.' : 'The first one is number 1.', [{ value: kind === 'tournament' || kind === 'continuous' ? Q(1) : Q(0), tag: 'interval-endpoint', feedback: kind === 'tournament' || kind === 'continuous' ? 'The situation starts before anything has happened, at 0.' : 'There is no number 0 here; counting starts at the first one.' }]),
+    finalStep(pr, kind === 'bounce' ? 'Do the inputs ever stop? What is the most reasonable domain?' : 'Now find where the inputs stop. What is the most reasonable domain?', ['Use the kind of quantity from the first step.', 'Use the starting input from the second step.', 'Check the story for an end: a last round, a last engine or the end of the experiment.', 'The formula works for every real number, but the situation only uses some inputs.'], why),
+  ]);
+}
+
+/** Guided steps for the range of a(b)^x + k: the asymptote, the side the curve is on, then the interval. */
+function rangeSteps(pr: Problem, f: ExpFn, graph: boolean): ProblemStep[] {
+  const up = f.a.sign() > 0;
+  return [
+    numStep(graph ? 'Read the dashed line. The asymptote is $y = k$. What is $k$?' : 'Find the horizontal asymptote $y = k$. What is $k$?', f.k, graph ? ['The dashed line is the horizontal asymptote.', 'A horizontal line has the same $y$-value everywhere.', 'Read where it crosses the $y$-axis.', 'Give just the number.'] : ['The power part gets closer and closer to 0 on one side.', 'Then the outputs get close to the number added at the end.', 'If nothing is added at the end, think about what the power part alone approaches.', 'Watch the sign.'], `The asymptote is $y = ${numStr(f.k)}$.`, [{ value: f.a.add(f.k), tag: 'graph-reading', feedback: 'That is the $y$-intercept. The asymptote is the line the curve levels off along.' }, { value: f.k.neg(), tag: 'sign-error', feedback: 'Check the sign.' }]),
+    choiceStep('Are the outputs above or below the asymptote?', [`All above $y = ${numStr(f.k)}$`, `All below $y = ${numStr(f.k)}$`], up ? 0 : 1, graph ? ['Look at the labeled points.', 'Compare each $y$-value with the dashed line.', 'The curve never crosses its asymptote.', 'Is the $y$-intercept above or below the dashed line?'] : ['The power part is always positive.', 'Multiplying by a positive $a$ keeps it positive; a negative $a$ makes it negative.', 'Then the constant is added to that.', `Here $a = ${dTex(f.a)}$.`], graph ? `The labeled points are all ${up ? 'above' : 'below'} the dashed line, and the curve never crosses it, so every output is ${up ? 'above' : 'below'} $${numStr(f.k)}$.` : up ? `The power part times $a = ${dTex(f.a)}$ is always positive, so every output is above $${numStr(f.k)}$.` : `The power part times $a = ${dTex(f.a)}$ is always negative, so every output is below $${numStr(f.k)}$.`, [{ index: up ? 1 : 0, tag: 'inequality-direction', feedback: graph ? 'Compare the labeled points with the dashed line.' : 'Check the sign of the number in front.' }]),
+    finalStep(pr, 'The curve gets as close as you like to the asymptote and goes on forever the other way. What is the range?', ['The range is the set of outputs.', 'The asymptote value itself is never reached, so use a parenthesis there.', 'The other end goes on without bound, to infinity.', 'You can type an inequality like y > 3 instead of an interval.'], up ? `The range is $y > ${numStr(f.k)}$, or $(${numStr(f.k)}, \\infty)$.` : `The range is $y < ${numStr(f.k)}$, or $(-\\infty, ${numStr(f.k)})$.`),
+  ];
 }
 
 export const genExpDomainRange: GeneratorDef = {
@@ -518,7 +592,7 @@ export const genExpDomainRange: GeneratorDef = {
       const askDomain = difficulty === 1 && rng.int(0, 2) === 0;
       const fx = `f(x) = ${rhsTex(f)}`;
       if (askDomain) {
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S6.03',
           tags: [],
           prompt: [p('What is the domain of $f$?'), { t: 'math', tex: fx }],
@@ -530,13 +604,17 @@ export const genExpDomainRange: GeneratorDef = {
             { answer: rangeOf(f), tag: 'interval-endpoint', feedback: 'That is the range (the outputs). The domain is the inputs.' },
             { answer: '[0, inf)', tag: 'interval-endpoint', feedback: 'Negative inputs are allowed too: they give reciprocals.' },
           ]),
-        });
+        }), (pr) => [
+          numStep('Test a negative input. What is $f(-1)$?', valueAt(f, -1), ['Substitute $x = -1$.', 'A negative exponent means one over the positive power.', 'So the power is the reciprocal of the base: flip the base over.', 'Multiply by the number in front, then add any constant.'], `$f(-1) = ${valueAt(f, -1).toTex()}$: a negative input works fine.`, [{ value: f.a.mul(f.b).neg().add(f.k), tag: 'exponent-rule', feedback: 'A negative exponent means a reciprocal, not a negative number.' }], { inputHint: 'Type a number or a fraction.' }),
+          choiceStep('Is there any real number that cannot be used as the exponent $x$?', ['No: positive, negative, zero and fraction exponents all give a value', 'Yes: negative inputs do not work', 'Yes: only whole numbers work'], 0, ['You just used a negative input.', 'Zero works too: any nonzero base to the zero power is 1.', 'Fraction exponents of a positive base also give a value.', 'Nothing in the formula divides by $x$ or takes a square root of $x$.'], 'A positive base can be raised to any real power, so every real number is a valid input.', [{ index: 1, tag: 'interval-endpoint', feedback: 'You just found $f(-1)$, so negative inputs work.' }, { index: 2, tag: 'interval-endpoint', feedback: 'The graph is a smooth curve with no gaps, so in-between inputs work too.' }]),
+          finalStep(pr, 'So what is the domain of $f$?', ['The domain is the set of all inputs that work.', 'Use what you decided in the last step.', 'In interval notation, a set with no ends is written with infinity on both sides.', 'Do not confuse the domain (inputs) with the range (outputs).'], 'The domain is all real numbers, $(-\\infty, \\infty)$.'),
+        ]);
       }
       const key = rangeOf(f);
       const up = f.a.sign() > 0;
       if (difficulty === 2 && rng.int(0, 2) === 0) {
         // read the range from a graph (A.FGR.9.2)
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S6.03',
           tags: ['graph'],
           prompt: [p('The graph of an exponential function $f$ is shown. Points on the graph are labeled. What is the range of $f$?'), graphBlock(f, 'f')],
@@ -553,9 +631,9 @@ export const genExpDomainRange: GeneratorDef = {
             { answer: '(-inf, inf)', tag: 'interval-endpoint', feedback: 'That is the domain. The outputs stay on one side of the dashed line.' },
             { answer: up ? `(-inf, ${numStr(f.k)})` : `(${numStr(f.k)}, inf)`, tag: 'inequality-direction', feedback: 'Check which side of the dashed line the curve is on.' },
           ]),
-        });
+        }), (pr) => rangeSteps(pr, f, true));
       }
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.03',
         tags: [],
         prompt: [p('What is the range of $f$?'), { t: 'math', tex: fx }],
@@ -572,7 +650,7 @@ export const genExpDomainRange: GeneratorDef = {
           { answer: up ? `(${numStr(f.a.add(f.k))}, inf)` : `(-inf, ${numStr(f.a.add(f.k))})`, tag: 'graph-reading', feedback: 'That uses the $y$-intercept. The outputs go all the way down (or up) toward the asymptote.' },
           { answer: up ? `(-inf, ${numStr(f.k)})` : `(${numStr(f.k)}, inf)`, tag: 'inequality-direction', feedback: up ? 'With $a > 0$ the outputs are above the asymptote.' : 'With $a < 0$ the outputs are below the asymptote.' },
         ]),
-      });
+      }), (pr) => rangeSteps(pr, f, false));
     }
     const d3kind = rng.int(0, 2);
     if (d3kind === 2) return discreteDomain(rng);
@@ -588,7 +666,7 @@ export const genExpDomainRange: GeneratorDef = {
       const askPos = rng.bool();
       const rightSide = askPos === b.gt(1); // positive to the right when growing
       const key = rightSide ? `(${cross}, inf)` : `(-inf, ${cross})`;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.03',
         tags: ['multi-step'],
         prompt: [p(`On what interval is $f(x)$ ${askPos ? 'positive' : 'negative'}?`), { t: 'math', tex: `f(x) = ${rhsTex(f)}` }],
@@ -603,7 +681,11 @@ export const genExpDomainRange: GeneratorDef = {
           { answer: rightSide ? `(-inf, ${cross})` : `(${cross}, inf)`, tag: 'inequality-direction', feedback: 'Test a point on your interval: is the output really on that side of 0?' },
           { answer: rightSide ? `[${cross}, inf)` : `(-inf, ${cross}]`, tag: 'interval-endpoint', feedback: `At $x = ${cross}$ the output is exactly 0, which is neither positive nor negative.` },
         ]),
-      });
+      }), (pr) => [
+        numStep('First find the $x$-intercept: solve $f(x) = 0$. What is $x$?', Q(cross), [`Move the constant: $${rhsTex({ ...f, k: Q(0) })} = ${dTex(k.neg())}$.`, a === 1 ? 'The power is alone now.' : `Divide both sides by ${a}.`, `Write the right side as a power of $${dTex(b)}$.`, 'Equal powers of the same base have equal exponents.'], `$\\left(${dTex(b)}\\right)^{${cross}} = ${b.pow(cross).toTex()}$, so $f(${cross}) = 0$.`, [{ value: Q(-cross), tag: 'sign-error', feedback: 'Substitute your answer to check: the output should be 0.' }, { value: k.neg().div(a), tag: 'exponent-rule', feedback: 'That is the value of the power. Find the exponent that gives it.' }]),
+        choiceStep(`Test a point. Is $f(${cross + 1})$ positive or negative?`, ['Positive', 'Negative'], valueAt(f, cross + 1).sign() > 0 ? 0 : 1, [`Substitute $x = ${cross + 1}$.`, 'Find the power first, then multiply and add the constant.', 'Compare the result with 0.', 'It is one step to the right of the $x$-intercept.'], `$f(${cross + 1}) = ${valueAt(f, cross + 1).toTex()}$, which is ${valueAt(f, cross + 1).sign() > 0 ? 'positive' : 'negative'}.`, [{ index: valueAt(f, cross + 1).sign() > 0 ? 1 : 0, tag: 'sign-error', feedback: 'Compute the value again: power first, then multiply, then add.' }]),
+        finalStep(pr, `So on which interval is $f(x)$ ${askPos ? 'positive' : 'negative'}?`, ['The function is always increasing or always decreasing, so it changes sign only at the $x$-intercept.', 'Every point on the same side as your test point has the same sign.', 'The $x$-intercept itself gives 0, so leave it out.', 'Use a parenthesis at the $x$-intercept.'], rightSide ? `$f(x)$ is ${askPos ? 'positive' : 'negative'} for $x > ${cross}$.` : `$f(x)$ is ${askPos ? 'positive' : 'negative'} for $x < ${cross}$.`),
+      ]);
     }
     // reasonable domain or range in context
     const grow = rng.bool();
@@ -617,7 +699,7 @@ export const genExpDomainRange: GeneratorDef = {
     const hi = grow ? end : Q(a);
     const key = askRange ? `[${numStr(lo)}, ${numStr(hi)}]` : `[0, ${T}]`;
     const story = grow ? `A biologist models the number of cells in a dish with $C(t) = ${rhsTex(f, 't')}$, where $t$ is the number of hours. The experiment runs from $t = 0$ to $t = ${T}$.` : `The milligrams of a medicine in a patient's body are modeled by $M(t) = ${rhsTex(f, 't')}$, where $t$ is the number of hours after the dose. The model is used from $t = 0$ to $t = ${T}$.`;
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S6.03',
       tags: ['real-world'],
       prompt: [p(story), p(`What is the reasonable ${askRange ? 'range' : 'domain'} of the function in this situation?`)],
@@ -638,7 +720,17 @@ export const genExpDomainRange: GeneratorDef = {
         { answer: askRange ? `(${numStr(lo)}, ${numStr(hi)})` : `(0, ${T})`, tag: 'interval-endpoint', feedback: 'Both endpoints are part of the situation, so use brackets.' },
         { answer: askRange ? `[0, ${T}]` : `[${numStr(lo)}, ${numStr(hi)}]`, tag: 'interval-endpoint', feedback: askRange ? 'That is the domain (the times). The range is the outputs.' : 'That is the range (the outputs). The domain is the times.' },
       ]),
-    });
+    }), (pr) => askRange
+      ? [
+          numStep(`Find the output at the start: what is $${grow ? 'C' : 'M'}(0)$?`, Q(a), ['Substitute $t = 0$.', 'Any nonzero base to the power 0 is 1.', 'So the output is the number in front times 1.', 'Read the number in front.'], `$${grow ? 'C' : 'M'}(0) = ${a}$.`, [{ value: Q(0), tag: 'exponent-rule', feedback: 'The zero power is 1, so the output at $t = 0$ is not 0.' }]),
+          numStep(`Find the output at the end: what is $${grow ? 'C' : 'M'}(${T})$?`, end, [`Substitute $t = ${T}$.`, `Find $\\left(${dTex(b)}\\right)^{${T}}$ first.`, `Then multiply by ${a}.`, 'Exponents come before multiplication.'], `$${grow ? 'C' : 'M'}(${T}) = ${a}\\left(${dTex(b)}\\right)^{${T}} = ${numStr(end)}$.`, [{ value: Q(a).mul(b).mul(T), tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication by the base, not multiplying by the time.' }]),
+          finalStep(pr, `The model is ${grow ? 'increasing' : 'decreasing'}, so the outputs run between these two values. What is the reasonable range?`, ['The range is the set of outputs over the times used.', grow ? 'The smallest output is at the start and the largest at the end.' : 'The largest output is at the start and the smallest at the end.', 'Write the smaller value first.', 'Both endpoints happen, so use brackets.'], `The range is $[${numStr(lo)}, ${numStr(hi)}]$.`),
+        ]
+      : [
+          numStep('What is the first time $t$ the model is used?', Q(0), ['Read the story for the start.', '$t$ counts hours after the start.', 'At the start, no time has passed.', 'Look for the words "from $t =$".'], 'The model starts at $t = 0$.', [{ value: Q(1), tag: 'interval-endpoint', feedback: 'The start is before any hours have passed.' }]),
+          numStep('What is the last time $t$ the model is used?', Q(T), ['Read the story for the end.', 'Look for the words "to $t =$".', 'Times after that are outside the situation.', 'Give just the number of hours.'], `The model stops at $t = ${T}$.`, [{ value: end, tag: 'interval-endpoint', feedback: 'That is an output. The domain is about the times (inputs).' }]),
+          finalStep(pr, 'Every time between the start and the end is used. What is the reasonable domain?', ['The domain is the set of times the model is used.', 'Time passes continuously, so all times in between count.', 'Both endpoints are used, so use brackets.', 'Write the start first.'], `The domain is $0 \\le t \\le ${T}$, or $[0, ${T}]$.`),
+        ]);
   },
   verify(pr) {
     const text = textAll(pr);
@@ -661,7 +753,8 @@ export const genExpDomainRange: GeneratorDef = {
       else if (lasts) want = `All real numbers $t$ with $0 \\le t \\le ${lasts[1]}$`;
       else if (/\$n\$th bounce/.test(text)) want = 'The positive integers $1, 2, 3, \\dots$';
       else return ['unknown context'];
-      return label === want && pr.answer.options.filter((o) => o.label === want).length === 1 ? [] : ['domain choice wrong'];
+      const cont = !!lasts;
+      return [...(label === want && pr.answer.options.filter((o) => o.label === want).length === 1 ? [] : ['domain choice wrong']), ...stepErrors(pr, [cont ? 'Time, which can take any value in between' : 'Something counted in whole numbers', Q(tour || cont ? 0 : 1), null])];
     }
     if (pr.answer.kind !== 'interval') return ['unexpected kind'];
     const graphR = graphOf(pr);
@@ -671,7 +764,7 @@ export const genExpDomainRange: GeneratorDef = {
       const got = parseInterval(pr.answer.value);
       // the labeled points lie on one side of the asymptote; the curve runs off to infinity on that side
       const side = valueAt(fg, 0).gt(fg.k) ? `(${numStr(fg.k)}, inf)` : `(-inf, ${numStr(fg.k)})`;
-      return intervalsEqual(got, parseInterval(side)) ? [] : [`expected ${side}`];
+      return [...(intervalsEqual(got, parseInterval(side)) ? [] : [`expected ${side}`]), ...stepErrors(pr, [fg.k, valueAt(fg, 0).gt(fg.k) ? `All above $y = ${numStr(fg.k)}$` : `All below $y = ${numStr(fg.k)}$`, null])];
     }
     const got = parseInterval(pr.answer.value);
     const eq = (s: string) => (intervalsEqual(got, parseInterval(s)) ? [] : [`expected ${s}`]);
@@ -679,16 +772,19 @@ export const genExpDomainRange: GeneratorDef = {
     if (ctx) {
       const f = readFn(`=${ctx[2]}`, 't')!;
       const T = Number(/to \$t = (\d+)\$/.exec(text)![1]);
-      if (/reasonable domain/.test(text)) return eq(`[0, ${T}]`);
+      if (/reasonable domain/.test(text)) return [...eq(`[0, ${T}]`), ...stepErrors(pr, [Q(0), Q(T), null])];
+      // the end values by repeated multiplication
+      let yT = f.a;
+      for (let i = 0; i < T; i++) yT = yT.mul(f.b);
       const ys = [valueAt(f, 0), valueAt(f, T)];
       const lo = ys[0].lt(ys[1]) ? ys[0] : ys[1];
       const hi = ys[0].lt(ys[1]) ? ys[1] : ys[0];
-      return eq(`[${numStr(lo)}, ${numStr(hi)}]`);
+      return [...eq(`[${numStr(lo)}, ${numStr(hi)}]`), ...stepErrors(pr, [f.a, yT, null])];
     }
     const f = readFn(mathBlocks(pr)[0]);
     if (!f) return ['cannot read function'];
-    if (/domain/.test(text)) return eq('(-inf, inf)');
-    if (/range/.test(text)) return eq(rangeOf(f));
+    if (/domain/.test(text)) return [...eq('(-inf, inf)'), ...stepErrors(pr, [f.a.div(f.b).add(f.k), 'No: positive, negative, zero and fraction exponents all give a value', null])];
+    if (/range/.test(text)) return [...eq(rangeOf(f)), ...stepErrors(pr, [f.k, valueAt(f, 0).gt(f.k) ? `All above $y = ${numStr(f.k)}$` : `All below $y = ${numStr(f.k)}$`, null])];
     // positive / negative: sample integers and half-integers around the answer
     const pos = /positive/.test(text);
     for (let x = -8; x <= 8; x += 0.5) {
@@ -697,7 +793,10 @@ export const genExpDomainRange: GeneratorDef = {
       const good = pos ? v > 1e-12 : v < -1e-12;
       if (inside !== good) return [`interval wrong at x = ${x}`];
     }
-    return [];
+    // steps: the integer zero, then the sign one step to its right
+    let zero: number | null = null;
+    for (let x = -12; x <= 12; x++) if (valueAt(f, x).isZero()) zero = x;
+    return zero === null ? ['no integer zero'] : stepErrors(pr, [Q(zero), valueAt(f, zero + 1).sign() > 0 ? 'Positive' : 'Negative', null]);
   },
 };
 
@@ -771,7 +870,7 @@ export const genExpRate: GeneratorDef = {
       const rr = rateOf(g, x1, x2);
       unit = ctx.unit;
       prompt = [p(`${ctx.what} Find the average rate of change from $t = ${x1}$ to $t = ${x2}$, in ${ctx.unit}.`)];
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.05',
         tags,
         prompt,
@@ -786,9 +885,13 @@ export const genExpRate: GeneratorDef = {
           { value: valueAt(g, x2).sub(valueAt(g, x1)), tag: 'slope-calc', feedback: 'Divide the change in output by the change in time.' },
           { value: rr.neg(), tag: 'sign-error', feedback: 'Subtract in the same order on the top and the bottom.' },
         ]),
-      });
+      }), (pr) => [
+        numStep(`Find $${ctx.fn}(${x1})$.`, valueAt(g, x1), [`Substitute $t = ${x1}$.`, 'Find the power first.', `Then multiply by $${dTex(g.a)}$.`, x1 === 0 ? 'Any nonzero base to the power 0 is 1.' : `The power has ${x1} factor${x1 === 1 ? '' : 's'} of the base.`], `$${ctx.fn}(${x1}) = ${valueAt(g, x1).toTex()}$.`, [{ value: g.a.mul(g.b).mul(x1), tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication of the base, not the base times the input.' }]),
+        numStep(`Find $${ctx.fn}(${x2})$.`, valueAt(g, x2), [`Substitute $t = ${x2}$.`, 'Find the power first.', `Then multiply by $${dTex(g.a)}$.`, `The power has ${x2} factors of the base.`], `$${ctx.fn}(${x2}) = ${valueAt(g, x2).toTex()}$.`, [{ value: g.a.mul(g.b).mul(x2), tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication of the base, not the base times the input.' }]),
+        finalStep(pr, `Divide the change in output by the change in time. What is the average rate of change, in ${ctx.unit}?`, ['Average rate of change is change in output over change in input.', `Subtract: later output minus earlier output.`, `Divide by $${x2} - ${x1} = ${x2 - x1}$.`, bq.gt(1) ? 'The amount is growing, so the rate is positive.' : 'The amount is going down, so the rate is negative.'], `$\\frac{${valueAt(g, x2).toTex()} - ${valueAt(g, x1).toTex()}}{${x2} - ${x1}} = ${rr.toTex()}$ ${ctx.unit}.`),
+      ]);
     }
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S6.05',
       tags,
       prompt,
@@ -804,6 +907,13 @@ export const genExpRate: GeneratorDef = {
         { value: r.isZero() ? null : Q(x2 - x1).div(f2.sub(f1)), tag: 'rise-run-swap', feedback: 'Put the change in output on top.' },
         { value: f2.div(x2).sub(f1.div(x1 === 0 ? 1 : x1)).isZero() ? null : rateOf({ ...f, b: f.b }, x1, x2).neg(), tag: 'sign-error', feedback: 'Subtract in the same order on the top and the bottom.' },
       ]),
+    }), (pr) => {
+      const how = (x: number) => (difficulty === 1 ? [`Substitute $x = ${x}$.`, 'Find the power first.', `Then multiply by $${dTex(f.a)}$.`, x === 0 ? 'Any nonzero base to the power 0 is 1.' : `The power has ${x} factor${x === 1 ? '' : 's'} of the base.`] : tags.includes('graph') ? ['Find the labeled point for this input.', `Its first coordinate is $${x}$.`, 'The second coordinate is the output.', 'Give just the output.'] : [`Find the row with $x = ${x}$.`, 'Read across to the output column.', `That number is $${name}(${x})$.`, 'Give just the output.']) as [string, string, string, string];
+      return [
+        numStep(`Find $${name}(${x1})$.`, f1, how(x1), `$${name}(${x1}) = ${f1.toTex()}$.`, [{ value: Q(x1), tag: 'graph-reading', feedback: 'That is the input. Find the output.' }, { value: difficulty === 1 ? f.a.mul(f.b).mul(x1) : null, tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication of the base, not the base times the input.' }], { inputHint: 'Type a number or a fraction.' }),
+        numStep(`Find $${name}(${x2})$.`, f2, how(x2), `$${name}(${x2}) = ${f2.toTex()}$.`, [{ value: Q(x2), tag: 'graph-reading', feedback: 'That is the input. Find the output.' }, { value: difficulty === 1 ? f.a.mul(f.b).mul(x2) : null, tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication of the base, not the base times the input.' }], { inputHint: 'Type a number or a fraction.' }),
+        finalStep(pr, `Divide the change in output by the change in input. What is the average rate of change from $x = ${x1}$ to $x = ${x2}$?`, ['Average rate of change is $\\frac{f(x_2) - f(x_1)}{x_2 - x_1}$.', 'Subtract the outputs in the same order as the inputs.', `Divide by $${x2} - ${x1} = ${x2 - x1}$.`, 'Simplify the fraction.'], `$\\frac{${f2.toTex()} - ${f1.toTex()}}{${x2} - ${x1}} = ${r.toTex()}$: the slope of the line through the two points.`),
+      ];
     });
   },
   verify(pr) {
@@ -825,7 +935,7 @@ export const genExpRate: GeneratorDef = {
       const want = pts[1].y.sub(pts[0].y).div(pts[1].x.sub(pts[0].x));
       const fn = readFn(`=${g.functions![0].expr}`);
       for (const q of pts) if (!fn || !valueAt(fn, q.x.toInt()).eq(q.y)) return ['graph point off curve'];
-      return Q(pr.answer.value).eq(want) ? [] : ['rate wrong'];
+      return [...(Q(pr.answer.value).eq(want) ? [] : ['rate wrong']), ...stepErrors(pr, [pts[0].y, pts[1].y, null])];
     } else f = readFn(mathBlocks(pr)[0]);
     if (!f) return ['cannot read'];
     if (pr.answer.kind === 'choice') {
@@ -838,7 +948,13 @@ export const genExpRate: GeneratorDef = {
     }
     if (pr.answer.kind !== 'number') return ['unexpected kind'];
     const [x1, x2] = m.slice(-2);
-    return Q(pr.answer.value).eq(rateOf(f, x1, x2)) ? [] : ['rate wrong'];
+    // steps: the two outputs, by repeated multiplication
+    const out = (x: number) => {
+      let v = f!.a;
+      for (let i = 0; i < x; i++) v = v.mul(f!.b);
+      return v.add(f!.k);
+    };
+    return [...(Q(pr.answer.value).eq(rateOf(f, x1, x2)) ? [] : ['rate wrong']), ...stepErrors(pr, [out(x1), out(x2), null])];
   },
 };
 
@@ -846,8 +962,11 @@ export const genExpRate: GeneratorDef = {
 // S6.06: transformations f(x) + k and k·f(x)
 // ---------------------------------------------------------------------------
 
+/** "1 unit", "3 units". */
+const unitsOf = (v: Rational) => (v.eq(1) ? 'unit' : 'units');
+
 function describe(kind: 'add' | 'mul', k: Rational): string {
-  if (kind === 'add') return k.isNegative() ? `The graph shifts down ${dTex(k.abs())} units.` : `The graph shifts up ${dTex(k)} units.`;
+  if (kind === 'add') return k.isNegative() ? `The graph shifts down ${dTex(k.abs())} ${unitsOf(k.abs())}.` : `The graph shifts up ${dTex(k)} ${unitsOf(k)}.`;
   if (k.eq(-1)) return 'The graph is reflected across the $x$-axis.';
   if (k.isNegative()) return `The graph is reflected across the $x$-axis and vertically ${k.abs().gt(1) ? 'stretched' : 'compressed'} by a factor of $${dTex(k.abs())}$.`;
   return k.gt(1) ? `The graph is vertically stretched by a factor of $${dTex(k)}$.` : `The graph is vertically compressed by a factor of $${dTex(k)}$.`;
@@ -869,9 +988,9 @@ export const genExpTransform: GeneratorDef = {
     if (difficulty === 1) {
       const correct = describe(kind, k);
       const wrongs = kind === 'add'
-        ? [describe('add', k.neg()), `The graph shifts ${k.isNegative() ? 'right' : 'left'} ${dTex(k.abs())} units.`, `The graph is vertically stretched by a factor of $${dTex(k.abs())}$.`]
-        : [describe('mul', k.isNegative() ? k.abs().eq(1) ? Q(2) : k.abs() : k.neg()), `The graph shifts up $${dTex(k.abs())}$ units.`, k.abs().eq(1) ? 'The graph is reflected across the $y$-axis.' : describe('mul', k.abs().inv())];
-      return makeProblem({
+        ? [describe('add', k.neg()), `The graph shifts ${k.isNegative() ? 'right' : 'left'} ${dTex(k.abs())} ${unitsOf(k.abs())}.`, `The graph is vertically stretched by a factor of $${dTex(k.abs())}$.`]
+        : [describe('mul', k.isNegative() ? k.abs().eq(1) ? Q(2) : k.abs() : k.neg()), `The graph shifts up $${dTex(k.abs())}$ ${unitsOf(k.abs())}.`, k.abs().eq(1) ? 'The graph is reflected across the $y$-axis.' : describe('mul', k.abs().inv())];
+      return withSteps(makeProblem({
         skillId: 'S6.06',
         tags: [],
         prompt: [p('How does the graph of $g$ compare with the graph of $f$?'), { t: 'math', tex: fx }, { t: 'math', tex: ruleTex }],
@@ -882,7 +1001,11 @@ export const genExpTransform: GeneratorDef = {
           { text: correct },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        choiceStep('Look at the rule for $g$. What happens to each output $f(x)$?', [`A number is added to it`, `It is multiplied by a number`], kind === 'add' ? 0 : 1, ['Read the rule for $g$ carefully.', 'If the number is written after $f(x)$ with a plus or minus sign, it is added.', 'If the number is written right in front of $f(x)$, it multiplies.', 'Either way, only the outputs ($y$-values) change.'], kind === 'add' ? `$g(x) = f(x) ${k.isNegative() ? '-' : '+'} ${dTex(k.abs())}$ adds $${dTex(k)}$ to every output.` : `$g(x)$ multiplies every output of $f$ by $${dTex(k)}$.`, [{ index: kind === 'add' ? 1 : 0, tag: 'other', feedback: kind === 'add' ? 'The number comes after $f(x)$ with a plus or minus sign, so it is added.' : 'The number is written in front of $f(x)$, so it multiplies.' }]),
+        numStep(`Track one point. $f(0) = ${valueAt(f, 0).toTex()}$. What is $g(0)$?`, valueAt(g, 0), ['Apply the rule for $g$ to the output $f(0)$.', kind === 'add' ? `Add $${dTex(k)}$ to $f(0)$.` : `Multiply $f(0)$ by $${dTex(k)}$.`, 'The input stays $x = 0$; only the output changes.', 'Watch negative signs.'], kind === 'add' ? `$g(0) = ${valueAt(f, 0).toTex()} ${k.isNegative() ? '-' : '+'} ${dTex(k.abs())} = ${valueAt(g, 0).toTex()}$.` : `$g(0) = ${dTex(k)} \\cdot ${valueAt(f, 0).toTex()} = ${valueAt(g, 0).toTex()}$.`, [{ value: kind === 'add' ? valueAt(f, 0).mul(k) : valueAt(f, 0).add(k), tag: 'other', feedback: kind === 'add' ? 'The rule adds the number; it does not multiply.' : 'The rule multiplies by the number; it does not add.' }, { value: kind === 'add' ? valueAt(f, 0).sub(k) : null, tag: 'sign-error', feedback: 'Check the sign of the number added.' }], { inputHint: 'Type a number or a fraction.' }),
+        finalStep(pr, `The point $(0, ${valueAt(f, 0).toTex()})$ moved to $(0, ${valueAt(g, 0).toTex()})$, and every other point changes the same way. How does the graph of $g$ compare with the graph of $f$?`, ['Adding to every output moves the graph up or down.', 'Multiplying every output by a number greater than 1 stretches the graph away from the $x$-axis; a number between 0 and 1 compresses it.', 'A negative multiplier also flips the graph across the $x$-axis.', 'The $x$-values do not change, so nothing moves left or right.'], correct),
+      ]);
     }
     if (difficulty === 2) {
       // find k from two graphs with labeled points
@@ -890,7 +1013,7 @@ export const genExpTransform: GeneratorDef = {
       const win = windowFor([f, g], [-1, 0, 1, 2]);
       const pts = [...xs.map((x) => ({ x, y: valueAt(f, x).toNumber(), label: ptLabel(x, valueAt(f, x)), color: '#2b6cb0' })), ...xs.map((x) => ({ x, y: valueAt(g, x).toNumber(), label: ptLabel(x, valueAt(g, x)), color: '#d4572f' }))];
       const rule = kind === 'add' ? 'g(x) = f(x) + k' : 'g(x) = k \\cdot f(x)';
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.06',
         tags: ['graph'],
         prompt: [
@@ -906,9 +1029,13 @@ export const genExpTransform: GeneratorDef = {
         misconceptions: numberMisconceptions(k, [
           { value: kind === 'add' ? null : valueAt(g, 0).sub(valueAt(f, 0)), tag: 'other', feedback: 'For $k \\cdot f(x)$, divide the outputs instead of subtracting.' },
           { value: kind === 'add' ? (valueAt(f, 0).isZero() ? null : valueAt(g, 0).div(valueAt(f, 0))) : null, tag: 'other', feedback: 'For $f(x) + k$, subtract the outputs instead of dividing.' },
-          { value: k.neg(), tag: 'sign-error', feedback: 'Subtract (or divide) $g$ by $f$, in that order.' },
+          { value: k.neg(), tag: 'sign-error', feedback: kind === 'add' ? 'Find $g(0) - f(0)$, in that order: $g$ first, then $f$.' : 'Check the sign: find $g(0) \\div f(0)$ and keep the sign of the result.' },
         ]),
-      });
+      }), (pr) => [
+        numStep('Read the blue graph. What is $f(0)$?', valueAt(f, 0), ['$f$ is the blue curve.', 'Find its labeled point with $x = 0$.', 'The second coordinate is the output.', 'Give just the $y$-value.'], `$f(0) = ${valueAt(f, 0).toTex()}$.`, [{ value: valueAt(g, 0), tag: 'graph-reading', feedback: 'That point is on the orange graph, $g$. Use the blue graph.' }]),
+        numStep('Read the orange graph. What is $g(0)$?', valueAt(g, 0), ['$g$ is the orange curve.', 'Find its labeled point with $x = 0$.', 'The second coordinate is the output.', 'Give just the $y$-value.'], `$g(0) = ${valueAt(g, 0).toTex()}$.`, [{ value: valueAt(f, 0), tag: 'graph-reading', feedback: 'That point is on the blue graph, $f$. Use the orange graph.' }]),
+        finalStep(pr, kind === 'add' ? 'The rule is $g(x) = f(x) + k$. What is $k$?' : 'The rule is $g(x) = k \\cdot f(x)$. What is $k$?', [kind === 'add' ? 'Adding $k$ changes every output by the same amount.' : 'Multiplying by $k$ scales every output by the same factor.', kind === 'add' ? 'Subtract: $g(0) - f(0)$.' : 'Divide: $g(0) \\div f(0)$.', 'Keep the order: $g$ first, then $f$.', 'Check with the points at $x = 1$.'], kind === 'add' ? `$k = ${valueAt(g, 0).toTex()} - ${valueAt(f, 0).toTex()} = ${k.toTex()}$.` : `$k = ${valueAt(g, 0).toTex()} \\div ${valueAt(f, 0).toTex()} = ${k.toTex()}$.`),
+      ]);
     }
     // difficulty 3: new asymptote or y-intercept, possibly with both transformations
     const m = rng.nonzeroInt(-5, 5);
@@ -968,7 +1095,7 @@ export const genExpTransform: GeneratorDef = {
       const add = /f\(x\) \+ k/.test(text);
       const k = add ? g0.sub(f0) : g0.div(f0);
       if (add ? !g1.sub(f1).eq(k) : !g1.div(f1).eq(k)) return ['g points inconsistent with the rule'];
-      return pr.answer.kind === 'number' && Q(pr.answer.value).eq(k) ? [] : ['k wrong'];
+      return [...(pr.answer.kind === 'number' && Q(pr.answer.value).eq(k) ? [] : ['k wrong']), ...stepErrors(pr, [f0, g0, null])];
     }
     const rule = tex[1];
     if (pr.answer.kind === 'choice') {
@@ -977,7 +1104,7 @@ export const genExpTransform: GeneratorDef = {
       const mMul = /g\(x\) = (.*?)(?:\\cdot )?f\(x\)$/.exec(rule);
       const k = add && mAdd ? Q(mAdd[2]).mul(mAdd[1] === '-' ? -1 : 1) : mMul ? (mMul[1] === '-' ? Q(-1) : texExact(mMul[1])) : null;
       if (!k) return ['cannot read rule'];
-      return choiceLabel(pr.answer) === describe(add ? 'add' : 'mul', k) ? [] : ['description wrong'];
+      return [...(choiceLabel(pr.answer) === describe(add ? 'add' : 'mul', k) ? [] : ['description wrong']), ...stepErrors(pr, [add ? 'A number is added to it' : 'It is multiplied by a number', add ? valueAt(f, 0).add(k) : valueAt(f, 0).mul(k), null])];
     }
     const mm = /g\(x\) = (.*?)(?:\\cdot )?f\(x\) ([+-]) (\d+)$/.exec(rule);
     if (!mm) return ['cannot read rule'];

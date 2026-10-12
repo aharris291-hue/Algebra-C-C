@@ -47,6 +47,7 @@ export const U2L02: LessonContent = {
       ],
     },
     { t: 'p', text: '**3. Which side?** For $y >$ or $y \\ge$, the $y$-values are bigger than the line, so shade **above**. For $y <$ or $y \\le$, shade **below**.' },
+    { t: 'callout', variant: 'why', title: 'Why solid or dashed, and why one test point is enough', text: 'Every point on the boundary line makes the two sides **equal**. A symbol with "or equal to" ($\\le$ or $\\ge$) accepts equal, so the points on the line are solutions and the line is drawn **solid**. $<$ and $>$ do not accept equal, so the line is **dashed** to show that its points are left out. The line is also the only place where the two sides are equal, so the inequality cannot switch from true to false anywhere else: it is true on one whole side and false on the other. That is why testing one point off the line tells you about its entire side.' },
     {
       t: 'graph',
       caption: 'y > 2x + 1: dashed boundary through (0, 1) and (1, 3), shaded above.',
@@ -71,6 +72,10 @@ export const U2L02: LessonContent = {
       caption: '2x - 3y < 6 is the same as y > (2/3)x - 2: dashed boundary, shaded above.',
       spec: { xMin: -6, xMax: 6, yMin: -6, yMax: 6, inequalities: [{ boundary: '(2/3)x - 2', side: 'above', strict: true }], points: [{ x: 0, y: -2, label: '(0, -2)' }, { x: 3, y: 0, label: '(3, 0)' }], ariaLabel: 'A dashed line through (0, -2) and (3, 0) with the region above it shaded.' },
     },
+    { t: 'p', text: '### When y is on the right' },
+    { t: 'p', text: 'Sometimes $y$ is written on the right, as in $3x - 1 \\le y$. Read it from right to left: "$y$ is greater than or equal to $3x - 1$." So it means the same as $y \\ge 3x - 1$: swap the two sides and turn the symbol around, so it still opens toward the same side. Now use the table: solid line, shade **above**.' },
+    { t: 'p', text: 'Check with $(0, 0)$ in the original: $3(0) - 1 = -1$, and $-1 \\le 0$ is true. The origin is above the line (the line is at $y = -1$ when $x = 0$), so shading above agrees.' },
+    { t: 'callout', variant: 'warning', title: 'Rewrite before you shade', text: 'In $3x - 1 \\le y$ the symbol looks like "less than," but here $y$ is the **bigger** side. Always rewrite with $y$ on the left first; then $y >$ or $y \\ge$ means above, and $y <$ or $y \\le$ means below.' },
     { t: 'p', text: '### Horizontal and vertical boundaries' },
     { t: 'p', text: 'An inequality with only $y$, like $y \\le -1$, has a **horizontal** boundary $y = -1$. Shade below for $\\le$. An inequality with only $x$, like $x > 2$, has a **vertical** boundary $x = 2$. Shade to the **right** for $>$ (bigger $x$-values) and to the **left** for $<$.' },
     {

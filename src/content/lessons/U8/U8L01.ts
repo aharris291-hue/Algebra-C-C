@@ -88,7 +88,7 @@ export const U8L01: LessonContent = {
     },
     { t: 'math', tex: 'AB^2 = 3^2 + 4^2 = 9 + 16 = 25 \\quad\\Rightarrow\\quad AB = \\sqrt{25} = 5' },
     { t: 'p', text: '### The distance formula' },
-    { t: 'p', text: 'Do the same thing with letters. The legs are $x_2 - x_1$ and $y_2 - y_1$, so the Pythagorean theorem becomes the **distance formula**:' },
+    { t: 'p', text: 'Do the same thing with letters. The legs are $x_2 - x_1$ and $y_2 - y_1$, so the Pythagorean theorem becomes the **distance formula**. Why does it work for every pair of points? Because any two points that are not on the same grid line are the ends of the hypotenuse of a right triangle whose legs run straight across and straight up, so leg² + leg² = distance² always holds:' },
     { t: 'math', tex: 'd = \\sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2}' },
     { t: 'p', text: 'Example: from $(1, 2)$ to $(7, 4)$.' },
     { t: 'math', tex: 'd = \\sqrt{(7 - 1)^2 + (4 - 2)^2} = \\sqrt{36 + 4} = \\sqrt{40} = \\sqrt{4 \\cdot 10} = 2\\sqrt{10} \\approx 6.3' },

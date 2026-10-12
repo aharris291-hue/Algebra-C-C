@@ -4,13 +4,51 @@
  * verify() always re-derives values by repeated addition (the recursive definition),
  * which is a different route from the explicit formula the generator uses.
  */
-import type { GeneratorDef, Rng, Difficulty, Problem } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, Difficulty, Problem, ProblemStep } from '../../core/curriculum/types';
 import type { Misconception } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
 import { linearPlain, linearTex } from '../../core/math/format';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, math, makeProblem, numberMisconceptions, numStr, sub, makeChoice, choiceLabel, texToExpr } from './util';
+import { numStep, choiceStep, finalStep, stepErrors, choiceMisc, minusHint } from './u1-steps';
+
+/** Step: read the first term. */
+function firstTermStep(prompt: string, a1: Rational, second: Rational): ProblemStep {
+  return numStep(
+    prompt,
+    a1,
+    ['The first term, $a_1$, is where the sequence starts.', 'It is the value for $n = 1$.', 'It is the first number given, before anything is added.', 'Do not add the common difference yet.'],
+    `The sequence starts at $${a1.toTex()}$, so $a_1 = ${a1.toTex()}$.`,
+    [{ value: second, tag: 'sequence-index', feedback: 'That is the second term. The first term comes before any jump.' }],
+  );
+}
+
+/** Step: find the common difference. */
+function diffStep(prompt: string, d: Rational, a1: Rational): ProblemStep {
+  return numStep(
+    prompt,
+    d,
+    ['The common difference is the amount added to get from one term to the next.', 'Subtract a term from the term right after it.', 'Subtract in order: later term minus earlier term.', 'If the terms go down, the difference is negative.'],
+    d.isNegative() ? `Each term is $${d.abs().toTex()}$ less than the one before, so $d = ${d.toTex()}$.` : `Each term is $${d.toTex()}$ more than the one before, so $d = ${d.toTex()}$.`,
+    [
+      { value: d.neg(), tag: 'sign-error', feedback: 'Subtract in order: a term minus the term **before** it.' },
+      { value: a1, tag: 'sequence-index', feedback: 'That is the first term. The common difference is the change from one term to the next.' },
+    ],
+  );
+}
+
+/** Final step: write the explicit formula from a_1 and d. */
+function formulaStep(prompt: string, a1: Rational, d: Rational, misconceptions: Misconception[]): ProblemStep {
+  return finalStep(
+    prompt,
+    { kind: 'expression', value: explicitPlain(a1, d), variables: ['n'] },
+    ['The explicit formula is $a_n = a_1 + (n - 1)d$.', 'Put your $a_1$ in front.', 'Multiply your $d$ by $(n - 1)$, not by $n$.', 'You can leave it as $a_1 + (n - 1)d$ or simplify it. Check that $n = 1$ gives $a_1$.'],
+    'To reach term $n$ from term 1 you add $d$ exactly $n - 1$ times, which is what the formula says.',
+    misconceptions,
+    'Type a formula in n. You can start with a_n = .',
+  );
+}
 
 function pickSeq(rng: Rng, d: Difficulty): { a1: Rational; d: Rational } {
   if (d === 1) return { a1: Q(rng.int(1, 12)), d: Q(rng.int(2, 9)) };
@@ -18,6 +56,8 @@ function pickSeq(rng: Rng, d: Difficulty): { a1: Rational; d: Rational } {
   return { a1: Q(rng.int(-20, 30)), d: rng.bool() ? Q(rng.nonzeroInt(-12, -2)) : Q(rng.pick([1, 3, 5, -1, -3]), 2) };
 }
 
+const SEQ_UP = 'They go up: each term is larger than the one before';
+const SEQ_DOWN = 'They go down: each term is smaller than the one before';
 const term = (a1: Rational, d: Rational, n: number) => a1.add(d.mul(n - 1));
 const listTex = (a1: Rational, d: Rational, k: number) => `${Array.from({ length: k }, (_, i) => term(a1, d, i + 1).toTex()).join(',\\ ')},\\ \\dots`;
 /** explicit formula a_1 + (n - 1)d simplified, in n */
@@ -40,6 +80,9 @@ function diffOf(ts: Rational[]): Rational | null {
   for (let i = 2; i < ts.length; i++) if (!ts[i].sub(ts[i - 1]).eq(d)) return null;
   return d;
 }
+
+/** 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st, 22nd, 23rd ... */
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')}`;
 
 /** n-th term by repeated addition */
 function iterate(a1: Rational, d: Rational, n: number): Rational {
@@ -118,6 +161,10 @@ function seqContextProblem(rng: Rng, difficulty: Difficulty): Problem {
     { text: 'Identify the first term and the common difference.', tex: `a_1 = ${a1.toTex()}, \\quad d = ${d.toTex()}`, why: `The story starts at ${a1.toTex()} ${ctx.unit} and adds ${d.toTex()} each time, so the values form an arithmetic sequence.` },
     { text: 'Write the explicit formula.', tex: `a_n = ${a1.toTex()} + (n - 1)(${d.toTex()}) = ${explicitTex(a1, d)}`, why: `To reach term $n$ from term 1 you add $d$ exactly $n - 1$ times.` },
   ];
+  const ctxFormulaMisc = [
+    { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $n = 1$: your formula should give the first value. Use $(n - 1)d$, not $nd$.' },
+    { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The amount added each time multiplies $(n - 1)$; the first value is added on.' },
+  ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula))));
   if (difficulty === 2) {
     return makeProblem({
       skillId: 'S1.12',
@@ -127,10 +174,12 @@ function seqContextProblem(rng: Rng, difficulty: Difficulty): Problem {
       inputHint: 'Type a formula in n, like 3 + (n - 1)5 or 5n - 2. You can start with a_n = .',
       hints: ['An amount that grows by the same number each step is an arithmetic sequence.', ...buildHints, 'Check: your formula should give the first value in the story when $n = 1$.'],
       solution: [...buildSteps, { text: 'Check with $n = 2$.', tex: `${explicitTex(a1, d).replace(/n/g, '(2)')} = ${term(a1, d, 2).toTex()}`, why: `That is ${a1.toTex()} + ${d.toTex()}, the second value.` }],
-      misconceptions: [
-        { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $n = 1$: your formula should give the first value. Use $(n - 1)d$, not $nd$.' },
-        { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The amount added each time multiplies $(n - 1)$; the first value is added on.' },
-      ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula)))),
+      misconceptions: ctxFormulaMisc,
+      steps: [
+        firstTermStep('From the story, what is $a_1$, the value for $n = 1$?', a1, a1.add(d)),
+        diffStep('What is the common difference $d$, the amount added each time?', d, a1),
+        formulaStep(`Now write the explicit formula for $a_n$, ${ctx.term}.`, a1, d, ctxFormulaMisc),
+      ],
     });
   }
   const n = rng.int(12, 30);
@@ -152,13 +201,18 @@ function seqContextProblem(rng: Rng, difficulty: Difficulty): Problem {
         answer: { kind: 'expression', value: formula, variables: ['n'] },
         inputHint: 'Type a formula in n. You can start with a_n = .',
         hints: buildHintsFour(buildHints),
-        explanation: `$a_n = ${explicitTex(a1, d)}$.`,
+        misconceptions: ctxFormulaMisc,
+        explanation: `To reach term $n$ you start at $${a1.toTex()}$ and add $${d.toTex()}$ exactly $n - 1$ times: $a_n = ${explicitTex(a1, d)}$.`,
       },
       {
         prompt: [p(`Now use your formula: find $a_{${n}}$.`)],
-        answer: { kind: 'number', value: numStr(an) },
-        hints: [`Substitute $n = ${n}$.`, 'Multiply first, then add.', `$${d.toTex()} \\cdot ${n}$ comes first.`, 'Then add the constant term.'],
-        explanation: `$a_{${n}} = ${an.toTex()}$ ${ctx.unit}.`,
+        answer: { kind: 'number', value: numStr(an), unit: ctx.unit },
+        hints: [`Substitute $n = ${n}$ into your formula.`, 'Do the multiplication before the addition.', `If you use $a_1 + (n - 1)d$, first work out $${n} - 1$.`, 'Then add or subtract the constant term.'],
+        misconceptions: numberMisconceptions(an, [
+          { value: a1.add(d.mul(n)), tag: 'sequence-index', feedback: `From term 1 to term ${n} there are ${n - 1} steps, not ${n}.` },
+          { value: d.mul(n), tag: 'sequence-index', feedback: 'Start from the first value, then add the steps.' },
+        ]),
+        explanation: `The formula adds ${n - 1} steps of ${d.toTex()} to the first value, so $a_{${n}} = ${an.toTex()}$ ${ctx.unit}.`,
       },
     ],
   });
@@ -212,6 +266,26 @@ export const genSeqExplicit: GeneratorDef = {
           { value: d.neg(), tag: 'sign-error', feedback: 'Subtract in order: a term minus the term **before** it.' },
           { value: a1, tag: 'sequence-index', feedback: 'That is the first term. The common difference is the change from one term to the next.' },
         ]),
+        steps: [
+          choiceStep(
+            'Look from each term to the next one. Do the terms go up or go down?',
+            [SEQ_UP, SEQ_DOWN],
+            d.isNegative() ? 1 : 0,
+            ['Compare the first term with the second term.', 'Then compare the second term with the third.', 'If each term is bigger than the one before, the terms go up.', 'Going up means the common difference is positive; going down means it is negative.'],
+            `Each term is ${d.isNegative() ? 'smaller' : 'larger'} than the one before, so the common difference is ${d.isNegative() ? 'negative' : 'positive'}.`,
+            [{ index: d.isNegative() ? 0 : 1, tag: 'sign-error', feedback: 'Compare the first two terms: is the second one bigger or smaller?' }],
+          ),
+          finalStep(
+            `Subtract the first term from the second term: $${term(a1, d, 2).toTex()} - ${sub(a1)}$. What is the common difference?`,
+            { kind: 'number', value: numStr(d) },
+            ['The common difference is what you add to one term to get the next.', 'Second term minus first term tells you what was added.', minusHint(term(a1, d, 2), a1), `Check with the next pair: $${term(a1, d, 3).toTex()} - ${sub(term(a1, d, 2))}$ should give the same number.`],
+            `Going from one term to the next always adds $${d.toTex()}$, and the same difference for every pair is what makes the sequence arithmetic.`,
+            numberMisconceptions(d, [
+              { value: d.neg(), tag: 'sign-error', feedback: 'Subtract in order: a term minus the term **before** it.' },
+              { value: a1, tag: 'sequence-index', feedback: 'That is the first term. The common difference is the change from one term to the next.' },
+            ]),
+          ),
+        ],
       });
     }
     if (task === 'term') {
@@ -220,7 +294,7 @@ export const genSeqExplicit: GeneratorDef = {
       return makeProblem({
         skillId: 'S1.12',
         tags: [],
-        prompt: [...intro, p(`Find the ${n}th term, $a_{${n}}$.`)],
+        prompt: [...intro, p(`Find the ${ordinal(n)} term, $a_{${n}}$.`)],
         answer: { kind: 'number', value: numStr(an) },
         hints: [
           'Use the explicit formula $a_n = a_1 + (n - 1)d$.',
@@ -230,7 +304,7 @@ export const genSeqExplicit: GeneratorDef = {
         ],
         solution: [
           { text: 'Identify the first term and common difference.', tex: `a_1 = ${a1.toTex()}, \\quad d = ${d.toTex()}` },
-          { text: 'Substitute into the explicit formula.', tex: `a_{${n}} = ${a1.toTex()} + (${n} - 1)${sub(d)}`, why: `There are ${n - 1} jumps of $d$ between the 1st and ${n}th terms, not ${n}.` },
+          { text: 'Substitute into the explicit formula.', tex: `a_{${n}} = ${a1.toTex()} + (${n} - 1)${sub(d)}`, why: `There are ${n - 1} jumps of $d$ between the 1st and ${ordinal(n)} terms, not ${n}.` },
           { text: 'Simplify.', tex: `a_{${n}} = ${a1.toTex()} + ${d.mul(n - 1).toTex()} = ${an.toTex()}` },
         ],
         misconceptions: numberMisconceptions(an, [
@@ -238,11 +312,37 @@ export const genSeqExplicit: GeneratorDef = {
           { value: d.mul(n), tag: 'sequence-index', feedback: 'Start from the first term, then add the jumps.' },
           { value: a1.mul(n), tag: 'formula-error', feedback: 'Multiplying the first term by $n$ is not how arithmetic sequences grow. Add $d$ each time.' },
         ]),
+        steps: [
+          firstTermStep('What is the first term, $a_1$?', a1, term(a1, d, 2)),
+          diffStep('What is the common difference $d$?', d, a1),
+          numStep(
+            `How many jumps of $d$ are there from term 1 to term ${n}?`,
+            Q(n - 1),
+            ['Count the jumps, not the terms.', 'From term 1 to term 2 there is 1 jump; from term 1 to term 3 there are 2 jumps.', 'The number of jumps is always one less than the term number.', `Work out $${n} - 1$.`],
+            `Term 1 needs no jumps, so term ${n} is ${n - 1} jumps after it. That is the $(n - 1)$ in the formula.`,
+            [{ value: Q(n), tag: 'sequence-index', feedback: 'That counts the terms. Term 1 has no jump before it, so there is one jump fewer.' }],
+          ),
+          finalStep(
+            `Find $a_{${n}} = a_1 + (${n} - 1)d$.`,
+            { kind: 'number', value: numStr(an) },
+            ['Start at the first term.', 'Multiply the number of jumps by $d$.', 'Add that to the first term.', 'Keep the sign of $d$.'],
+            `Starting at $${a1.toTex()}$ and adding ${n - 1} jumps of $${d.toTex()}$ lands on term ${n}.`,
+            numberMisconceptions(an, [
+              { value: a1.add(d.mul(n)), tag: 'sequence-index', feedback: `Use ${n - 1} jumps, not ${n}.` },
+              { value: d.mul(n - 1), tag: 'sequence-index', feedback: 'Add the jumps to the first term.' },
+            ]),
+          ),
+        ],
       });
     }
     if (task === 'formula') {
       const formula = explicitPlain(a1, d);
       const wrong = (expr: string, tag: Misconception['tag'], feedback: string) => ({ answer: expr, tag, feedback });
+      const formulaMisc = [
+        wrong(linearPlain(d, a1, 'n'), 'sequence-index', 'Check $n = 1$: your formula should give the first term. Use $(n - 1)d$, not $nd$.'),
+        wrong(linearPlain(a1, d, 'n'), 'formula-error', 'The common difference multiplies $(n - 1)$; the first term is added on.'),
+        wrong(linearPlain(d.neg(), a1.add(d), 'n'), 'sign-error', 'Check the sign of the common difference.'),
+      ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula))));
       return makeProblem({
         skillId: 'S1.12',
         tags: [],
@@ -261,15 +361,12 @@ export const genSeqExplicit: GeneratorDef = {
           { text: 'Simplify (optional).', tex: `a_n = ${explicitTex(a1, d)}`, why: 'Distribute $d$ and combine the constants.' },
           { text: 'Check with $n = 2$.', tex: `${explicitTex(a1, d).replace(/n/g, '(2)')} = ${term(a1, d, 2).toTex()}`, why: 'It gives the second term, so the formula is right.' },
         ],
-        misconceptions: [
-          wrong(linearPlain(d, a1, 'n'), 'sequence-index', 'Check $n = 1$: your formula should give the first term. Use $(n - 1)d$, not $nd$.'),
-          wrong(linearPlain(a1, d, 'n'), 'formula-error', 'The common difference multiplies $(n - 1)$; the first term is added on.'),
-          wrong(linearPlain(d.neg(), a1.add(d), 'n'), 'sign-error', 'Check the sign of the common difference.'),
-        ].filter((mc) => {
-          const a = toPoly(parseExpression(mc.answer));
-          const b = toPoly(parseExpression(formula));
-          return !a.equals(b);
-        }),
+        misconceptions: formulaMisc,
+        steps: [
+          firstTermStep('What is the first term, $a_1$?', a1, term(a1, d, 2)),
+          diffStep('What is the common difference $d$?', d, a1),
+          formulaStep('Substitute them into $a_n = a_1 + (n - 1)d$. What is the explicit formula?', a1, d, formulaMisc),
+        ],
       });
     }
     // which term has value V
@@ -307,11 +404,16 @@ export const genSeqExplicit: GeneratorDef = {
       if (a.kind === 'expression') {
         const poly = toPoly(parseExpression(a.value));
         for (let n = 1; n <= 6; n++) if (!poly.evaluate({ n: Q(n) }).eq(iterate(ctxSeq.a1, ctxSeq.d, n))) errs.push(`formula wrong at n = ${n}`);
+        // steps: a_1 and d re-read from the story, then the formula
+        errs.push(...stepErrors(pr, [ctxSeq.a1, ctxSeq.d, null]));
         return errs;
       }
       const nm = /(\d+)\D*$/.exec((pr.prompt[1] as { text: string }).text);
       if (!nm || a.kind !== 'number') return ['cannot parse context ask'];
-      if (!Rational.parse(a.value).eq(iterate(ctxSeq.a1, ctxSeq.d, Number(nm[1])))) errs.push('term mismatch');
+      const want = iterate(ctxSeq.a1, ctxSeq.d, Number(nm[1]));
+      if (!Rational.parse(a.value).eq(want)) errs.push('term mismatch');
+      // steps: the unsimplified formula a_1 + (n - 1)d must be accepted, then the term
+      errs.push(...stepErrors(pr, [`${ctxSeq.a1.toString()} + (n - 1)*(${ctxSeq.d.toString()})`, want]));
       return errs;
     }
     const mathBlock = pr.prompt.find((b) => b.t === 'math') as { tex: string };
@@ -320,14 +422,22 @@ export const genSeqExplicit: GeneratorDef = {
     if (!d) return ['listed terms are not arithmetic'];
     const ask = (pr.prompt[pr.prompt.length - 1] as { text: string }).text;
     const a = pr.answer;
-    if (/common difference/.test(ask)) return a.kind === 'number' && Rational.parse(a.value).eq(d) ? [] : ['difference mismatch'];
-    const tm = /Find the (\d+)th term/.exec(ask);
-    if (tm) return a.kind === 'number' && Rational.parse(a.value).eq(iterate(ts[0], d, Number(tm[1]))) ? [] : ['term mismatch'];
+    if (/common difference/.test(ask)) {
+      if (!(a.kind === 'number' && Rational.parse(a.value).eq(d))) return ['difference mismatch'];
+      // steps: the direction read from the first two terms, then their difference
+      return stepErrors(pr, [ts[1].gt(ts[0]) ? SEQ_UP : SEQ_DOWN, ts[1].sub(ts[0])]);
+    }
+    const tm = /Find the (\d+)(?:st|nd|rd|th) term/.exec(ask);
+    if (tm) {
+      const want = iterate(ts[0], d, Number(tm[1]));
+      if (!(a.kind === 'number' && Rational.parse(a.value).eq(want))) return ['term mismatch'];
+      return stepErrors(pr, [ts[0], ts[3].sub(ts[2]), Q(Number(tm[1]) - 1), want]);
+    }
     if (/explicit formula/.test(ask)) {
       if (a.kind !== 'expression') return ['wrong kind'];
       const poly = toPoly(parseExpression(a.value));
       for (let n = 1; n <= 6; n++) if (!poly.evaluate({ n: Q(n) }).eq(iterate(ts[0], d, n))) return [`formula wrong at n = ${n}`];
-      return [];
+      return stepErrors(pr, [ts[0], ts[3].sub(ts[2]), null]);
     }
     const wm = /equal to \$(.+?)\$/.exec(ask);
     if (wm && a.kind === 'number') {
@@ -364,6 +474,7 @@ export const genSeqRecursive: GeneratorDef = {
     const rec = recTex(a1, d);
     if (task === 'list') {
       const vals = [1, 2, 3, 4].map((n) => term(a1, d, n));
+      const listMisc = [{ answer: [2, 3, 4, 5].map((n) => numStr(term(a1, d, n))).join(', '), tag: 'sequence-index' as const, feedback: 'The list should start with $a_1$ itself.' }];
       return makeProblem({
         skillId: 'S1.13',
         tags: [],
@@ -380,8 +491,33 @@ export const genSeqRecursive: GeneratorDef = {
           { text: 'Start with the first term.', tex: `a_1 = ${a1.toTex()}`, why: 'The recursive formula gives it directly.' },
           { text: 'Apply the rule to each term to get the next.', tex: `a_2 = ${a1.toTex()} ${d.isNegative() ? '-' : '+'} ${d.abs().toTex()} = ${vals[1].toTex()},\\ a_3 = ${vals[2].toTex()},\\ a_4 = ${vals[3].toTex()}`, why: '$a_{n-1}$ means "the term before".' },
         ],
-        misconceptions: [
-          { answer: [2, 3, 4, 5].map((n) => numStr(term(a1, d, n))).join(', '), tag: 'sequence-index', feedback: 'The list should start with $a_1$ itself.' },
+        misconceptions: listMisc,
+        steps: [
+          numStep(
+            `Use the rule with $n = 2$: $a_2 = a_1 ${d.isNegative() ? '- ' + d.abs().toTex() : '+ ' + d.toTex()}$. What is $a_2$?`,
+            vals[1],
+            ['$a_{n-1}$ means "the term just before".', 'So $a_2$ is found from $a_1$.', `Start with $a_1 = ${a1.toTex()}$.`, `${d.isNegative() ? 'Subtract ' + d.abs().toTex() : 'Add ' + d.toTex()}.`],
+            `The rule builds each term from the one before it, so $a_2$ comes from $a_1 = ${a1.toTex()}$.`,
+            [
+              { value: a1.sub(d), tag: 'sign-error', feedback: `The rule ${d.isNegative() ? 'subtracts' : 'adds'} $${d.abs().toTex()}$. Check the operation.` },
+              { value: a1.mul(d), tag: 'formula-error', feedback: 'The rule adds the same number each time; it does not multiply.' },
+            ],
+          ),
+          numStep(
+            'Use the rule again with $n = 3$. What is $a_3$?',
+            vals[2],
+            ['Now the term before is $a_2$.', 'Use the value of $a_2$ you just found.', 'Apply the same rule.', `${d.isNegative() ? 'Subtract ' + d.abs().toTex() : 'Add ' + d.toTex()} again.`],
+            'Each new term uses the term just before it, so $a_3$ comes from $a_2$.',
+            [{ value: vals[1].sub(d), tag: 'sign-error', feedback: `The rule ${d.isNegative() ? 'subtracts' : 'adds'} $${d.abs().toTex()}$. Check the operation.` }],
+          ),
+          finalStep(
+            'Apply the rule once more to get $a_4$, then list the first four terms.',
+            { kind: 'sequence-terms', values: vals.map(numStr) },
+            ['The list starts with $a_1$ itself.', 'Then $a_2$ and $a_3$ from the last two steps.', 'Find $a_4$ from $a_3$ with the same rule.', 'Separate the four numbers with commas.'],
+            'Starting at $a_1$ and applying the rule three times gives the first four terms.',
+            listMisc,
+            'Type four numbers separated by commas.',
+          ),
         ],
       });
     }
@@ -404,7 +540,7 @@ export const genSeqRecursive: GeneratorDef = {
         ],
         misconceptions: numberMisconceptions(an, [
           { value: term(a1, d, n + 1), tag: 'sequence-index', feedback: `You applied the rule ${n} times. From $a_1$ to $a_{${n}}$ is only ${n - 1} steps.` },
-          { value: term(a1, d, n - 1), tag: 'sequence-index', feedback: `Count again: you need to reach the ${n}th term.` },
+          { value: term(a1, d, n - 1), tag: 'sequence-index', feedback: `Count again: you need to reach the ${ordinal(n)} term.` },
         ]),
       });
     }
@@ -427,7 +563,11 @@ export const genSeqRecursive: GeneratorDef = {
           { text: 'Find the common difference.', tex: `d = ${term(a1, d, 2).toTex()} - ${sub(a1)} = ${d.toTex()}`, why: 'It is the amount added to each term to get the next.' },
           { text: 'Write the recursive formula.', tex: recTex(a1, d) },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisc(answer, [
+          { label: `$${recTex(term(a1, d, 2), d)}$`, tag: 'sequence-index', feedback: 'That formula starts at the second number. $a_1$ must be the first number in the list.' },
+          { label: `$${recTex(a1, d.neg())}$`, tag: 'sign-error', feedback: 'Check the sign of what is added: are the terms going up or down?' },
+          { label: `$${recTex(d, a1)}$`, tag: 'formula-error', feedback: 'The first term and the common difference are swapped. $a_1$ is the first number; the amount added is the difference.' },
+        ]),
       });
     }
     if (task === 'toRecursive') {
@@ -502,7 +642,10 @@ export const genSeqRecursive: GeneratorDef = {
     }
     const r = parseRec(mb.tex);
     if (!r) return ['cannot parse recursive formula'];
-    if (a.kind === 'sequence-terms') return a.values.every((v, i) => Rational.parse(v).eq(iterate(r.a1, r.d, i + 1))) ? [] : ['terms mismatch'];
+    if (a.kind === 'sequence-terms') {
+      if (!a.values.every((v, i) => Rational.parse(v).eq(iterate(r.a1, r.d, i + 1)))) return ['terms mismatch'];
+      return stepErrors(pr, [iterate(r.a1, r.d, 2), iterate(r.a1, r.d, 3), null]);
+    }
     if (a.kind === 'number') {
       const nm = /Find \$a_\{(\d+)\}\$/.exec((pr.prompt[2] as { text: string }).text);
       return nm && Rational.parse(a.value).eq(iterate(r.a1, r.d, Number(nm[1]))) ? [] : ['term mismatch'];
@@ -521,6 +664,14 @@ export const genSeqRecursive: GeneratorDef = {
 // ---------------------------------------------------------------------------
 
 const DOMAIN_CORRECT = 'The positive integers: $\\{1, 2, 3, 4, \\dots\\}$';
+const DOMAIN_REALS = 'All real numbers';
+const DOMAIN_DECIMALS = 'All numbers $x \\ge 1$, including decimals like $2.5$';
+const DOMAIN_INTEGERS = 'All integers: $\\{\\dots, -2, -1, 0, 1, 2, \\dots\\}$';
+const N_TERM_NUMBER = 'The term number: 1st, 2nd, 3rd, ...';
+const N_TERM_VALUE = 'The value of a term';
+const N_MEASURE = 'A measurement, like a time or a length';
+const TERM_NUMBER_YES = 'Yes, any number can be a term number.';
+const TERM_NUMBER_NO = 'No, term numbers are only 1, 2, 3, ...';
 
 export const genSeqAsFunction: GeneratorDef = {
   id: 'u1.seq-as-function',
@@ -531,7 +682,13 @@ export const genSeqAsFunction: GeneratorDef = {
     const f = 'f';
     if (difficulty === 1) {
       if (rng.bool()) {
-        const answer = makeChoice(rng, DOMAIN_CORRECT, ['All real numbers', 'All numbers $x \\ge 1$, including decimals like $2.5$', 'All integers: $\\{\\dots, -2, -1, 0, 1, 2, \\dots\\}$']);
+        const answer = makeChoice(rng, DOMAIN_CORRECT, [DOMAIN_REALS, DOMAIN_DECIMALS, DOMAIN_INTEGERS]);
+        const idOf = (label: string) => answer.options.find((o) => o.label === label)!.id;
+        const domainMisc = [
+          { answer: idOf(DOMAIN_REALS), tag: 'interval-endpoint' as const, feedback: 'The input $n$ is a term number. There is no 2.5th term and no $-3$rd term, so not every real number works.' },
+          { answer: idOf(DOMAIN_DECIMALS), tag: 'interval-endpoint' as const, feedback: 'There is a 2nd and a 3rd term, but no 2.5th term. Term numbers are whole numbers.' },
+          { answer: idOf(DOMAIN_INTEGERS), tag: 'interval-endpoint' as const, feedback: 'Counting starts at the 1st term. There is no 0th or $-1$st term.' },
+        ];
         return makeProblem({
           skillId: 'S1.14',
           tags: [],
@@ -547,7 +704,35 @@ export const genSeqAsFunction: GeneratorDef = {
             { text: 'The input $n$ counts terms.', why: 'You can talk about the 1st, 2nd or 10th term, but not the 2.5th or the -1st term.' },
             { text: 'So the domain is the positive integers.', tex: '\\{1, 2, 3, 4, \\dots\\}', why: 'That is why the graph of a sequence is a set of separate dots, not a solid line.' },
           ],
-          misconceptions: [],
+          misconceptions: domainMisc,
+          steps: [
+            choiceStep(
+              'In $f(n)$, what does the input $n$ stand for?',
+              [N_TERM_NUMBER, N_TERM_VALUE, N_MEASURE],
+              0,
+              ['$f(n)$ is the $n$th term.', 'The output is the value of a term, so the input is something else.', 'Read "$f(3)$" as "the 3rd term".', 'So $n$ tells you which term you are looking at.'],
+              '$f(n)$ is the $n$th term, so $n$ is the position of the term in the list: 1st, 2nd, 3rd and so on.',
+              [
+                { index: 1, tag: 'graph-reading', feedback: 'The value of a term is the output $f(n)$. The input $n$ says which term it is.' },
+                { index: 2, tag: 'graph-reading', feedback: 'Here $n$ does not measure anything. It says which term you are looking at.' },
+              ],
+            ),
+            choiceStep(
+              'Can a term number be $2.5$, $0$ or $-3$?',
+              [TERM_NUMBER_YES, TERM_NUMBER_NO],
+              1,
+              ['Think about a list: first, second, third ...', 'Is there a "2.5th" item in a list?', 'Does a list have a "zeroth" or a "negative third" item?', 'Term numbers are the counting numbers.'],
+              'A list has a 1st, 2nd, 3rd ... item and nothing in between or before, so term numbers are the counting numbers.',
+              [{ index: 0, tag: 'interval-endpoint', feedback: 'A list has no 2.5th item and no 0th or $-3$rd item.' }],
+            ),
+            finalStep(
+              'So what is the domain of this function?',
+              answer,
+              ['The domain is every possible input.', 'The inputs are term numbers.', 'Term numbers start at 1 and go up by 1.', 'Decimals, 0 and negative numbers are left out.'],
+              'The domain is every term number, $\\{1, 2, 3, 4, \\dots\\}$, which is why a sequence graphs as separate dots.',
+              domainMisc,
+            ),
+          ],
         });
       }
       // common difference = slope from a dot graph
@@ -578,6 +763,32 @@ export const genSeqAsFunction: GeneratorDef = {
           { value: a1, tag: 'graph-reading', feedback: 'That is the first term. The common difference is the change from one dot to the next.' },
           { value: d.neg(), tag: 'sign-error', feedback: 'Are the dots going up or down from left to right?' },
         ]),
+        steps: [
+          numStep(
+            'Read the first dot, at $n = 1$. What is its value (its height)?',
+            a1,
+            ['Each dot is (term number, term value).', 'Find the dot above $n = 1$ on the horizontal axis.', 'Move across to the vertical axis to read its height.', 'Use the gridlines to read the value exactly.'],
+            `The first dot is at $(1, ${a1.toTex()})$, so the first term is $${a1.toTex()}$.`,
+            [{ value: Q(1), tag: 'graph-reading', feedback: 'That is the term number. Read the height of the dot.' }],
+          ),
+          numStep(
+            'Read the second dot, at $n = 2$. What is its value?',
+            term(a1, d, 2),
+            ['Move one step right to $n = 2$.', 'Find the dot above $n = 2$.', 'Read its height on the vertical axis.', 'It is higher than the first dot if the dots go up, lower if they go down.'],
+            `The second dot is at $(2, ${term(a1, d, 2).toTex()})$.`,
+            [{ value: Q(2), tag: 'graph-reading', feedback: 'That is the term number. Read the height of the dot.' }],
+          ),
+          finalStep(
+            'Subtract: second value minus first value. What is the common difference?',
+            { kind: 'number', value: numStr(d) },
+            ['The common difference is the change from one dot to the next.', 'Subtract in order: second value minus first value.', 'The run between neighbouring dots is 1, so this change is also the slope.', 'If the dots go down, the difference is negative.'],
+            'Neighbouring dots are 1 apart, so the change in value is the rise over a run of 1: the slope.',
+            numberMisconceptions(d, [
+              { value: a1, tag: 'graph-reading', feedback: 'That is the first term. The common difference is the change from one dot to the next.' },
+              { value: d.neg(), tag: 'sign-error', feedback: 'Subtract in order: second value minus first value.' },
+            ]),
+          ),
+        ],
       });
     }
     if (difficulty === 2) {
@@ -603,6 +814,30 @@ export const genSeqAsFunction: GeneratorDef = {
           { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $f(1)$: it should equal the first term. The constant is one step **before** the first term.' },
           { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The slope is the common difference, not the first term.' },
         ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula)))),
+        steps: [
+          diffStep('What is the common difference? It is the slope $m$.', d, a1),
+          numStep(
+            'Go back one step from the first term to find the value at $n = 0$. What is $b$?',
+            a1.sub(d),
+            ['$b$ is the value of the pattern at $n = 0$, one step before the first term.', 'Going forward one step adds $d$, so going back one step does the opposite.', `Start at $a_1 = ${a1.toTex()}$.`, d.isNegative() ? `Add $${d.abs().toTex()}$.` : `Subtract $${d.toTex()}$.`],
+            `Going back one step from $${a1.toTex()}$ undoes one jump of $${d.toTex()}$, which gives the value at $n = 0$: the $y$-intercept of the line through the dots.`,
+            [
+              { value: a1, tag: 'sequence-index', feedback: 'That is the value at $n = 1$. Go back one more step to $n = 0$.' },
+              { value: a1.add(d), tag: 'sign-error', feedback: 'That goes forward to the second term. Go back instead.' },
+            ],
+          ),
+          finalStep(
+            'Write the function $f(n) = mn + b$.',
+            { kind: 'expression', value: formula, variables: ['n'], form: 'expanded' },
+            ['Use your slope $m$ and your $b$.', 'Put the slope in front of $n$.', 'Add $b$, keeping its sign.', 'Check: $f(1)$ should equal the first term.'],
+            'A line with slope $d$ that passes through the value at $n = 0$ hits every term of the sequence.',
+            [
+              { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $f(1)$: it should equal the first term. The constant is one step **before** the first term.' },
+              { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The slope is the common difference, not the first term.' },
+            ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula)))),
+            'Type the rule in n, like 4n - 1.',
+          ),
+        ],
       });
     }
     // which term number has value V, given f(n)
@@ -624,7 +859,7 @@ export const genSeqAsFunction: GeneratorDef = {
       solution: [
         { text: 'Set the rule equal to the value.', tex: `${rule} = ${V.toTex()}`, why: 'We need the input $n$ that gives this output.' },
         { text: 'Solve for $n$.', tex: `${linearTex(d, 0, 'n')} = ${V.sub(a1.sub(d)).toTex()} \\;\\Rightarrow\\; n = ${n}`, why: `Undo the constant, then divide by $${d.toTex()}$.` },
-        { text: 'Check that it makes sense.', why: `$${n}$ is a positive integer, so it is a real term number: the ${n}th term is $${V.toTex()}$.` },
+        { text: 'Check that it makes sense.', why: `$${n}$ is a positive integer, so it is a real term number: the ${ordinal(n)} term is $${V.toTex()}$.` },
       ],
       misconceptions: numberMisconceptions(Q(n), [
         { value: d.mul(V).add(a1.sub(d)), tag: 'inverse-operation', feedback: `That is $f(${V.toTex()})$. Here $${V.toTex()}$ is the output, so solve for $n$.` },
@@ -642,13 +877,17 @@ export const genSeqAsFunction: GeneratorDef = {
       if (!fm || !lm) return ['cannot parse'];
       const ts = termsFrom(lm[1]);
       const poly = toPoly(parseExpression(texToExpr(fm[1])));
-      return ts.every((t, i) => poly.evaluate({ n: Q(i + 1) }).eq(t)) ? [] : ['rule does not match the listed terms'];
+      if (!ts.every((t, i) => poly.evaluate({ n: Q(i + 1) }).eq(t))) return ['rule does not match the listed terms'];
+      return stepErrors(pr, [N_TERM_NUMBER, TERM_NUMBER_NO, null]);
     }
     const g = pr.prompt.find((b) => b.t === 'graph') as { spec: { scatter: Array<{ x: number; y: number }> } } | undefined;
     if (g && a.kind === 'number') {
       const ys = g.spec.scatter.map((q) => Q(q.y));
       const d = diffOf(ys);
-      return d && d.eq(Rational.parse(a.value)) ? [] : ['difference mismatch'];
+      if (!d || !d.eq(Rational.parse(a.value))) return ['difference mismatch'];
+      // steps: the first two dots, sorted by term number
+      const byN = [...g.spec.scatter].sort((u, w) => u.x - w.x);
+      return stepErrors(pr, [Q(byN[0].y), Q(byN[1].y), d]);
     }
     const mb = pr.prompt.find((b) => b.t === 'math') as { tex: string } | undefined;
     if (mb && a.kind === 'expression') {
@@ -657,7 +896,8 @@ export const genSeqAsFunction: GeneratorDef = {
       if (!d) return ['not arithmetic'];
       const poly = toPoly(parseExpression(a.value));
       for (let n = 1; n <= 6; n++) if (!poly.evaluate({ n: Q(n) }).eq(iterate(ts[0], d, n))) return [`rule wrong at n = ${n}`];
-      return [];
+      // steps: slope from the last two terms, b by stepping back from the second term twice
+      return stepErrors(pr, [ts[3].sub(ts[2]), ts[1].sub(d).sub(d), null]);
     }
     const wm = /f\(n\) = (.+?)\$\. Which term of the sequence equals \$(.+?)\$/.exec(text);
     if (wm && a.kind === 'number') {

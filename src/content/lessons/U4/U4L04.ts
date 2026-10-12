@@ -10,7 +10,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U4L04: LessonContent = {
   lessonId: 'U4L04',
-  goal: 'Factor out the greatest common factor, like $8x^2 + 20x = 4x(2x + 5)$, and factor trinomials with leading coefficient 1, like $x^2 + 7x + 12 = (x + 3)(x + 4)$, then check by multiplying back.',
+  goal: 'You will be able to factor out the greatest common factor, like $8x^2 + 20x = 4x(2x + 5)$, and factor trinomials with leading coefficient 1, like $x^2 + 7x + 12 = (x + 3)(x + 4)$, then check by multiplying back.',
   needToKnow: [
     { t: 'p', text: 'Factoring is multiplying **in reverse**, so this lesson leans on what you just practiced:' },
     {

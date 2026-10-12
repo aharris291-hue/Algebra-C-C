@@ -133,7 +133,7 @@ export const U7L06: LessonContent = {
       },
     },
     { t: 'p', text: 'Jersey number and points per game: **no association** ($r \\approx -0.07$, very close to $0$). Knowing a player\'s jersey number tells you nothing useful about how many points they score.' },
-    { t: 'callout', variant: 'warning', title: 'Negative does not mean weak', text: 'The sign of $r$ is only the direction. $r = -0.95$ is a **strong** association (going down), much stronger than $r = 0.4$. Compare strengths by ignoring the signs: $0.95 > 0.4$.' },
+    { t: 'callout', variant: 'warning', title: 'Negative does not mean weak', text: 'The sign of $r$ is only the direction. $r = -0.95$ is a **strong** association (going down), much stronger than $r = 0.4$. Compare strengths by ignoring the signs: $0.95 > 0.4$. Why? Because the sign only says which way the points tilt, while the size says how closely they hug a line.' },
     { t: 'p', text: '### Clusters' },
     { t: 'p', text: 'Sometimes points form separate groups. This plot shows the price and battery life of twelve phones.' },
     {

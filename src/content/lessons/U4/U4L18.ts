@@ -68,11 +68,13 @@ export const U4L18: LessonContent = {
         ['an object launched straight up', '$h(t) = -16t^2 + v_0 t + h_0$', '$t$ seconds, $h$ feet, $v_0$ starting upward speed in ft/s, $h_0$ starting height in ft'],
         ['a rectangle with perimeter $P$', '$A(x) = x\\left(\\frac{P}{2} - x\\right)$', '$x$ is one side; the other side is half the perimeter minus $x$'],
         ['selling at a price', '$R = (\\text{price})(\\text{number sold})$', 'when the price goes up, fewer are sold'],
+        ['a picture with a frame (border) $x$ wide', '$A(x) = (L + 2x)(W + 2x)$', '$L$ and $W$ are the picture\'s length and width; the frame adds $x$ to each end of each side'],
       ],
     },
     { t: 'p', text: '**Projectile.** A volleyball is bumped straight up from a height of $6$ feet with an upward speed of $32$ feet per second. Then $v_0 = 32$ and $h_0 = 6$, so $h(t) = -16t^2 + 32t + 6$. The $-16$ comes from gravity (half of $32$ feet per second squared), and it is negative because gravity pulls the ball down.' },
     { t: 'p', text: '**Area.** You have $40$ feet of fencing for a rectangular garden. If one side is $x$ feet, the two lengths and two widths add to $40$, so one length plus one width is $20$. The other side is $20 - x$, and the area is $A(x) = x(20 - x)$. Its zeros are $0$ and $20$, so the maximum is halfway, at $x = 10$: a $10$-by-$10$ square with area $100$ square feet.' },
     { t: 'p', text: '**Revenue.** If shirts sell for $(10 + x)$ dollars and the number sold is $(80 - 4x)$, the revenue is $R(x) = (10 + x)(80 - 4x)$. Revenue is always price times quantity.' },
+    { t: 'p', text: '**A frame or border.** A $10$ inch by $8$ inch photo gets a frame that is $x$ inches wide on every side. The frame adds $x$ on the left **and** $x$ on the right, so the new length is $10 + 2x$. It adds $x$ on the top and on the bottom, so the new width is $8 + 2x$. The total area of the photo and frame is $A(x) = (10 + 2x)(8 + 2x)$. **Why $2x$ and not $x$:** the border is on both ends of each side. Check with $x = 1$: the framed photo is $12$ by $10$ inches, and $A(1) = 12 \\cdot 10 = 120$ square inches.' },
     { t: 'p', text: '### Graphing a model: labels, scale and window' },
     {
       t: 'list',
@@ -199,6 +201,18 @@ export const U4L18: LessonContent = {
         { text: 'Find the revenue and interpret.', tex: 'R(5) = (15)(60) = 900', why: 'Five \\$1 increases make the price \\$15, and they sell $80 - 20 = 60$ cases.' },
       ],
       answer: '$R(x) = (10 + x)(80 - 4x)$. The best price is \\$15, which sells $60$ cases for \\$900 a month.',
+    },
+    {
+      title: 'A frame around a photo',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: 'A $10$ inch by $8$ inch photo gets a frame that is $x$ inches wide on every side. (a) Write a function $A(x)$ for the total area of the photo and frame. (b) Find the total area when the frame is $2$ inches wide. (c) How much of that area is the frame itself?' }],
+      steps: [
+        { text: 'Find the outer length and width.', tex: '\\text{length} = 10 + 2x, \\quad \\text{width} = 8 + 2x', why: 'The frame is on both ends of each side, so each dimension grows by $x + x = 2x$. Using $10 + x$ would forget one side of the frame.' },
+        { text: '(a) Multiply length by width.', tex: 'A(x) = (10 + 2x)(8 + 2x) = 4x^2 + 36x + 80', why: 'Area of a rectangle is length times width. Multiplying out: $80 + 20x + 16x + 4x^2$.' },
+        { text: '(b) Substitute $x = 2$.', tex: 'A(2) = (10 + 4)(8 + 4) = 14 \\cdot 12 = 168 \\text{ sq in}', why: 'A $2$-inch frame makes the outside $14$ by $12$ inches. The standard form agrees: $4(4) + 36(2) + 80 = 168$.' },
+        { text: '(c) Subtract the photo.', tex: '168 - 10 \\cdot 8 = 168 - 80 = 88 \\text{ sq in}', why: 'The total area includes the photo, $10 \\cdot 8 = 80$ square inches, so the frame is what is left. Note that $A(0) = 80$: with no frame, the area is just the photo.' },
+      ],
+      answer: '(a) $A(x) = (10 + 2x)(8 + 2x) = 4x^2 + 36x + 80$; (b) $168$ square inches; (c) $88$ square inches of frame.',
     },
   ],
   teachMeAgain: [

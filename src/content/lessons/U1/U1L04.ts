@@ -84,10 +84,22 @@ export const U1L04: LessonContent = {
       steps: [
         { text: 'Find the slope.', tex: 'm = \\frac{-4 - 8}{4 - (-2)} = \\frac{-12}{6} = -2', why: 'You need $m$ before you can find $b$.' },
         { text: 'Use one point to find $b$.', tex: '8 = -2(-2) + b \\;\\Rightarrow\\; 8 = 4 + b \\;\\Rightarrow\\; b = 4', why: 'Any point on the line works. Negative times negative is positive: $-2(-2) = 4$.' },
-        { text: 'Write the equation.', tex: 'y = -2x + 4' },
+        { text: 'Write the equation.', tex: 'y = -2x + 4', why: 'Slope-intercept form only needs the slope $m = -2$ and the $y$-intercept $b = 4$, and we now have both.' },
         { text: 'Check with the other point.', tex: '-2(4) + 4 = -8 + 4 = -4 \\checkmark', why: 'Using the point you did **not** use to find $b$ catches mistakes in the slope.' },
       ],
       answer: '$y = -2x + 4$',
+    },
+    {
+      title: 'Two points with a fraction slope',
+      kind: 'challenging',
+      problem: [{ t: 'p', text: 'Write the equation, in slope-intercept form, of the line through $(2, 4)$ and $(6, 10)$.' }],
+      steps: [
+        { text: 'Find the slope and simplify it.', tex: 'm = \\frac{10 - 4}{6 - 2} = \\frac{6}{4} = \\frac{3}{2}', why: 'Slope is the change in $y$ over the change in $x$. Dividing the top and bottom by $2$ gives the same number in lowest terms.' },
+        { text: 'Use the point $(2, 4)$ to find $b$.', tex: '4 = \\tfrac{3}{2}(2) + b \\;\\Rightarrow\\; 4 = 3 + b \\;\\Rightarrow\\; b = 1', why: '$\\frac{3}{2}(2) = 3$ because half of $2$ is $1$, and $3 \\cdot 1 = 3$. Then subtract $3$ from both sides. Picking a point whose $x$ cancels the denominator keeps the numbers whole.' },
+        { text: 'Write the equation.', tex: 'y = \\tfrac{3}{2}x + 1', why: 'Keep the slope as an exact fraction. Writing $1.5$ is also correct, but a rounded decimal would not be.' },
+        { text: 'Check with the other point.', tex: '\\tfrac{3}{2}(6) + 1 = 9 + 1 = 10 \\checkmark', why: 'The point $(6, 10)$ was not used to find $b$, so it fitting the equation confirms the slope and $b$.' },
+      ],
+      answer: '$y = \\frac{3}{2}x + 1$',
     },
     {
       title: 'Ride-share pricing',

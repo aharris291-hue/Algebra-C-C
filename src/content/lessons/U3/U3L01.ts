@@ -128,7 +128,7 @@ export const U3L01: LessonContent = {
       kind: 'intermediate',
       problem: [{ t: 'p', text: 'Show that $0.\\overline{27} = 0.272727\\ldots$ is rational by writing it as a fraction in lowest terms.' }],
       steps: [
-        { text: 'Call the number $x$.', tex: 'x = 0.272727\\ldots' },
+        { text: 'Call the number $x$.', tex: 'x = 0.272727\\ldots', why: 'Giving the number a name lets us write equations with it, the same way we solve for an unknown.' },
         { text: 'Multiply both sides by $100$.', tex: '100x = 27.272727\\ldots', why: 'Two digits repeat, so multiplying by $100$ shifts the decimal two places and lines up the repeating tails.' },
         { text: 'Subtract the first equation from the second.', tex: '100x - x = 27.2727\\ldots - 0.2727\\ldots \\;\\Rightarrow\\; 99x = 27', why: 'The endless tails are identical, so they cancel exactly.' },
         { text: 'Divide by $99$ and simplify.', tex: 'x = \\frac{27}{99} = \\frac{3}{11}', why: '$27$ and $99$ share a factor of $9$: $27 \\div 9 = 3$ and $99 \\div 9 = 11$.' },

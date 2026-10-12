@@ -8,6 +8,7 @@ import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, numberMisconceptions, numStr, pickDistinct, makeChoice, choiceLabel } from './util';
 import { buildContext, ctxStory, type LinearContext } from './u1-contexts';
+import { numStep, choiceStep, finalStep, stepErrors } from './u1-steps';
 
 // ---------------------------------------------------------------------------
 // S1.15: build a model from two data points and use it
@@ -57,6 +58,13 @@ function quantitiesProblem(rng: Rng): Problem {
   const rateOut = opt(`${sit.inName} (${sit.inUnits})`, `${sit.rateName} (${rateUnits})`);
   const answer = makeChoice(rng, right, [rateIn, reversed, rateOut]);
   const idOf = (label: string) => answer.options.find((o) => o.label === label)!.id;
+  const misconceptions = [
+    { answer: idOf(rateIn), tag: 'units' as const, feedback: `The rate ${sit.rateText(r)} never changes, so it cannot be the input. It is the slope of the model.` },
+    { answer: idOf(reversed), tag: 'units' as const, feedback: 'That uses the quantity the person wants to find as the input. Which quantity is the goal?' },
+    { answer: idOf(rateOut), tag: 'units' as const, feedback: 'The rate stays the same, so it is not what the function gives back. What does the person want to know?' },
+  ];
+  // the three quantities in the story, in a fixed order (no randomness, so seeds keep their problems)
+  const qty = [`${sit.inName} (${sit.inUnits})`, `${sit.outName} (${sit.outUnits})`, `${sit.rateName} (${sit.rateText(r)})`];
   return makeProblem({
     skillId: 'S1.15',
     tags: ['real-world', 'word'],
@@ -73,10 +81,37 @@ function quantitiesProblem(rng: Rng): Problem {
       { text: 'Find what it depends on.', why: `${sit.outName[0].toUpperCase()}${sit.outName.slice(1)} changes as the ${sit.inName} changes, so the ${sit.inName}, in ${sit.inUnits}, is the input.` },
       { text: 'Check with the rate.', tex: `\\text{${rateUnits}} = \\dfrac{\\text{${sit.outUnits}}}{\\text{${sit.inUnits.replace(/s$/, '')}}}`, why: `The rate is a constant: it becomes the slope of the model, with output units on top and input units on the bottom.` },
     ],
-    misconceptions: [
-      { answer: idOf(rateIn), tag: 'units', feedback: `The rate ${sit.rateText(r)} never changes, so it cannot be the input. It is the slope of the model.` },
-      { answer: idOf(reversed), tag: 'units', feedback: 'That uses the quantity the person wants to find as the input. Which quantity is the goal?' },
-      { answer: idOf(rateOut), tag: 'units', feedback: 'The rate stays the same, so it is not what the function gives back. What does the person want to know?' },
+    misconceptions,
+    steps: [
+      choiceStep(
+        'Start with the goal. Which quantity does the person want the function to tell them? (That quantity is the output.)',
+        qty,
+        1,
+        ['The output is the answer the function gives back.', 'Reread the sentence that says what the person wants.', 'It names something the person wants to know at any moment or for any amount.', `Look for the quantity measured in ${sit.outUnits}.`],
+        `The goal asks for ${sit.outName}, so that is what the function must give back: the output.`,
+        [
+          { index: 0, tag: 'units', feedback: 'That is what the person chooses or what changes freely. Which quantity do they want to find out?' },
+          { index: 2, tag: 'units', feedback: `The rate ${sit.rateText(r)} never changes, so it is not what the person wants to find.` },
+        ],
+      ),
+      choiceStep(
+        `${sit.outName[0].toUpperCase()}${sit.outName.slice(1)} changes when something else changes. Which quantity is that? (That quantity is the input.)`,
+        qty,
+        0,
+        ['The input is the quantity you can pick freely, like how long or how much.', 'A number that stays the same the whole time is part of the rule, not the input.', `Ask: ${sit.outName} depends on what?`, `Look for the quantity measured in ${sit.inUnits}.`],
+        `${sit.outName[0].toUpperCase()}${sit.outName.slice(1)} depends on the ${sit.inName}, so the ${sit.inName} is the input.`,
+        [
+          { index: 1, tag: 'units', feedback: 'You already chose that one as the output. The input is what the output depends on.' },
+          { index: 2, tag: 'units', feedback: `The rate ${sit.rateText(r)} stays the same, so it cannot be the input. It becomes the slope.` },
+        ],
+      ),
+      finalStep(
+        'So which quantities should be the input and the output of the function?',
+        answer,
+        ['Use the input and the output you just found.', 'The input is listed first in each choice.', 'The rate is not the input or the output.', `Check the units: the rate is in ${rateUnits}, which is (output units) per (one input unit).`],
+        `The rate's units are ${rateUnits}: output units per one input unit, which confirms the choice.`,
+        misconceptions,
+      ),
     ],
   });
 }
@@ -94,7 +129,15 @@ function verifyQuantities(pr: Problem): string[] {
     return !!mm && mm[1] === inU && mm[2] === outU;
   });
   if (fits.length !== 1) return [`${fits.length} options fit`];
-  return fits[0].id === pr.answer.correct ? [] : ['keyed option does not fit the rate units'];
+  if (fits[0].id !== pr.answer.correct) return ['keyed option does not fit the rate units'];
+  // steps: the output is the quantity in the rate's top units, the input the one in its bottom units
+  const unitOption = (i: number, unit: string): string => {
+    const a = pr.steps?.[i]?.answer;
+    if (!a || a.kind !== 'choice') return '(none)';
+    const hits = a.options.filter((o) => o.label.endsWith(`(${unit})`));
+    return hits.length === 1 ? hits[0].label : '(ambiguous)';
+  };
+  return stepErrors(pr, [unitOption(0, outU), unitOption(1, inU), null]);
 }
 
 export const genLinearModel: GeneratorDef = {
@@ -120,6 +163,10 @@ export const genLinearModel: GeneratorDef = {
       `Then substitute one row into $${f}(${v}) = m${v} + b$ to find $b$.`,
     ];
     if (difficulty === 1) {
+      const modelMisc = [
+        ...(y1.eq(b) ? [] : [{ answer: linearPlain(m, y1, v), tag: 'equation-setup' as const, feedback: `The first data point is not at $${v} = 0$, so its output is not the starting value. Solve for $b$.` }]),
+        ...(m.mul(x2.sub(x1)).eq(m) ? [] : [{ answer: linearPlain(y2.sub(y1), b, v), tag: 'slope-calc' as const, feedback: `The inputs are ${decTex(x2.sub(x1))} ${ctx.inUnits} apart, so divide the change in output by that to get the rate per ${ctx.inUnit}.` }]),
+      ];
       return makeProblem({
         skillId: 'S1.15',
         tags: ['real-world', 'word'],
@@ -128,9 +175,37 @@ export const genLinearModel: GeneratorDef = {
         inputHint: `Type the rule in ${v}, like ${linearPlain(Q(5), Q(20), v)}. You can start with ${f}(${v}) = .`,
         hints: ['A linear model has the form $f(x) = mx + b$: rate times input, plus a starting value.', ...buildHints, 'Check: your model should give both outputs in the table.'],
         solution: buildSteps,
-        misconceptions: [
-          ...(y1.eq(b) ? [] : [{ answer: linearPlain(m, y1, v), tag: 'equation-setup' as const, feedback: `The first data point is not at $${v} = 0$, so its output is not the starting value. Solve for $b$.` }]),
-          ...(m.mul(x2.sub(x1)).eq(m) ? [] : [{ answer: linearPlain(y2.sub(y1), b, v), tag: 'slope-calc' as const, feedback: `The inputs are ${decTex(x2.sub(x1))} ${ctx.inUnits} apart, so divide the change in output by that to get the rate per ${ctx.inUnit}.` }]),
+        misconceptions: modelMisc,
+        steps: [
+          numStep(
+            `Find the rate of change from the two rows: $m = ${slopeTex}$. (Give it in ${ctx.rateUnit}.)`,
+            m,
+            ['The rate of change is the change in output divided by the change in input.', `Work out the top: $${decTex(y2)} - ${decTex(y1)}$.`, `Work out the bottom: $${decTex(x2)} - ${decTex(x1)}$.`, 'Divide the top by the bottom. Keep the sign: a falling amount has a negative rate.'],
+            `The output changes by $${decTex(y2.sub(y1))}$ over $${decTex(x2.sub(x1))}$ ${ctx.inUnits}, which is $${decTex(m)}$ for each ${ctx.inUnit}.`,
+            [
+              { value: x2.sub(x1).eq(1) ? null : y2.sub(y1), tag: 'slope-calc', feedback: `That is the total change. The inputs are ${decTex(x2.sub(x1))} ${ctx.inUnits} apart, so divide by that.` },
+              { value: y2.sub(y1).isZero() ? null : x2.sub(x1).div(y2.sub(y1)), tag: 'rise-run-swap', feedback: 'The change in output goes on top and the change in input on the bottom.' },
+              { value: m.neg(), tag: 'sign-error', feedback: 'Subtract in the same order on top and bottom. Is the amount going up or down?' },
+            ],
+          ),
+          numStep(
+            `Substitute the first row into $${f}(${v}) = ${decTex(m)}${v} + b$: $${decTex(y1)} = ${decTex(m)}(${decTex(x1)}) + b$. What is the starting value $b$?`,
+            b,
+            ['The data point is on the line, so its numbers make the equation true.', `Multiply first: $${decTex(m)} \\cdot ${decTex(x1)}$.`, 'Then subtract that product from both sides to get $b$ alone.', `Check: $b$ is the output at $${v} = 0$, which is not in the table.`],
+            `Undoing the rate term leaves the value at $${v} = 0$: ${ctx.startMeaning}.`,
+            [
+              { value: y1, tag: 'equation-setup', feedback: `The first row is not at $${v} = 0$, so its output is not the starting value. Subtract the rate term.` },
+              { value: y1.add(m.mul(x1)), tag: 'sign-error', feedback: 'To get $b$ alone, subtract the product from both sides; do not add it.' },
+            ],
+          ),
+          finalStep(
+            `Write the linear model $${f}(${v})$.`,
+            { kind: 'expression', value: linearPlain(m, b, v), variables: [v] },
+            ['A linear model is (rate) $\\times$ (input) $+$ (starting value).', `Put the rate in front of $${v}$.`, 'Add the starting value, keeping its sign.', 'Check: your model should give both outputs in the table.'],
+            'The rate multiplies the input because it repeats every unit, and the starting value is added once.',
+            modelMisc,
+            `Type the rule in ${v}.`,
+          ),
         ],
       });
     }
@@ -179,7 +254,9 @@ export const genLinearModel: GeneratorDef = {
     if (a.kind === 'expression') {
       const v = a.variables![0];
       const poly = toPoly(parseExpression(a.value));
-      return [0, 1, 7].every((x) => poly.evaluate({ [v]: Q(x) }).eq(model(Q(x)))) ? [] : ['model mismatch'];
+      if (![0, 1, 7].every((x) => poly.evaluate({ [v]: Q(x) }).eq(model(Q(x))))) return ['model mismatch'];
+      // steps: slope from the rows, b from the second row (the steps use the first)
+      return stepErrors(pr, [m, y2.sub(m.mul(x2)), null]);
     }
     if (a.kind !== 'number') return ['wrong kind'];
     const pm = /predict \$[A-Z]\((.+?)\)\$/.exec(ask);
@@ -246,6 +323,94 @@ const TASKS_3: Task[] = [
   { from: ['inch', 'minute'], to: ['foot', 'hour'], amount: (r) => Q(r.int(1, 10)), facts: ['1 foot = 12 inches', '1 hour = 60 minutes'], context: (a) => `Floodwater rises at ${a}.` },
 ];
 
+/** A conversion factor as a fraction equal to 1: `num` of unit `top` over `den` of unit `bottom`. */
+function factorTex(num: Rational, top: string, den: Rational, bottom: string): string {
+  const word = (u: string, n: Rational) => (n.eq(1) ? BASE[u].singular : BASE[u].plural);
+  return `\\dfrac{${decTex(num)}\\text{ ${word(top, num)}}}{${decTex(den)}\\text{ ${word(bottom, den)}}}`;
+}
+
+/** The factor that turns unit `from` into unit `to` (from cancels on the bottom), and its upside-down twin. */
+function factorPair(from: string, to: string): [string, string] {
+  const r = BASE[from].toBase.div(BASE[to].toBase); // number of `to` units in one `from` unit
+  const [nTo, nFrom] = r.ge(1) ? [r, Q(1)] : [Q(1), Q(1).div(r)];
+  return [factorTex(nTo, to, nFrom, from), factorTex(nFrom, from, nTo, to)];
+}
+
+/** Read a factor label "$\dfrac{a\text{ u}}{b\text{ w}}$" back as numbers and units. */
+export function parseFactor(label: string): { num: Rational; top: string; den: Rational; bottom: string } | null {
+  const mm = /\\dfrac\{([\d.]+)\\text\{ ([a-z]+)\}\}\{([\d.]+)\\text\{ ([a-z]+)\}\}/.exec(label);
+  return mm ? { num: Rational.parse(mm[1]), top: mm[2], den: Rational.parse(mm[3]), bottom: mm[4] } : null;
+}
+
+const FACTOR_HINTS: [string, string, string, string] = [
+  'A conversion factor is a fraction equal to 1, like $\\frac{12\\text{ inches}}{1\\text{ foot}}$.',
+  'The unit you want to get rid of must be on the opposite side of the fraction, so it cancels.',
+  'If the old unit is on top of your amount, it must be on the bottom of the factor (and the other way around).',
+  'The new unit you want should be left over after the cancelling.',
+];
+
+/**
+ * Guided steps for a conversion. One factor: choose the factor, then convert. Two factors: convert one
+ * unit first (whichever keeps the numbers whole), choose the factor for the other unit, then finish.
+ * The option order depends only on the amount, so no random numbers are used.
+ */
+function conversionSteps(task: Task, amt: Rational, ans: Rational, fromText: string, toUnits: string, misc: ReturnType<typeof numberMisconceptions>): NonNullable<Problem['steps']> {
+  const topChanges = task.from[0] !== task.to[0];
+  const bottomChanges = !!task.from[1] && task.from[1] !== task.to[1];
+  const flip = amt.toNumber() % 2 === 1;
+  const choose = (prompt: string, pair: [string, string], why: string) =>
+    choiceStep(prompt, (flip ? [pair[1], pair[0]] : pair).map((t) => `$${t}$`), flip ? 1 : 0, FACTOR_HINTS, why, [
+      { index: flip ? 0 : 1, tag: 'units', feedback: 'With that factor the old unit does not cancel. Put the unit you want to get rid of on the opposite side from where it is now.' },
+    ]);
+  const finish = (prompt: string, start?: Rational) =>
+    finalStep(
+      prompt,
+      { kind: 'number', value: numStr(ans), unit: toUnits },
+      ['Multiply your amount by the factor.', 'Multiply by the number on top of the factor.', 'Divide by the number on the bottom of the factor.', 'Cross out the units that cancel and check that the units left are the ones you want.'],
+      `The old unit cancels and only ${toUnits} are left, so the number is the same amount in the new units.`,
+      // from a partial result, the likely slip is using the second factor upside down
+      start ? [...misc, ...numberMisconceptions(ans, [{ value: start.mul(start).div(ans), tag: 'units', feedback: 'That factor was used upside down. The old unit must cancel.' }]).filter((m) => !misc.some((x) => x.answer === m.answer))] : misc,
+      `Type the number of ${toUnits}. Decimals are fine.`,
+    );
+  if (topChanges && bottomChanges) {
+    const [F0, F1, T0, T1] = [task.from[0], task.from[1]!, task.to[0], task.to[1]!];
+    const viaTop = amt.mul(BASE[F0].toBase).div(BASE[T0].toBase);
+    const viaBottom = amt.mul(BASE[T1].toBase).div(BASE[F1].toBase);
+    const topFirst = viaTop.isInteger();
+    const mid = topFirst ? viaTop : viaBottom;
+    const midUnits = topFirst ? `${BASE[T0].plural} per ${BASE[F1].singular}` : `${BASE[F0].plural} per ${BASE[T1].singular}`;
+    const first = topFirst
+      ? numStep(
+          `Change one unit at a time. First change ${BASE[F0].plural} to ${BASE[T0].plural}: ${fromText} is how many ${midUnits}?`,
+          mid,
+          [`Only the ${BASE[F0].plural} change in this step; the "per ${BASE[F1].singular}" stays.`, `Use the fact about ${BASE[F0].plural} and ${BASE[T0].plural}.`, BASE[F0].toBase.gt(BASE[T0].toBase) ? `A ${BASE[F0].singular} is bigger than a ${BASE[T0].singular}, so you get more of them: multiply.` : `A ${BASE[F0].singular} is smaller than a ${BASE[T0].singular}, so you get fewer of them: divide.`, 'Use the number in the fact.'],
+          `Converting the top unit with a factor equal to 1 does not change the rate, only how it is written: ${decTex(mid)} ${midUnits}.`,
+          [{ value: amt.mul(BASE[T0].toBase).div(BASE[F0].toBase), tag: 'units', feedback: 'Check the direction: a bigger unit gives fewer of them, a smaller unit gives more.' }],
+        )
+      : numStep(
+          `Change one unit at a time. First change "per ${BASE[F1].singular}" to "per ${BASE[T1].singular}": ${fromText} is how many ${midUnits}?`,
+          mid,
+          [`Only the time unit changes in this step; the ${BASE[F0].plural} stay.`, `Ask: how many ${BASE[F1].plural} are in one ${BASE[T1].singular}?`, BASE[T1].toBase.gt(BASE[F1].toBase) ? `A ${BASE[T1].singular} is longer than a ${BASE[F1].singular}, so more is covered in one ${BASE[T1].singular}: multiply.` : `A ${BASE[T1].singular} is shorter than a ${BASE[F1].singular}, so less is covered in one ${BASE[T1].singular}: divide.`, 'Use the number in the fact.'],
+          `In one ${BASE[T1].singular} the amount covered is ${decTex(mid)} ${BASE[F0].plural}, so the rate is ${decTex(mid)} ${midUnits}.`,
+          [{ value: amt.mul(BASE[F1].toBase).div(BASE[T1].toBase), tag: 'units', feedback: `Check the direction: in a longer time you cover more, in a shorter time less.` }],
+        );
+    const second = topFirst
+      ? choose(`Now change the time unit. Which factor turns ${midUnits} into ${toUnits}?`, factorPair(T1, F1), `The ${BASE[F1].plural} on the bottom of the rate must cancel, so ${BASE[F1].plural} go on top of the factor.`)
+      : choose(`Now change the other unit. Which factor turns ${midUnits} into ${toUnits}?`, factorPair(F0, T0), `The ${BASE[F0].plural} on top of the rate must cancel, so ${BASE[F0].plural} go on the bottom of the factor.`);
+    return [first, second, finish(`Multiply ${decTex(mid)} ${midUnits} by that factor. What is the rate in ${toUnits}?`, mid)];
+  }
+  const pair = topChanges ? factorPair(task.from[0], task.to[0]) : factorPair(task.to[1]!, task.from[1]!);
+  const what = topChanges ? `${BASE[task.from[0]].plural} into ${BASE[task.to[0]].plural}` : `"per ${BASE[task.from[1]!].singular}" into "per ${BASE[task.to[1]!].singular}"`;
+  return [
+    choose(
+      `Which conversion factor turns ${what}?`,
+      pair,
+      topChanges ? `${BASE[task.from[0]].plural[0].toUpperCase()}${BASE[task.from[0]].plural.slice(1)} are on top of the amount, so they go on the bottom of the factor and cancel.` : `The ${BASE[task.from[1]!].plural} are on the bottom of the rate, so they go on top of the factor and cancel.`,
+    ),
+    finish(`Multiply ${fromText} by that factor. What is the answer in ${toUnits}?`),
+  ];
+}
+
 function unitText(u: [string, string | null], amount: Rational): string {
   const top = amount.eq(1) ? BASE[u[0]].singular : BASE[u[0]].plural;
   return u[1] ? `${top} per ${BASE[u[1]].singular}` : top;
@@ -264,6 +429,7 @@ const AREA_TASKS: Array<{ from: string; to: string; fact: string; amount: (r: Rn
   { from: 'feet', to: 'inches', fact: '1 foot = 12 inches', amount: (r) => Q(r.int(2, 6)), context: (a) => `A window pane has an area of ${a}.` },
   { from: 'meters', to: 'centimeters', fact: '1 meter = 100 centimeters', amount: (r) => Q(r.int(2, 5)), context: (a) => `A poster has an area of ${a}.` },
 ];
+const SINGLE: Record<string, string> = { inches: 'inch', feet: 'foot', yards: 'yard', centimeters: 'centimeter', meters: 'meter' };
 const LENGTH_IN_CM: Record<string, Rational> = { inches: Q('2.54'), feet: Q('30.48'), yards: Q('91.44'), centimeters: Q(1), meters: Q(100) };
 
 function areaProblem(rng: Rng): Problem {
@@ -277,6 +443,11 @@ function areaProblem(rng: Rng): Problem {
   const toUnits = `square ${task.to}`;
   const fromText = `${decTex(amt)} square ${task.from}`;
   const shrinking = lin.lt(1);
+  const smallUnit = many.replace(/^[\d.]+ /, '');
+  const areaMisc = numberMisconceptions(ans, [
+    { value: amt.mul(lin), tag: 'units', feedback: 'Area is measured in square units. Use the length fact twice: once for the length and once for the width.' },
+    { value: amt.div(lin).div(lin), tag: 'units', feedback: 'Check the direction: a bigger unit needs fewer of them, and a smaller unit needs more.' },
+  ]);
   return makeProblem({
     skillId: 'S1.16',
     tags: ['real-world', 'word'],
@@ -293,10 +464,35 @@ function areaProblem(rng: Rng): Problem {
       { text: 'Square the length fact.', tex: `1\\text{ square ${one.replace(/^1 /, '')}} = ${big.toTex()} \\times ${big.toTex()}\\text{ square ${many.replace(/^[\d.]+ /, '')}} = ${bigSq.toTex()}\\text{ square ${many.replace(/^[\d.]+ /, '')}}`, why: 'A square that is 1 unit on a side is split into a grid with that many smaller squares along each side.' },
       { text: shrinking ? `Divide by $${bigSq.toTex()}$.` : `Multiply by $${bigSq.toTex()}$.`, tex: `${decTex(amt)} ${shrinking ? '\\div' : '\\times'} ${bigSq.toTex()} = ${decTex(ans)}`, why: `Each conversion factor is equal to 1, so the area itself does not change; only the units do. So ${fromText} is ${decTex(ans)} ${toUnits}.` },
     ],
-    misconceptions: numberMisconceptions(ans, [
-      { value: amt.mul(lin), tag: 'units', feedback: 'Area is measured in square units. Use the length fact twice: once for the length and once for the width.' },
-      { value: amt.div(lin).div(lin), tag: 'units', feedback: 'Check the direction: a bigger unit needs fewer of them, and a smaller unit needs more.' },
-    ]),
+    misconceptions: areaMisc,
+    steps: [
+      numStep(
+        `${one.replace(/^1 /, '1 square ')} is a square ${many} on each side. How many square ${smallUnit} are in ${one.replace(/^1 /, '1 square ')}?`,
+        bigSq,
+        ['A square unit is a 1-by-1 square.', `Picture the big square split into a grid of small squares: ${big.toTex()} along each side.`, 'The number of small squares is (squares along the length) times (squares along the width).', `Multiply $${big.toTex()} \\times ${big.toTex()}$.`],
+        `The big square is a ${big.toTex()}-by-${big.toTex()} grid of small squares, so it holds $${bigSq.toTex()}$ of them.`,
+        [
+          { value: big, tag: 'units', feedback: 'That is the length fact. A square has a length and a width, so use the fact twice.' },
+          { value: big.mul(2), tag: 'units', feedback: 'Multiply the length by the width; do not add them.' },
+        ],
+      ),
+      choiceStep(
+        `You are changing ${fromText} into ${toUnits}. Do you multiply or divide by $${bigSq.toTex()}$?`,
+        [`Multiply by $${bigSq.toTex()}$`, `Divide by $${bigSq.toTex()}$`],
+        shrinking ? 1 : 0,
+        [`Which unit is bigger: a square ${SINGLE[task.from]} or a square ${SINGLE[task.to]}?`, 'Changing to a smaller unit takes more of them to cover the same area.', 'Changing to a bigger unit takes fewer of them.', 'More of them means multiply; fewer means divide.'],
+        shrinking ? `A square ${SINGLE[task.to]} is bigger, so you need fewer of them: divide.` : `A square ${SINGLE[task.to]} is smaller, so you need more of them: multiply.`,
+        [{ index: shrinking ? 0 : 1, tag: 'units', feedback: 'Check the direction: a bigger unit needs fewer of them, and a smaller unit needs more.' }],
+      ),
+      finalStep(
+        `Do it. How many ${toUnits} is ${fromText}?`,
+        { kind: 'number', value: numStr(ans), unit: toUnits },
+        [`Use the number of small squares in one big square from the first step.`, 'Use the operation you just chose.', shrinking ? `Divide $${decTex(amt)}$ by $${bigSq.toTex()}$.` : `Multiply $${decTex(amt)}$ by $${bigSq.toTex()}$.`, 'The area itself has not changed; only the units have.'],
+        'Each conversion factor equals 1, so the area stays the same and only the units change.',
+        areaMisc,
+        `Type the number of ${toUnits}.`,
+      ),
+    ],
   });
 }
 
@@ -334,8 +530,38 @@ function unitsOfNumberProblem(rng: Rng): Problem {
           { answer: idOf(outWord), tag: 'units', feedback: `That number is multiplied by the number of ${ctx.inUnits}, so it counts ${outWord} for each ${ctx.inUnit}.` },
         ]
       : [{ answer: idOf(rateLabel), tag: 'units', feedback: 'That number is not multiplied by the input, so it is not a rate. It is the starting amount of the output.' }],
+    steps: [
+      choiceStep(
+        `Look at the rule $${ctx.f}(${ctx.v}) = ${linearTex(ctx.m, ctx.b, ctx.v, true)}$. What does the number $${decTex(num)}$ do?`,
+        [MULTIPLIES, ADDED_ON],
+        askRate ? 0 : 1,
+        ['Find the number in the rule.', `Is it written right next to $${ctx.v}$, or does it stand alone?`, `A number written next to $${ctx.v}$ is multiplied by $${ctx.v}$.`, 'A number after a plus or minus sign, with no variable, is added on by itself.'],
+        askRate ? `$${decTex(num)}$ is multiplied by $${ctx.v}$, so it counts ${outWord} for each ${ctx.inUnit}: it is a rate.` : `$${decTex(num)}$ stands alone, so it is the starting amount of the output.`,
+        [{ index: askRate ? 1 : 0, tag: 'units', feedback: `Look again at where $${decTex(num)}$ sits in the rule: is it next to $${ctx.v}$ or alone?` }],
+      ),
+      finalStep(
+        `So what are the units of $${decTex(num)}$?`,
+        answer,
+        [
+          askRate ? 'A rate has units (output units) per (one input unit).' : 'A number added by itself has the same units as the output.',
+          `The output is measured in ${outWord}.`,
+          `The input is measured in ${ctx.inUnits}.`,
+          `Check: (${ctx.rateUnit}) $\\times$ (${ctx.inUnits}) gives ${outWord}.`,
+        ],
+        askRate ? `Multiplying ${rateLabel} by ${ctx.inUnits} leaves ${outWord}, so every term of the rule is in ${outWord}.` : 'Terms can only be added when they have the same units, so the constant is in the output units.',
+        askRate
+          ? [
+              { answer: idOf(inverse), tag: 'units', feedback: 'Flip it: a rate in a model is (output units) per (one input unit).' },
+              { answer: idOf(outWord), tag: 'units', feedback: `That number is multiplied by the number of ${ctx.inUnits}, so it counts ${outWord} for each ${ctx.inUnit}.` },
+            ]
+          : [{ answer: idOf(rateLabel), tag: 'units', feedback: 'That number is not multiplied by the input, so it is not a rate.' }],
+      ),
+    ],
   });
 }
+
+const MULTIPLIES = 'It is multiplied by the input, so it is a rate.';
+const ADDED_ON = 'It is added on by itself, so it is a starting amount.';
 
 function verifyUnitsOfNumber(pr: Problem): string[] {
   if (pr.answer.kind !== 'choice') return ['wrong kind'];
@@ -351,7 +577,8 @@ function verifyUnitsOfNumber(pr: Problem): string[] {
   const isRate = coef.eq(n);
   if (isRate === constant.eq(n)) return ['number is not exactly one of the rate and the constant'];
   const expect = isRate ? `${um[3]} per ${um[2].replace(/s$/, '')}` : um[3];
-  return choiceLabel(pr.answer) === expect ? [] : [`expected ${expect}`];
+  if (choiceLabel(pr.answer) !== expect) return [`expected ${expect}`];
+  return stepErrors(pr, [isRate ? MULTIPLIES : ADDED_ON, null]);
 }
 
 export const genUnitRates: GeneratorDef = {
@@ -387,10 +614,12 @@ export const genUnitRates: GeneratorDef = {
       if (isRate && task.from[1] !== task.to[1]) v = v.mul(BASE[task.from[1]!].toBase).div(BASE[task.to[1]!].toBase);
       return v;
     })();
+    const convMisc = numberMisconceptions(ans, [{ value: wrongDir, tag: 'units', feedback: 'Check the direction of each conversion factor. The unit you want to cancel must be on the opposite side of the fraction.' }]);
     return makeProblem({
       skillId: 'S1.16',
       tags: ['real-world', 'word'],
       prompt: [p(`${task.context(fromText)} Convert this to ${toUnits}.`), p(`Use: ${task.facts.join('; ')}.`)],
+      steps: conversionSteps(task, amt, ans, fromText, toUnits, convMisc),
       answer: { kind: 'number', value: numStr(ans), unit: toUnits },
       inputHint: `Type the number of ${toUnits}. Decimals are fine.`,
       hints: [
@@ -403,7 +632,7 @@ export const genUnitRates: GeneratorDef = {
         { text: 'Write the amount and multiply by conversion factors.', tex: chain.join(' \\cdot '), why: 'Each factor equals 1, so the amount does not change; only the units do. Units cancel when they appear on both top and bottom.' },
         { text: 'Multiply and simplify.', tex: `= ${decTex(ans)}\\text{ ${toUnits}}`, why: `So ${fromText} is the same as ${decTex(ans)} ${toUnits}.` },
       ],
-      misconceptions: numberMisconceptions(ans, [{ value: wrongDir, tag: 'units', feedback: 'Check the direction of each conversion factor. The unit you want to cancel must be on the opposite side of the fraction.' }]),
+      misconceptions: convMisc,
     });
   },
   verify(pr) {
@@ -426,6 +655,9 @@ export const genUnitRates: GeneratorDef = {
       const errs: string[] = [];
       if (!expect.eq(Rational.parse(pr.answer.value))) errs.push(`expected ${expect}`);
       if (!expect.isInteger()) errs.push('area answer is not a whole number');
+      // steps: k^2 small squares in a big one; multiply when going to the smaller unit
+      const toSmall = am[2] === plural(fm[1]);
+      errs.push(...stepErrors(pr, [k.mul(k), `${toSmall ? 'Multiply' : 'Divide'} by $${k.mul(k).toTex()}$`, null]));
       return errs;
     }
     const mm = /([\d.]+) ([a-z]+)(?: per ([a-z]+))?\. Convert this to ([a-z]+)(?: per ([a-z]+))?\./.exec(text);
@@ -440,6 +672,30 @@ export const genUnitRates: GeneratorDef = {
     const errs: string[] = [];
     if (!expect.eq(Rational.parse(pr.answer.value))) errs.push(`expected ${expect}`);
     if (!expect.isTerminatingDecimal()) errs.push('answer is not a terminating decimal');
+    // steps: the keyed factor must equal 1, cancel the old unit, and carry the amount (or the
+    // first step's partial result) to the answer
+    const st = pr.steps;
+    if (st) {
+      const ci = st.findIndex((x) => x.answer.kind === 'choice');
+      const ca = ci >= 0 ? st[ci].answer : null;
+      const fct = ca && ca.kind === 'choice' ? parseFactor(choiceLabel(ca)) : null;
+      if (!fct) return [...errs, 'no conversion-factor step'];
+      const [top, bottom] = [find(fct.top), find(fct.bottom)];
+      if (!top || !bottom || !fct.num.mul(BASE[top].toBase).eq(fct.den.mul(BASE[bottom].toBase))) errs.push('keyed factor is not equal to 1');
+      const convertsTop = bottom === fa && top === ta;
+      const convertsTime = !!fb && top === fb && bottom === tb;
+      if (!convertsTop && !convertsTime) errs.push('keyed factor does not cancel the old unit');
+      const before = expect.mul(fct.den).div(fct.num); // the amount the factor is applied to
+      if (ci === 0) {
+        if (!before.eq(amt)) errs.push('factor does not turn the amount into the answer');
+        errs.push(...stepErrors(pr, [null, expect]));
+      } else {
+        // the other unit was converted first: the partial result is the amount with that unit changed
+        const other = convertsTop ? amt.mul(BASE[tb!].toBase).div(BASE[fb!].toBase) : amt.mul(BASE[fa].toBase).div(BASE[ta].toBase);
+        if (!before.eq(other)) errs.push('partial result does not match');
+        errs.push(...stepErrors(pr, [other, null, expect]));
+      }
+    }
     return errs;
   },
 };

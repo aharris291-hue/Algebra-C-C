@@ -3,8 +3,9 @@ import { stressGenerator } from './harness';
 import { U8_GENERATORS_UNDER_TEST } from './u8-list';
 import { createRng } from '../../src/core/engine/rng';
 import { Rational } from '../../src/core/math/rational';
-import { produceProblem } from '../../src/core/engine/problems';
-import { ALL_GENERATORS } from '../../src/content';
+import { produceProblem, validateStep, canonicalInput } from '../../src/core/engine/problems';
+import { ALL_GENERATORS, GENERATORS, LESSON_CONTENT } from '../../src/content';
+import { checkAnswer, answerToText } from '../../src/core/math/answers';
 import type { Difficulty, Problem } from '../../src/core/curriculum/types';
 
 describe('Unit 8 generators', () => {
@@ -94,4 +95,77 @@ describe('Unit 8 audit variants', () => {
   // A.GSR.3.1: areas of parallelograms, rhombuses and squares; unknown side lengths
   checkVariant('u8.perim-area', 2, /area of (parallelogram|rhombus|square) \$ABCD\$/, 50);
   checkVariant('u8.perim-area', 3, /Its (perimeter|area) is \$\d+\$/, 60);
+});
+
+// ---------------------------------------------------------------------------
+// Guided practice is step by step (Lesson Quality Audit, C4): every guided generator/difficulty in the
+// Unit 8 lessons produces 2-4 steps on every seed, each step's key is accepted by its own checker, and
+// finishing the last step answers the problem. verify() recomputes the step answers from the prompt, so
+// a corrupted number step must be caught.
+// ---------------------------------------------------------------------------
+describe('Unit 8 guided practice is step by step', () => {
+  const pairs = new Set<string>();
+  for (const [id, l] of LESSON_CONTENT) if (id.startsWith('U8')) for (const r of l.guided) pairs.add(`${r.generator}|${r.difficulty}`);
+  it('the Unit 8 lessons have guided activities', () => expect(pairs.size).toBeGreaterThan(5));
+  for (const pair of [...pairs].sort()) {
+    it(`${pair} gives checked steps on 60 seeds`, () => {
+      const [gid, d] = pair.split('|');
+      const gen = GENERATORS.get(gid)!;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 17 * Number(d), Number(d) as Difficulty);
+        const steps = problem.steps ?? [];
+        expect(steps.length, `${problem.id} has steps`).toBeGreaterThanOrEqual(2);
+        expect(steps.length).toBeLessThanOrEqual(4);
+        steps.forEach((st, i) => expect(validateStep(st, `${problem.id} step ${i + 1}`)).toEqual([]));
+        expect(checkAnswer(problem.answer, canonicalInput(steps[steps.length - 1].answer)).status, `${problem.id} last step`).toBe('correct');
+        expect(gen.verify(problem), problem.id).toEqual([]);
+      }
+    });
+  }
+  it('verify() rejects a corrupted number step', () => {
+    let tried = 0;
+    let caught = 0;
+    for (const gid of [...new Set([...pairs].map((p) => p.split('|')[0]))])
+      for (const d of [1, 2, 3] as const)
+        for (let s = 1; s <= 20; s++) {
+          const gen = GENERATORS.get(gid)!;
+          const { problem } = produceProblem(gen, s * 104729 + d, d);
+          // only intermediate steps: the last step is the problem's own answer, checked elsewhere
+          problem.steps!.slice(0, -1).forEach((st, i) => {
+            if (st.answer.kind !== 'number') return;
+            const m = JSON.parse(JSON.stringify(problem)) as Problem;
+            const a = m.steps![i].answer as { value: string; roundTo?: number };
+            a.value = Rational.parse(a.value).add(Rational.from(1)).toString();
+            tried++;
+            if (gen.verify(m).length > 0) caught++;
+          });
+        }
+    expect(tried).toBeGreaterThan(100);
+    expect(caught).toBe(tried);
+  });
+});
+
+describe('answerToText units', () => {
+  const show = (value: string, unit: string) => answerToText({ kind: 'number', value, unit });
+  it('uses the singular unit for exactly 1', () => {
+    expect(show('1', 'miles')).toBe('1 mile');
+    expect(show('1', 'feet')).toBe('1 foot');
+    expect(show('1', 'units')).toBe('1 unit');
+    expect(show('1', 'dollars')).toBe('1 dollar');
+    expect(show('1', 'hours')).toBe('1 hour');
+    expect(show('1', 'square feet')).toBe('1 square foot');
+    expect(show('1', 'inches')).toBe('1 inch');
+    expect(show('1', 'people')).toBe('1 person');
+    expect(show('1', 'milligrams per hour')).toBe('1 milligram per hour');
+  });
+  it('keeps the plural for other values and leaves non-plural units alone', () => {
+    expect(show('2', 'miles')).toBe('2 miles');
+    expect(show('0', 'feet')).toBe('0 feet');
+    expect(show('1.5', 'hours')).toBe('1.5 hours');
+    expect(show('-1', 'dollars')).toBe('-1 dollars');
+    expect(show('1', '%')).toBe('1 %');
+    expect(show('1', 'percent')).toBe('1 percent');
+    expect(show('1', 'thousand dollars')).toBe('1 thousand dollars');
+    expect(answerToText({ kind: 'number', value: '1', unit: 'miles', roundTo: 1 })).toBe('1.0 miles');
+  });
 });

@@ -7,7 +7,7 @@
  * different route: squared distances compared exactly, areas by the shoelace formula, figure types
  * from cross and dot products of side vectors, and lines from their parsed equations.
  */
-import type { GeneratorDef, Rng, Block, GraphSpec, Problem } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, Block, GraphSpec, Problem, ProblemStep } from '../../core/curriculum/types';
 import type { Misconception } from '../../core/math/answers';
 import { parseRelation } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
@@ -17,6 +17,11 @@ import { parseExpression } from '../../core/math/parser';
 import { evalNumeric } from '../../core/math/evaluate';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions, stringMisconceptions, texToExpr, money } from './util';
 import { splitPower, radPlain, radTex, plainSurd } from './u3-common';
+import { numStep, specStep, choiceStep, finalStep, withSteps, expectSteps, stepLabel, addStepChecks, type H4 } from './u7-steps';
+import type { AnswerSpec } from '../../core/math/answers';
+import { checkAnswer } from '../../core/math/answers';
+import { canonicalInput } from '../../core/engine/problems';
+import { minusHint, plusHint } from './u1-steps';
 
 interface Pt { x: number; y: number; label: string }
 const pt = (label: string, x: number, y: number): Pt => ({ label, x, y });
@@ -24,6 +29,14 @@ const ptTex = (a: Pt) => `${a.label}(${a.x}, ${a.y})`;
 const d2 = (a: { x: number; y: number }, b: { x: number; y: number }) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 const neg = (n: number) => (n < 0 ? `(${n})` : `${n}`);
 const halfStr = (n: number) => numStr(Q(n, 2));
+/** Direction of a change along one axis, said only with the sign it really has. */
+const moveTip = (d: number, axis: 'x' | 'y') =>
+  d === 0 ? `The ${axis}-coordinates are equal, so the change is 0.` : axis === 'x' ? (d < 0 ? 'A move to the left is a negative change.' : 'A move to the right is a positive change.') : d < 0 ? 'A move down is a negative change.' : 'A move up is a positive change.';
+/** A squaring hint that mentions negatives only when one of the changes is negative. */
+const sqTip = (lead: string, ...ds: number[]) => {
+  const tail = ds.some((d) => d < 0) ? 'A negative number squared is positive.' : 'No change here is negative, so square each one as it is.';
+  return lead ? `${lead} ${tail}` : tail;
+};
 /** sqrt(n) in simplest radical form, as answer text and TeX */
 function root(n: number): { plain: string; tex: string; out: number; inside: number } {
   const { out, inside } = splitPower(n, 2);
@@ -74,6 +87,70 @@ function graphOf(points: Pt[], segments: Array<[Pt, Pt]> = [], dashed = false): 
     ariaLabel: `Coordinate grid with ${points.map((q) => `${q.label} at (${q.x}, ${q.y})`).join(', ')}${segments.length ? `, and segments ${segments.map(([a, b]) => a.label + b.label).join(', ')}` : ''}.`,
   };
 }
+/** A point misconception, in the "x|y" form the answer checker matches. */
+const ptMis = (x: number | string, y: number | string, tag: Misconception['tag'], feedback: string): Misconception => ({ answer: `${x}|${y}`, tag, feedback });
+/** A step whose answer is an exact length like 2sqrt(5) (or a whole number). */
+const radStep = (prompt: string, n: number, hints: H4, explanation: string, mis: Misconception[] = []) =>
+  specStep(prompt, { kind: 'expression', value: root(n).plain, form: 'simplified-radical' }, hints, explanation, mis, 'Type sqrt( ) for a square root, like 2sqrt(5).');
+/** The answer spec of step i (for verify). */
+const stepSpecAt = (pr: Problem, i: number): AnswerSpec | undefined => pr.steps?.[i]?.answer;
+/** Does step i have this value? (verify recomputes a value and asks the step's own checker.) */
+const stepAccepts = (pr: Problem, i: number, input: string, what: string): string[] => {
+  const a = stepSpecAt(pr, i);
+  if (!a) return [`missing step ${i + 1}`];
+  // 'wrong-form' means the same value written another way (like sqrt(50) for 5sqrt(2))
+  const st = checkAnswer(a, input).status;
+  return st === 'correct' || st === 'wrong-form' ? [] : [`step ${i + 1} (${what}) should equal ${input}, key is ${canonicalInput(a)}`];
+};
+const slopeTex = (m: Rational) => (m.isNegative() ? `\\left(${m.toTex()}\\right)` : m.toTex());
+/** Feedback for every wrong option of a choice problem, from its label. */
+const wrongFeedback = (pr: Problem, fb: (label: string) => string): Record<string, string> => {
+  const a = pr.answer;
+  return a.kind === 'choice' ? Object.fromEntries(a.options.filter((o) => o.id !== a.correct).map((o) => [o.label, fb(o.label)])) : {};
+};
+/** The first three steps of the distance formula from P to R: the change in x, the change in y, and the sum of their squares. */
+function distanceSteps(P: Pt, R: Pt): ProblemStep[] {
+  const dx = R.x - P.x;
+  const dy = R.y - P.y;
+  const n = dx * dx + dy * dy;
+  const [a, b] = [P.label, R.label];
+  return [
+    numStep(`What is the change in x from $${a}$ to $${b}$, $x_${b} - x_${a}$?`, Q(dx), ['The change in x is how far you move left or right to get from one point to the other.', `Start with the x-coordinate of ${b}.`, `Subtract the x-coordinate of ${a}. ${minusHint(R.x, P.x)}`, moveTip(dx, 'x')], `$${R.x} - ${neg(P.x)} = ${dx}$. This is one leg of a right triangle whose hypotenuse is $\\overline{${a}${b}}$.`, [{ value: Q(-dx), tag: 'sign-error', feedback: `Subtract in the order ${b} minus ${a}: the x-coordinate of ${b} comes first.` }, { value: Q(R.x + P.x), tag: 'sign-error', feedback: 'Subtract the x-coordinates; do not add them.' }]),
+    numStep(`What is the change in y from $${a}$ to $${b}$, $y_${b} - y_${a}$?`, Q(dy), ['The change in y is how far you move up or down.', `Start with the y-coordinate of ${b}.`, `Subtract the y-coordinate of ${a}. ${minusHint(R.y, P.y)}`, moveTip(dy, 'y')], `$${R.y} - ${neg(P.y)} = ${dy}$. This is the other leg of the right triangle.`, [{ value: Q(-dy), tag: 'sign-error', feedback: `Subtract in the order ${b} minus ${a}: the y-coordinate of ${b} comes first.` }, { value: Q(R.y + P.y), tag: 'sign-error', feedback: 'Subtract the y-coordinates; do not add them.' }]),
+    numStep(`Square each change and add. What is $(x_${b} - x_${a})^2 + (y_${b} - y_${a})^2$?`, Q(n), ['This is the Pythagorean theorem: leg² + leg² = hypotenuse².', 'Square the change in x: multiply it by itself.', sqTip('Square the change in y the same way.', dx, dy), 'Add the two squares.'], `$${neg(dx)}^2 + ${neg(dy)}^2 = ${dx * dx} + ${dy * dy} = ${n}$. This is $${a}${b}^2$, the square of the distance.`, [{ value: Q(Math.abs(dx) + Math.abs(dy)), tag: 'formula-error', feedback: 'Square each change before adding.' }, { value: Q((dx + dy) ** 2), tag: 'formula-error', feedback: 'Square the change in x and the change in y separately, then add.' }, { value: Q(2 * dx + 2 * dy), tag: 'formula-error', feedback: 'Squaring means multiplying a number by itself, not by 2.' }, { value: Q(Math.abs(dx * dx - dy * dy)), tag: 'formula-error', feedback: 'Add the two squares; do not subtract them.' }]),
+  ];
+}
+/** A squared side length, (change in x)² + (change in y)², in one step. */
+function sqLenStep(P: { x: number; y: number }, R: { x: number; y: number }, name: string): ProblemStep {
+  const n = d2(P, R);
+  return numStep(`What is $${name}^2$? Use $(\\text{change in } x)^2 + (\\text{change in } y)^2$.`, Q(n), [`Find the change in x and the change in y along $\\overline{${name}}$.`, sqTip('Square each change.', R.x - P.x, R.y - P.y), 'Add the two squares.', 'You do not need the square root to compare lengths: equal squares mean equal lengths.'], `$${name}^2 = ${neg(R.x - P.x)}^2 + ${neg(R.y - P.y)}^2 = ${n}$.`, [{ value: Q(Math.abs(R.x - P.x) + Math.abs(R.y - P.y)), tag: 'formula-error', feedback: 'Square each change before adding.' }, { value: Q((R.x - P.x + R.y - P.y) ** 2), tag: 'formula-error', feedback: 'Square the change in x and the change in y separately, then add.' }]);
+}
+/** The slope of segment PR (not vertical) in one step. */
+function slopeStep(P: { x: number; y: number }, R: { x: number; y: number }, name: string, prompt?: string): ProblemStep {
+  const m = Q(R.y - P.y).div(R.x - P.x);
+  return numStep(prompt ?? `What is the slope of $\\overline{${name}}$?`, m, ['Slope = (change in y) ÷ (change in x).', 'Subtract the coordinates of the two points in the same order on the top and on the bottom.', 'Put the change in y on top.', 'Simplify the fraction.'], `$m_{${name}} = \\frac{${R.y} - ${neg(P.y)}}{${R.x} - ${neg(P.x)}} = ${m.toTex()}$.`, [...(m.isZero() ? [] : [{ value: Q(1).div(m), tag: 'rise-run-swap' as const, feedback: 'Put the change in y on top: rise over run.' }]), { value: m.neg(), tag: 'sign-error', feedback: 'Subtract in the same order on the top and on the bottom.' }]);
+}
+/** The slope of a printed line, read (and, for standard form, solved for y) in one step. */
+function lineSlopeStep(m: Rational, b: Rational, standard: boolean, name: string): ProblemStep {
+  return numStep(standard ? `Solve ${name} for y. What is its slope?` : `What is the slope of ${name}?`, m, [standard ? 'Get y by itself: move the x-term to the other side, then divide every term by the coefficient of y.' : 'In $y = mx + b$, the slope is m.', 'The slope is the coefficient of x once y is by itself.', 'Keep its sign.', 'The constant term is the y-intercept, not the slope.'], standard ? `Solved for y, it is $${yTex(m, b)}$, so the slope is $${m.toTex()}$.` : `In $${yTex(m, b)}$ the coefficient of x is $${m.toTex()}$.`, [{ value: b, tag: 'slope-calc', feedback: 'That is the y-intercept. The slope is the coefficient of x.' }, { value: m.neg(), tag: 'sign-error', feedback: standard ? 'Moving the x-term to the other side changes its sign. Check the sign of the slope.' : 'Keep the sign of the slope.' }, ...(standard && !m.isZero() ? [{ value: Q(-1).div(m), tag: 'rise-run-swap' as const, feedback: 'Divide by the coefficient of y, not by the coefficient of x.' }] : [])]);
+}
+/** Two slope steps, their product, then the parallel / perpendicular / neither decision. */
+function relationSteps(pr: Problem, first: ProblemStep, second: ProblemStep, m1: Rational, m2: Rational, rel: string, question: string): ProblemStep[] {
+  return [
+    first,
+    second,
+    numStep('Multiply the two slopes. What is $m_1 \\cdot m_2$?', m1.mul(m2), ['Multiply the numerators, then multiply the denominators.', 'A positive times a negative is negative.', 'Simplify the result.', 'A product of −1 is the test for perpendicular lines.'], `$${m1.toTex()} \\cdot ${slopeTex(m2)} = ${m1.mul(m2).toTex()}$.`, [{ value: m1.mul(m2).neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }, { value: m1.add(m2), tag: 'arithmetic-error', feedback: 'Multiply the slopes; do not add them.' }]),
+    finalStep(pr, question, ['Compare the two slopes.', 'Equal slopes (and different lines): parallel.', 'Slopes whose product is −1: perpendicular.', 'If neither test works: neither.'], rel === 'Parallel' ? 'Equal slopes mean the lines rise at the same rate, so they never meet.' : rel === 'Perpendicular' ? 'Slopes with a product of −1 are opposite reciprocals, so the lines meet at a right angle.' : 'The slopes are not equal and their product is not −1, so the lines are neither parallel nor perpendicular.', { feedback: { Parallel: 'Parallel lines have equal slopes. Compare your two slopes again.', Perpendicular: 'Perpendicular lines have slopes whose product is −1. Check your product again.', Neither: rel === 'Parallel' ? 'Your two slopes are equal, so the lines never meet.' : 'Your product is −1, so the lines meet at a right angle.' }, tag: 'slope-reciprocal' }),
+  ];
+}
+/** Feedback for a wrong quadrilateral name (plain or with its reason). */
+const QUAD_FEEDBACK: Record<string, string> = {
+  Square: 'A square needs four equal sides and right angles. Check the facts from your earlier steps.',
+  Rectangle: 'A rectangle needs right angles, and with four equal sides it would be called a square. Check the facts from your earlier steps.',
+  Rhombus: 'A rhombus needs four equal sides, and with right angles it would be called a square. Check the facts from your earlier steps.',
+  Parallelogram: 'Parallelogram needs two pairs of parallel sides, and it is not the most specific name when the shape also has right angles or four equal sides.',
+  Trapezoid: 'A trapezoid has exactly one pair of parallel sides. Check your first step.',
+};
 const polygonSegments = (ps: Pt[]): Array<[Pt, Pt]> => ps.map((a, i) => [a, ps[(i + 1) % ps.length]]);
 const fitsGrid = (ps: Array<{ x: number; y: number }>, lim = 10) => ps.every((q) => Math.abs(q.x) <= lim && Math.abs(q.y) <= lim);
 
@@ -132,7 +209,7 @@ export const genDistance: GeneratorDef = {
         const B = horiz ? pt('B', A.x + len, A.y) : pt('B', A.x, A.y + len);
         if (!fitsGrid([B])) return genDistance.generate(rng, 1);
         const [a, b] = horiz ? [A.x, B.x] : [A.y, B.y];
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.01',
           tags: ['graph'],
           prompt: [p(`Find the distance between $${ptTex(A)}$ and $${ptTex(B)}$.`), { t: 'graph', spec: graphOf([A, B], [[A, B]]) }],
@@ -142,13 +219,16 @@ export const genDistance: GeneratorDef = {
             { text: `The ${horiz ? 'y' : 'x'}-coordinates are the same, so the segment is ${horiz ? 'horizontal' : 'vertical'}.` },
             { text: 'Subtract the other coordinates.', tex: `|${b} - ${neg(a)}| = ${len}`, why: 'Distance is never negative, so take the absolute value.' },
           ],
-          misconceptions: numberMisconceptions(Q(len), [{ value: Q(Math.abs(a + b)), tag: 'sign-error', feedback: 'Subtract the coordinates; do not add them.' }]),
-        });
+          misconceptions: numberMisconceptions(Q(len), [{ value: Q(Math.abs(a + b)), tag: 'sign-error', feedback: 'Subtract the coordinates; do not add them.' }, { value: Q(len + 1), tag: 'arithmetic-error', feedback: 'That counts the grid points. Count the spaces between them, or subtract the coordinates.' }]),
+        }), (pr) => [
+          choiceStep('Compare the coordinates of A and B. Which coordinates are different?', horiz ? 'Only the x-coordinates' : 'Only the y-coordinates', [horiz ? 'Only the y-coordinates' : 'Only the x-coordinates', 'Both the x- and y-coordinates'], ['Look at the first numbers of A and B, then at the second numbers.', 'The x-coordinate is the first number in the pair.', 'When one coordinate stays the same, the segment runs along a grid line.', 'Check which pair of numbers does not match.'], `The ${horiz ? 'y' : 'x'}-coordinates match, so the segment is ${horiz ? 'horizontal' : 'vertical'} and only the ${horiz ? 'x' : 'y'}-coordinates change.`, { 'Both the x- and y-coordinates': `Look again: the ${horiz ? 'y' : 'x'}-coordinates are the same.`, [horiz ? 'Only the y-coordinates' : 'Only the x-coordinates']: `The ${horiz ? 'y' : 'x'}-coordinates are equal. The other coordinates are the ones that change.` }, 'graph-reading'),
+          finalStep(pr, `Subtract the ${horiz ? 'x' : 'y'}-coordinates and take the absolute value. What is the distance AB?`, [`The distance is how far apart the two ${horiz ? 'x' : 'y'}-coordinates are on a number line.`, 'Subtract one coordinate from the other.', 'A distance is never negative, so take the absolute value.', 'Check by counting the grid squares along the segment.'], 'Along a grid line, the distance is the absolute value of the difference of the coordinates that change.'),
+        ]);
       }
       const [dx, dy, c] = rng.pick(TRIPLES);
       const B = pt('B', A.x + dx * rng.pick([1, -1]), A.y + dy * rng.pick([1, -1]));
       if (!fitsGrid([B], 12)) return genDistance.generate(rng, 1);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.01',
         tags: ['graph'],
         prompt: [p(`Find the distance between $${ptTex(A)}$ and $${ptTex(B)}$.`), { t: 'graph', spec: graphOf([A, B], [[A, B]]) }],
@@ -162,7 +242,10 @@ export const genDistance: GeneratorDef = {
           { value: Q(dx + dy), tag: 'formula-error', feedback: 'Do not add the legs. Square them, add, then take the square root.' },
           { value: Q(c * c), tag: 'formula-error', feedback: 'You found the sum of the squares. Take its square root.' },
         ]),
-      });
+      }), (pr) => [
+        ...distanceSteps(A, B),
+        finalStep(pr, 'Take the square root of the sum. What is the distance AB?', ['The distance is the square root of $AB^2$.', 'Ask: which whole number times itself gives the sum?', 'Try the perfect squares 9, 16, 25, 36, ... until one matches.', 'A distance is never negative, so use the positive square root.'], 'The distance formula is the Pythagorean theorem on the grid: AB is the hypotenuse of a right triangle whose legs are the two changes.'),
+      ]);
     }
     if (difficulty === 2) {
       const dx = rng.nonzeroInt(-9, 9);
@@ -172,7 +255,7 @@ export const genDistance: GeneratorDef = {
       if (r.inside === 1 || (r.out === 1 && rng.int(0, 3) > 0)) return genDistance.generate(rng, 2);
       const B = pt('B', A.x + dx, A.y + dy);
       if (!fitsGrid([B], 12)) return genDistance.generate(rng, 2);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.01',
         tags: [],
         prompt: [p(`Find the exact distance between $${ptTex(A)}$ and $${ptTex(B)}$. Write it in simplest radical form.`)],
@@ -189,7 +272,10 @@ export const genDistance: GeneratorDef = {
           { answer: radPlain(1, Math.abs(dx) + Math.abs(dy)) === String(Math.abs(dx) + Math.abs(dy)) ? String(Math.abs(dx) + Math.abs(dy)) : `sqrt(${Math.abs(dx) + Math.abs(dy)})`, tag: 'formula-error', feedback: 'Square each change before adding.' },
           ...(dx + dy !== 0 ? [{ answer: `sqrt(${(dx + dy) ** 2})`, tag: 'formula-error' as const, feedback: 'Square the change in x and the change in y separately, then add.' }] : []),
         ] as Misconception[]),
-      });
+      }), (pr) => [
+        ...distanceSteps(A, B),
+        finalStep(pr, 'Take the square root of that sum and simplify. What is the exact distance AB?', ['The distance is the square root of the sum from the last step.', 'Look for the largest perfect-square factor of the sum, like 4, 9, 16, 25 or 36.', 'Write the sum as a perfect square times another factor.', 'The square root of the perfect square comes out in front; the other factor stays under the root.'], 'Simplest radical form leaves no perfect-square factor under the square root.'),
+      ]);
     }
     const kind = rng.pick(['round', 'closer', 'missing'] as const);
     if (kind === 'round') {
@@ -200,7 +286,7 @@ export const genDistance: GeneratorDef = {
       const B = pt('B', A.x + dx, A.y + dy);
       if (!fitsGrid([B], 12)) return genDistance.generate(rng, 3);
       const v = Math.sqrt(n);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.01',
         tags: [],
         prompt: [p(`Find the distance between $${ptTex(A)}$ and $${ptTex(B)}$. Round to the nearest tenth.`)],
@@ -211,7 +297,10 @@ export const genDistance: GeneratorDef = {
           { text: 'Use a calculator and round.', tex: `\\sqrt{${n}} \\approx ${v.toFixed(3)} \\approx ${v.toFixed(1)}`, why: 'Rounding to the nearest tenth keeps one decimal place.' },
         ],
         misconceptions: numberMisconceptions(Rational.parse(v.toFixed(1)), [{ value: Q(Math.abs(dx) + Math.abs(dy)), tag: 'formula-error', feedback: 'That adds the changes. Square them, add, then take the square root.' }]),
-      });
+      }), (pr) => [
+        ...distanceSteps(A, B),
+        finalStep(pr, 'Take the square root of the sum with a calculator. What is the distance AB, rounded to the nearest tenth?', ['The distance is the square root of the sum from the last step.', 'Use the √ key on a calculator.', 'Look at the hundredths digit to decide how to round.', 'Round only this final answer.'], 'The distance is the square root of the sum of the squared changes; rounding only at the end keeps the tenths digit right.'),
+      ]);
     }
     if (kind === 'closer') {
       const B = pt('B', A.x + rng.nonzeroInt(-7, 7), A.y + rng.nonzeroInt(-7, 7));
@@ -225,7 +314,7 @@ export const genDistance: GeneratorDef = {
       // the 'smaller total change' shortcut is offered only when it names the wrong point
       const shortcut = (sumB < sumC) !== (db < dc) && sumB !== sumC ? [`${sumB < sumC ? 'B' : 'C'}, because its coordinates change by less in total`] : [];
       const correct = `${db < dc ? 'B' : 'C'}, because its distance from A is $${db < dc ? root(db).tex : root(dc).tex}$ and the other distance is $${db < dc ? root(dc).tex : root(db).tex}$`;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.01',
         tags: [],
         prompt: [p(`Which point is closer to $${ptTex(A)}$: $${ptTex(B)}$ or $${ptTex(C)}$? Choose the answer with the correct reason.`)],
@@ -237,13 +326,17 @@ export const genDistance: GeneratorDef = {
           { text: `${db < dc ? 'B' : 'C'} is closer.`, tex: `${root(Math.min(db, dc)).tex} < ${root(Math.max(db, dc)).tex}`, why: 'A smaller square means a smaller distance, since distances are positive.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        numStep('Find the squared distance from A to B. What is $AB^2 = (x_B - x_A)^2 + (y_B - y_A)^2$?', Q(db), ['Find the change in x and the change in y from A to B.', 'Square each change.', sqTip('', B.x - A.x, B.y - A.y), 'Add the two squares.'], `$AB^2 = ${neg(B.x - A.x)}^2 + ${neg(B.y - A.y)}^2 = ${db}$, so $AB = ${root(db).tex}$.`, [{ value: Q(sumB), tag: 'formula-error', feedback: 'Square each change before adding.' }]),
+        numStep('Now find the squared distance from A to C. What is $AC^2$?', Q(dc), ['Find the change in x and the change in y from A to C.', 'Square each change.', sqTip('', C.x - A.x, C.y - A.y), 'Add the two squares.'], `$AC^2 = ${neg(C.x - A.x)}^2 + ${neg(C.y - A.y)}^2 = ${dc}$, so $AC = ${root(dc).tex}$.`, [{ value: Q(sumC), tag: 'formula-error', feedback: 'Square each change before adding.' }]),
+        finalStep(pr, 'Which point is closer to A?', ['Compare your two squared distances.', 'The smaller squared distance belongs to the closer point.', 'Distances are positive, so a smaller square means a smaller distance.', 'Pick the choice that names the closer point and gives the right distances.'], 'Comparing squared distances works because, for positive numbers, the smaller number has the smaller square.', { feedback: wrongFeedback(pr, (l) => (l.startsWith('They are') ? 'Your two squared distances are different, so the distances are different.' : /change by less/.test(l) ? 'Adding the changes is not the distance. Compare the squared distances instead.' : 'The closer point has the smaller squared distance. Compare your two answers again.')), tag: 'formula-error' }),
+      ]);
     }
     const [a, b, c] = rng.pick(TRIPLES);
     const y0 = A.y + a * rng.pick([1, -1]);
     if (!fitsGrid([{ x: A.x + b, y: y0 }, { x: A.x - b, y: y0 }], 16)) return genDistance.generate(rng, 3);
     const xs = [A.x - b, A.x + b];
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S8.01',
       tags: ['multi-step'],
       prompt: [p(`The point $(x, ${y0})$ is $${c}$ units from $${ptTex(A)}$. Find every possible value of $x$.`)],
@@ -256,7 +349,12 @@ export const genDistance: GeneratorDef = {
         { text: 'Take the square root of both sides.', tex: `x - ${neg(A.x)} = \\pm ${b}\\ \\Rightarrow\\ x = ${xs[0]} \\text{ or } x = ${xs[1]}`, why: 'Both a positive and a negative change in x work: one point is to the left of A and one to the right.' },
       ],
       misconceptions: [{ answer: String(xs[0]), tag: 'missing-solution' as const, feedback: 'There is a second point on the other side. Remember the ± when you take the square root.' }, { answer: String(xs[1]), tag: 'missing-solution', feedback: 'There is a second point on the other side. Remember the ± when you take the square root.' }],
-    });
+    }), (pr) => [
+      numStep(`What is the change in y from $A$ to the point $(x, ${y0})$?`, Q(y0 - A.y), ['Only the y-coordinate of the new point is known.', `Start with ${y0}.`, `Subtract the y-coordinate of A, ${A.y}.`, minusHint(y0, A.y)], `$${y0} - ${neg(A.y)} = ${y0 - A.y}$.`, [{ value: Q(A.y - y0), tag: 'sign-error', feedback: 'Subtract in the order: the new point’s y-coordinate minus A’s.' }, { value: Q(y0 + A.y), tag: 'sign-error', feedback: 'Subtract the y-coordinates; do not add them.' }]),
+      numStep(`The distance formula, squared, says $(x - ${neg(A.x)})^2 + ${neg(y0 - A.y)}^2 = ${c}^2$. What must $(x - ${neg(A.x)})^2$ equal?`, Q(c * c - a * a), ['Square the change in y and square the distance.', `Work out $${c}^2$.`, 'Subtract the squared change in y from both sides.', 'What is left is the squared change in x.'], `$${c * c} - ${a * a} = ${c * c - a * a}$.`, [{ value: Q(c - a), tag: 'formula-error', feedback: 'Square the distance and the change in y before subtracting.' }, { value: Q(c * c + a * a), tag: 'inverse-operation', feedback: 'Subtract the squared change in y from both sides; do not add it.' }]),
+      numStep(`$(x - ${neg(A.x)})^2 = ${b * b}$. What positive number squared gives ${b * b}?`, Q(b), ['Undo the square with a square root.', 'Think of the perfect squares: 1, 4, 9, 16, 25, 36, ...', 'Find the whole number that times itself makes this value.', 'Give the positive root here; the negative root comes next.'], `$${b}^2 = ${b * b}$, so $x - ${neg(A.x)} = ${b}$ or $-${b}$: the point is ${b} units to the right or to the left of A.`, [{ value: Q(b * b, 2), tag: 'formula-error', feedback: 'Take the square root, not half.' }]),
+      finalStep(pr, `So $x - ${neg(A.x)} = ${b}$ or $x - ${neg(A.x)} = -${b}$. What are both values of x?`, ['Solve each equation for x.', 'Undo the subtraction by adding the same number to both sides.', 'Do it once for the positive root and once for the negative root.', 'Type both values, separated by a comma.'], 'Both points are the same distance from A: one is to the left of A and one is to the right.'),
+    ]);
   },
   verify(pr) {
     const ps = readPts(pr);
@@ -311,7 +409,7 @@ export const genMidpoint: GeneratorDef = {
       const mx = (A.x + B.x) / 2;
       const my = (A.y + B.y) / 2;
       const showGraph = difficulty === 2 && rng.bool();
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.02',
         tags: showGraph ? ['graph'] : [],
         prompt: [p(`Find the midpoint of the segment with endpoints $${ptTex(A)}$ and $${ptTex(B)}$.`), ...(showGraph ? [{ t: 'graph', spec: graphOf([A, B], [[A, B]]) } as Block] : [])],
@@ -324,17 +422,21 @@ export const genMidpoint: GeneratorDef = {
           { text: 'Write the midpoint.', tex: `M(${numStr(Q(mx))}, ${numStr(Q(my))})` },
         ],
         misconceptions: [
-          { answer: `(${halfStr(B.x - A.x)}, ${halfStr(B.y - A.y)})`, tag: 'formula-error', feedback: 'Add the coordinates before dividing by 2; do not subtract them.' },
-          { answer: `(${A.x + B.x}, ${A.y + B.y})`, tag: 'formula-error', feedback: 'Divide each sum by 2.' },
-        ].filter((m) => m.answer !== `(${halfStr(A.x + B.x)}, ${halfStr(A.y + B.y)})`) as Misconception[],
-      });
+          ptMis(halfStr(B.x - A.x), halfStr(B.y - A.y), 'formula-error', 'Add the coordinates before dividing by 2; do not subtract them.'),
+          ptMis(A.x + B.x, A.y + B.y, 'formula-error', 'Divide each sum by 2.'),
+        ].filter((m) => m.answer !== `${halfStr(A.x + B.x)}|${halfStr(A.y + B.y)}`),
+      }), (pr) => [
+        numStep('What is the x-coordinate of the midpoint, $\\frac{x_A + x_B}{2}$?', Q(A.x + B.x, 2), ['Halfway between two numbers is their average.', `Add the two x-coordinates. ${plusHint(A.x, B.x)}`, 'Divide the sum by 2.', 'If the sum is odd, the answer ends in .5.'], `$\\frac{${A.x} + ${neg(B.x)}}{2} = \\frac{${A.x + B.x}}{2} = ${halfStr(A.x + B.x)}$.`, [{ value: Q(B.x - A.x, 2), tag: 'formula-error', feedback: 'Add the x-coordinates; do not subtract them.' }, { value: Q(A.x + B.x), tag: 'formula-error', feedback: 'Divide the sum by 2.' }]),
+        numStep('What is the y-coordinate of the midpoint, $\\frac{y_A + y_B}{2}$?', Q(A.y + B.y, 2), ['Halfway between two numbers is their average.', `Add the two y-coordinates. ${plusHint(A.y, B.y)}`, 'Divide the sum by 2.', 'If the sum is odd, the answer ends in .5.'], `$\\frac{${A.y} + ${neg(B.y)}}{2} = \\frac{${A.y + B.y}}{2} = ${halfStr(A.y + B.y)}$.`, [{ value: Q(B.y - A.y, 2), tag: 'formula-error', feedback: 'Add the y-coordinates; do not subtract them.' }, { value: Q(A.y + B.y), tag: 'formula-error', feedback: 'Divide the sum by 2.' }]),
+        finalStep(pr, 'Write the midpoint $M$ as an ordered pair.', ['The midpoint is (average of the x-coordinates, average of the y-coordinates).', 'Use your answers from the last two steps.', 'The x-coordinate goes first.', 'Type the pair in parentheses with a comma between the numbers.'], 'Averaging each coordinate puts M halfway between A and B, both across and up or down.'),
+      ]);
     }
     if (rng.bool()) {
       const M = pt('M', rng.int(-6, 6), rng.int(-6, 6));
       if (A.x === M.x || A.y === M.y) return genMidpoint.generate(rng, 3);
       const B = { x: 2 * M.x - A.x, y: 2 * M.y - A.y };
       if (!fitsGrid([B], 20)) return genMidpoint.generate(rng, 3);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.02',
         tags: ['multi-step'],
         prompt: [p(`$${ptTex(M)}$ is the midpoint of $\\overline{AB}$. One endpoint is $${ptTex(A)}$. Find the other endpoint, $B$.`)],
@@ -347,14 +449,18 @@ export const genMidpoint: GeneratorDef = {
           { text: 'Check with the midpoint formula.', tex: `\\left(\\frac{${A.x} + ${neg(B.x)}}{2}, \\frac{${A.y} + ${neg(B.y)}}{2}\\right) = (${M.x}, ${M.y})` },
         ],
         misconceptions: [
-          { answer: `(${halfStr(A.x + M.x)}, ${halfStr(A.y + M.y)})`, tag: 'formula-error', feedback: 'That is the midpoint of A and M. B is past M, the same distance from M as A is.' },
-          { answer: `(${M.x - A.x}, ${M.y - A.y})`, tag: 'formula-error', feedback: 'That is only the step from A to M. Add it to M.' },
-        ] as Misconception[],
-      });
+          ptMis(halfStr(A.x + M.x), halfStr(A.y + M.y), 'formula-error', 'That is the midpoint of A and M. B is past M, the same distance from M as A is.'),
+          ptMis(M.x - A.x, M.y - A.y, 'formula-error', 'That is only the step from A to M. Add it to M.'),
+        ],
+      }), (pr) => [
+        numStep('What is the change in x from $A$ to $M$, $x_M - x_A$?', Q(M.x - A.x), ['M is halfway from A to B, so B is the same step past M.', 'First find the step from A to M in the x-direction.', 'Subtract the x-coordinate of A from the x-coordinate of M.', minusHint(M.x, A.x)], `$${M.x} - ${neg(A.x)} = ${M.x - A.x}$.`, [{ value: Q(A.x - M.x), tag: 'sign-error', feedback: 'Subtract in the order M minus A, so the step points from A toward M.' }, { value: Q(A.x + M.x, 2), tag: 'formula-error', feedback: 'This step is not a midpoint: find the step from A to M by subtracting.' }]),
+        numStep('What is the change in y from $A$ to $M$, $y_M - y_A$?', Q(M.y - A.y), ['Now do the same in the y-direction.', 'Subtract the y-coordinate of A from the y-coordinate of M.', moveTip(M.y - A.y, 'y'), minusHint(M.y, A.y)], `$${M.y} - ${neg(A.y)} = ${M.y - A.y}$.`, [{ value: Q(A.y - M.y), tag: 'sign-error', feedback: 'Subtract in the order M minus A, so the step points from A toward M.' }, { value: Q(A.y + M.y, 2), tag: 'formula-error', feedback: 'This step is not a midpoint: find the step from A to M by subtracting.' }]),
+        finalStep(pr, 'Take the same step again, starting from M. What are the coordinates of B?', ['B is as far past M as M is past A.', 'Add the change in x to the x-coordinate of M.', 'Add the change in y to the y-coordinate of M.', 'Check: the midpoint of A and your B should be M.'], 'M is halfway, so the same step again from M lands on the other endpoint.'),
+      ]);
     }
     const B = pt('B', rng.int(-9, 9), rng.int(-9, 9));
     if ((A.x + B.x) % 2 !== 0 || (A.y + B.y) % 2 !== 0 || A.x === B.x || A.y === B.y) return genMidpoint.generate(rng, 3);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S8.02',
       tags: ['real-world'],
       prompt: [p(`A circular garden is drawn on a grid. The endpoints of one diameter are $${ptTex(A)}$ and $${ptTex(B)}$. What are the coordinates of the center of the circle?`)],
@@ -365,8 +471,12 @@ export const genMidpoint: GeneratorDef = {
         { text: 'The center is the midpoint of the diameter.', why: 'The center is the same distance (the radius) from both ends of a diameter.' },
         { text: 'Average the coordinates.', tex: `\\left(\\frac{${A.x} + ${neg(B.x)}}{2}, \\frac{${A.y} + ${neg(B.y)}}{2}\\right) = (${(A.x + B.x) / 2}, ${(A.y + B.y) / 2})` },
       ],
-      misconceptions: [{ answer: `(${halfStr(B.x - A.x)}, ${halfStr(B.y - A.y)})`, tag: 'formula-error', feedback: 'Add the coordinates before dividing by 2.' }] as Misconception[],
-    });
+      misconceptions: [ptMis(halfStr(B.x - A.x), halfStr(B.y - A.y), 'formula-error', 'Add the coordinates before dividing by 2.'), ptMis(A.x + B.x, A.y + B.y, 'formula-error', 'Divide each sum by 2.')],
+    }), (pr) => [
+      choiceStep('A diameter passes through the center of the circle. Where on the diameter is the center?', 'At the midpoint of the diameter', ['At one endpoint of the diameter', 'One-third of the way along the diameter'], ['Every point of the circle is the same distance from the center.', 'Both endpoints of the diameter are on the circle.', 'So the center is the same distance from both endpoints.', 'Which point of a segment is the same distance from both ends?'], 'The center is one radius from each end of the diameter, so it is the midpoint.', { 'At one endpoint of the diameter': 'The endpoints are on the circle, not at its center.', 'One-third of the way along the diameter': 'The center is the same distance from both ends of the diameter.' }, 'formula-error'),
+      numStep('What is the x-coordinate of the center, the average of the x-coordinates?', Q(A.x + B.x, 2), ['Add the two x-coordinates.', plusHint(A.x, B.x), 'Divide the sum by 2.', 'The center is halfway across.'], `$\\frac{${A.x} + ${neg(B.x)}}{2} = ${(A.x + B.x) / 2}$.`, [{ value: Q(B.x - A.x, 2), tag: 'formula-error', feedback: 'Add the x-coordinates before dividing by 2.' }, { value: Q(A.x + B.x), tag: 'formula-error', feedback: 'Divide the sum by 2.' }]),
+      finalStep(pr, 'Average the y-coordinates too. What are the coordinates of the center?', ['Add the two y-coordinates.', 'Divide the sum by 2.', 'Use your x-coordinate from the last step.', 'Write the center as an ordered pair.'], 'The center is the midpoint of the diameter: the average of the x-coordinates and of the y-coordinates.'),
+    ]);
   },
   verify(pr) {
     const ps = readPts(pr);
@@ -434,7 +544,7 @@ export const genParallelPerp: GeneratorDef = {
         const ask = rng.pick(['parallel', 'perpendicular'] as const);
         const isHoriz = horizontal === (ask === 'parallel');
         const correct = isHoriz ? 'A horizontal line, with slope 0' : 'A vertical line, with undefined slope';
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.03',
           tags: [],
           prompt: [p(`A line is ${ask} to the line $${horizontal ? `y = ${k}` : `x = ${k}`}$. What kind of line is it?`)],
@@ -445,11 +555,14 @@ export const genParallelPerp: GeneratorDef = {
             { text: correct + '.', why: ask === 'parallel' ? 'A parallel line points the same way.' : 'Horizontal and vertical lines meet at right angles.' },
           ],
           misconceptions: [],
-        });
+        }), (pr) => [
+          choiceStep(`What kind of line is $${horizontal ? `y = ${k}` : `x = ${k}`}$?`, horizontal ? 'Horizontal, with slope 0' : 'Vertical, with undefined slope', [horizontal ? 'Vertical, with undefined slope' : 'Horizontal, with slope 0', 'Slanted, with slope 1'], [horizontal ? 'Every point on this line has the same y-coordinate.' : 'Every point on this line has the same x-coordinate.', horizontal ? `Points like $(0, ${k})$ and $(3, ${k})$ are on it.` : `Points like $(${k}, 0)$ and $(${k}, 3)$ are on it.`, 'Plot those two points and join them.', 'Does the line lie flat, or stand straight up and down?'], horizontal ? 'Only x changes along the line, so it is flat: its slope is 0.' : 'Only y changes along the line, so it stands straight up: its slope is undefined.', { 'Slanted, with slope 1': 'A slanted line has both coordinates changing. Here one coordinate never changes.', [horizontal ? 'Vertical, with undefined slope' : 'Horizontal, with slope 0']: horizontal ? 'The y-coordinate is fixed, so the line runs left to right.' : 'The x-coordinate is fixed, so the line runs up and down.' }, 'slope-calc'),
+          finalStep(pr, `What kind of line is ${ask} to it?`, [ask === 'parallel' ? 'Parallel lines point the same way and never meet.' : 'Perpendicular lines meet at a right angle.', 'Picture the given line on a grid.', ask === 'parallel' ? 'A line that never meets it must point the same way.' : 'Turn the given line a quarter turn.', 'Horizontal and vertical lines are perpendicular to each other.'], ask === 'parallel' ? 'A parallel line points the same way, so it is the same kind of line.' : 'A quarter turn swaps horizontal and vertical.', { feedback: wrongFeedback(pr, (l) => (/slope (1|−1)$/.test(l) ? 'Slopes 1 and −1 are slanted lines. The given line is horizontal or vertical.' : ask === 'parallel' ? 'A parallel line points the same way as the given line.' : 'A perpendicular line is a quarter turn from the given line.')), tag: 'slope-reciprocal' }),
+        ]);
       }
       const ask = rng.pick(['parallel', 'perpendicular'] as const);
       const key = ask === 'parallel' ? m : Q(-1).div(m);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.03',
         tags: [],
         prompt: [p(`What is the slope of a line ${ask} to the given line?`), lineBlock('Given line', yTex(m, b))],
@@ -464,7 +577,16 @@ export const genParallelPerp: GeneratorDef = {
         misconceptions: numberMisconceptions(key, ask === 'parallel'
           ? [{ value: Q(-1).div(m), tag: 'slope-reciprocal', feedback: 'That is the perpendicular slope. Parallel lines have the same slope.' }, { value: m.neg(), tag: 'sign-error', feedback: 'Parallel lines have exactly the same slope, including the sign.' }]
           : [{ value: Q(1).div(m), tag: 'slope-reciprocal', feedback: 'Flip the slope and also change its sign.' }, { value: m.neg(), tag: 'slope-reciprocal', feedback: 'Change the sign and also flip the fraction.' }, { value: m, tag: 'slope-reciprocal', feedback: 'That is the parallel slope.' }]),
-      });
+      }), (pr) => ask === 'parallel'
+        ? [
+            lineSlopeStep(m, b, false, 'the given line'),
+            finalStep(pr, 'Parallel lines have the same slope. What is the slope of a parallel line?', ['Parallel lines never meet.', 'To never meet, they must rise at the same rate.', 'So the slope does not change.', 'The y-intercept does not matter for the slope.'], 'Lines with the same slope rise at the same rate, so they never meet.'),
+          ]
+        : [
+            lineSlopeStep(m, b, false, 'the given line'),
+            numStep('Flip the slope over. What is its reciprocal, $\\frac{1}{m}$?', Q(1).div(m), ['The reciprocal of a fraction swaps its numerator and denominator.', 'A whole number n is $\\frac{n}{1}$, so its reciprocal is $\\frac{1}{n}$.', 'Keep the sign for now.', 'A number times its reciprocal is 1.'], `$\\frac{1}{${m.toTex()}} = ${Q(1).div(m).toTex()}$.`, [{ value: m.neg(), tag: 'slope-reciprocal', feedback: 'That only changes the sign. In this step, flip the fraction.' }, { value: Q(-1).div(m), tag: 'slope-reciprocal', feedback: 'In this step, only flip the fraction; the sign change comes next.' }]),
+            finalStep(pr, 'Now change the sign. What is the slope of a perpendicular line?', ['Perpendicular slopes are opposite reciprocals.', 'You already have the reciprocal.', 'Change its sign: positive becomes negative and negative becomes positive.', 'Check: the two slopes should multiply to −1.'], 'Opposite reciprocal slopes multiply to −1, which is what makes the lines meet at a right angle.'),
+          ]);
     }
     if (difficulty === 2) {
       const rel = rng.pick(['Parallel', 'Perpendicular', 'Neither'] as const);
@@ -486,7 +608,7 @@ export const genParallelPerp: GeneratorDef = {
         if (![A, B, C, D].every((q) => Number.isInteger(q.y)) || !fitsGrid([A, B, C, D], 15) || xs2[0] === xs2[1]) return genParallelPerp.generate(rng, 2);
         const s1 = Q(B.y - A.y).div(B.x - A.x);
         const s2 = Q(D.y - C.y).div(D.x - C.x);
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.03',
           tags: ['multi-step'],
           prompt: [p(`Line 1 passes through $${ptTex(A)}$ and $${ptTex(B)}$. Line 2 passes through $${ptTex(C)}$ and $${ptTex(D)}$. Are the lines parallel, perpendicular or neither?`)],
@@ -498,13 +620,13 @@ export const genParallelPerp: GeneratorDef = {
             { text: `${rel}.`, tex: rel === 'Parallel' ? `${s1.toTex()} = ${s2.toTex()}` : `${s1.toTex()} \\cdot ${s2.isNegative() ? `\\left(${s2.toTex()}\\right)` : s2.toTex()} = ${s1.mul(s2).toTex()}`, why: rel === 'Parallel' ? 'Equal slopes and different lines.' : rel === 'Perpendicular' ? 'The product of the slopes is −1.' : 'The slopes are not equal and their product is not −1.' },
           ],
           misconceptions: [],
-        });
+        }), (pr) => relationSteps(pr, slopeStep(A, B, 'AB', 'What is the slope of line 1, through A and B?'), slopeStep(C, D, 'CD', 'What is the slope of line 2, through C and D?'), s1, s2, rel, 'Are the lines parallel, perpendicular or neither?'));
       }
       const std1 = rng.bool();
       const std2 = rng.bool();
       const t1 = std1 ? standardTex(m, b) : yTex(m, b);
       const t2 = std2 ? standardTex(m2, b2) : yTex(m2, b2);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.03',
         tags: [],
         prompt: [p('Are the two lines parallel, perpendicular or neither?'), lineBlock('Line 1', t1), lineBlock('Line 2', t2)],
@@ -516,7 +638,7 @@ export const genParallelPerp: GeneratorDef = {
           { text: `${rel}.`, why: rel === 'Parallel' ? 'The slopes are equal and the y-intercepts are different.' : rel === 'Perpendicular' ? 'The slopes multiply to −1.' : 'The slopes are not equal and do not multiply to −1.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => relationSteps(pr, lineSlopeStep(m, b, std1, 'line 1'), lineSlopeStep(m2, b2, std2, 'line 2'), m, m2, rel, 'Are the two lines parallel, perpendicular or neither?'));
     }
     // write the equation through a point
     const ask = rng.pick(['parallel', 'perpendicular'] as const);
@@ -527,7 +649,7 @@ export const genParallelPerp: GeneratorDef = {
     const b0 = Q(y0).sub(k.mul(Number(x0)));
     if (b0.eq(b) || !fitsGrid([P], 12)) return genParallelPerp.generate(rng, 3);
     const given = rng.bool() ? standardTex(m, b) : yTex(m, b);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S8.03',
       tags: ['multi-step'],
       prompt: [p(`Write the equation of the line through $${ptTex(P)}$ that is ${ask} to the given line. Use slope-intercept form.`), lineBlock('Given line', given)],
@@ -544,7 +666,12 @@ export const genParallelPerp: GeneratorDef = {
         ...(ask === 'perpendicular' ? [{ answer: yEq(m, Q(y0).sub(m.mul(Number(x0)))), tag: 'slope-reciprocal' as const, feedback: 'That line is parallel. A perpendicular slope is the opposite reciprocal.' }, { answer: yEq(Q(1).div(m), Q(y0).sub(Q(1).div(m).mul(Number(x0)))), tag: 'slope-reciprocal' as const, feedback: 'Flip the slope and also change its sign.' }] : []),
         { answer: yEq(k, b), tag: 'equation-setup' as const, feedback: 'Use the point to find a new y-intercept; the given line’s intercept does not apply.' },
       ]),
-    });
+    }), (pr) => [
+      lineSlopeStep(m, b, given !== yTex(m, b), 'the given line'),
+      numStep(`What is the slope of a line ${ask} to the given line?`, k, [ask === 'parallel' ? 'Parallel lines never meet.' : 'Perpendicular lines meet at a right angle.', ask === 'parallel' ? 'Parallel lines have the same slope.' : 'Perpendicular slopes are opposite reciprocals.', ask === 'parallel' ? 'Use the slope from the last step.' : 'Flip the slope from the last step and change its sign.', ask === 'parallel' ? 'The y-intercept does not matter for the slope.' : 'Check: the two slopes should multiply to −1.'], ask === 'parallel' ? `Parallel lines have equal slopes, so $m = ${k.toTex()}$.` : `$-\\frac{1}{${slopeTex(m)}} = ${k.toTex()}$, and $${m.toTex()} \\cdot ${slopeTex(k)} = -1$.`, ask === 'parallel' ? [{ value: Q(-1).div(m), tag: 'slope-reciprocal', feedback: 'That is the perpendicular slope. Parallel lines have the same slope.' }, { value: m.neg(), tag: 'sign-error', feedback: 'Parallel lines have exactly the same slope, including the sign.' }] : [{ value: m, tag: 'slope-reciprocal', feedback: 'That is the parallel slope. A perpendicular slope is the opposite reciprocal.' }, { value: Q(1).div(m), tag: 'slope-reciprocal', feedback: 'Flip the slope and also change its sign.' }, { value: m.neg(), tag: 'slope-reciprocal', feedback: 'Change the sign and also flip the fraction.' }]),
+      numStep(`The new line is $y = ${k.toTex()}x + b$ and passes through $P(${x0}, ${y0})$. What is b?`, b0, ['Substitute the coordinates of P for x and y.', `Replace y with ${y0} and x with ${x0}.`, `Multiply $${k.toTex()}$ by ${x0} first.`, 'Then subtract that product from both sides to get b by itself.'], `$${y0} = ${k.toTex()}(${x0}) + b$, so $b = ${y0} - (${k.mul(x0).toTex()}) = ${b0.toTex()}$.`, [{ value: b, tag: 'equation-setup', feedback: 'That is the given line’s y-intercept. Use the point P to find the new one.' }, { value: Q(y0).add(k.mul(x0)), tag: 'sign-error', feedback: 'Subtract the product from both sides; do not add it.' }, { value: Q(y0), tag: 'equation-setup', feedback: 'That is the y-coordinate of P. The y-intercept is the value of y where x = 0.' }]),
+      finalStep(pr, 'Write the equation of the new line in slope-intercept form.', ['Slope-intercept form is $y = mx + b$.', 'Use the slope from step 2.', 'Use the y-intercept from step 3.', 'Start your answer with y =.'], 'The new line has the required slope and passes through P, and only one line does both.'),
+    ]);
   },
   verify(pr) {
     const text = textAll(pr);
@@ -611,7 +738,7 @@ function quadArea(rng: Rng) {
     const s2 = u.x * u.x + u.y * u.y;
     const key = square ? s2 : u.x * v.y;
     const side = Math.sqrt(v.x * v.x + v.y * v.y);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S8.04',
       tags: ['graph', 'multi-step'],
       prompt: [p(`Find the area of ${kind} $ABCD$ with vertices $${ps.map(ptTex).join('$, $')}$.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -634,7 +761,17 @@ function quadArea(rng: Rng) {
         { value: square ? null : Q(u.x * v.y, 2), tag: 'formula-error', feedback: 'A parallelogram is not a triangle: do not take half.' },
         { value: square ? Q(4 * s2) : Q((u.x + Math.abs(v.x)) * v.y), tag: 'formula-error', feedback: square ? 'Square the side length; do not multiply the squared side by 4.' : 'That is the area of the box around the figure. Use base × height.' },
       ]),
-    });
+    }), (pr) => square
+      ? [
+          numStep('What is the change in x from A to B?', Q(u.x), ['Move from A to B along the side.', 'Subtract the x-coordinate of A from the x-coordinate of B.', minusHint(ps[1].x, A.x), moveTip(u.x, 'x')], `$${ps[1].x} - ${neg(A.x)} = ${u.x}$.`, [{ value: Q(-u.x), tag: 'sign-error', feedback: 'Subtract in the order B minus A.' }]),
+          numStep('What is the change in y from A to B?', Q(u.y), ['Now move up or down from A to B.', 'Subtract the y-coordinate of A from the y-coordinate of B.', minusHint(ps[1].y, A.y), moveTip(u.y, 'y')], `$${ps[1].y} - ${neg(A.y)} = ${u.y}$.`, [{ value: Q(-u.y), tag: 'sign-error', feedback: 'Subtract in the order B minus A.' }]),
+          finalStep(pr, 'All four sides of a square are equal, so its area is $AB^2 = (\\text{change in } x)^2 + (\\text{change in } y)^2$. What is the area?', ['The area of a square is side × side, which is the side squared.', 'By the distance formula, $AB^2$ is the sum of the squared changes.', 'Square your two changes and add.', 'You do not need to take a square root.'], 'Side × side = $AB^2$, and the distance formula gives $AB^2$ directly.'),
+        ]
+      : [
+          numStep('Side AB is horizontal. What is its length (the base)?', Q(u.x), ['A and B have the same y-coordinate.', 'Subtract their x-coordinates.', 'A length is never negative.', 'You can count grid squares to check.'], `$AB = ${ps[1].x} - ${neg(A.x)} = ${u.x}$.`, [{ value: Q(Math.abs(ps[1].x + A.x)), tag: 'sign-error', feedback: 'Subtract the x-coordinates; do not add them.' }]),
+          numStep('What is the height: the vertical distance from side AB up to side DC?', Q(v.y), ['The height is measured straight up, at a right angle to the base.', 'It is not the length of the slanted side AD.', 'Subtract the y-coordinate of A from the y-coordinate of D.', 'D and C are at the same height.'], `$h = ${ps[3].y} - ${neg(A.y)} = ${v.y}$.`, [{ value: Number.isInteger(side) ? Q(side) : null, tag: 'formula-error', feedback: 'That is the slanted side AD. The height goes straight up from the base.' }, { value: Q(Math.abs(v.x)), tag: 'graph-reading', feedback: 'That is how far D is to the side of A. The height is the vertical distance.' }]),
+          finalStep(pr, `Area of a ${kind} = base × height. What is the area?`, ['Multiply the base by the height.', 'Use your answers from the last two steps.', 'Do not take half: this is not a triangle.', 'Area is in square units.'], 'Cutting a triangle off one end and moving it to the other end makes a rectangle with the same base and height.'),
+        ]);
   }
   throw new Error('quadArea');
 }
@@ -655,7 +792,7 @@ function algebraSides(rng: Rng) {
       const base = linAt(B, x);
       if (base <= 0 || B.c === 0) continue;
       const area = (base * h) / 2;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.04',
         tags: ['multi-step'],
         prompt: [p(`A triangle has a base of length $${linTex(B)}$ units and a height of $${h}$ units. Its area is $${area}$ square units. Find $x$.`)],
@@ -671,7 +808,11 @@ function algebraSides(rng: Rng) {
           { value: Q(area - B.c * h, B.a * h), tag: 'formula-error', feedback: 'Remember the $\\frac{1}{2}$ in the triangle area formula.' },
           { value: Q(base), tag: 'other', feedback: 'That is the length of the base. The question asks for $x$.' },
         ]),
-      });
+      }), (pr) => [
+        numStep(`The area equation is $\\frac{1}{2}(${linTex(B)})(${h}) = ${area}$. What is $\\frac{1}{2} \\cdot ${h}$?`, Q(h, 2), ['Area of a triangle = ½ · base · height.', 'Multiply the numbers first: ½ times the height.', `Half of a number is that number divided by 2.`, 'The base expression stays in parentheses for now.'], `$\\frac{1}{2} \\cdot ${h} = ${h / 2}$, so $${h / 2}(${linTex(B)}) = ${area}$.`, [{ value: Q(h * 2), tag: 'arithmetic-error', feedback: 'Half of a number means dividing it by 2.' }]),
+        numStep(`$${h / 2}(${linTex(B)}) = ${area}$. Divide both sides by ${h / 2}. What must the base, $${linTex(B)}$, equal?`, Q(base), ['Undo the multiplication by dividing.', `Divide the area by ${h / 2}.`, 'This is the length of the base.', 'Do not solve for x yet.'], `$${area} \\div ${h / 2} = ${base}$.`, [{ value: Q(area, h), tag: 'formula-error', feedback: 'Remember the ½: divide the area by half the height, not by the whole height.' }, { value: Q(area - h / 2), tag: 'inverse-operation', feedback: 'The base is multiplied, so divide; do not subtract.' }]),
+        finalStep(pr, `Solve $${linTex(B)} = ${base}$. What is x?`, ['Undo the constant term first.', 'Then undo the multiplication by the coefficient of x.', 'Keep both sides balanced.', 'Check: the base should come out to the value from the last step.'], `With x = ${x} the base is ${base}, and $\\frac{1}{2}(${base})(${h}) = ${area}$.`),
+      ]);
     }
     let sides: Array<{ l: Lin; k: number; name: string }>;
     let shape: string;
@@ -717,8 +858,8 @@ function algebraSides(rng: Rng) {
     const question = ask === 'x' ? 'Find $x$.' : ask === 'area' ? 'Find the area of the rectangle.' : ask === 'length' ? 'Find the length of the rectangle.' : ask === 'side' ? 'Find the length of one side.' : 'Find the length of the base.';
     const perimTerms = sides.map((sd) => (sd.k === 1 ? `(${linTex(sd.l)})` : `${sd.k}(${linTex(sd.l)})`)).join(' + ');
     const combined = `${A1}x${C1 === 0 ? '' : ` ${C1 < 0 ? '-' : '+'} ${Math.abs(C1)}`}`;
-    const noDouble = sides.some((sd) => sd.k === 2) ? Q(P - sides.reduce((sum, sd) => sum + sd.l.c, 0), sides.reduce((sum, sd) => sum + sd.l.a, 0)) : null;
-    return makeProblem({
+    const noDouble = sides.some((sd) => sd.k > 1) ? Q(P - sides.reduce((sum, sd) => sum + sd.l.c, 0), sides.reduce((sum, sd) => sum + sd.l.a, 0)) : null;
+    return withSteps(makeProblem({
       skillId: 'S8.04',
       tags: ['multi-step'],
       prompt: [p(`${desc} Its perimeter is $${P}$ units. ${question}`)],
@@ -739,6 +880,26 @@ function algebraSides(rng: Rng) {
         { value: ask === 'x' ? null : Q(x), tag: 'other', feedback: 'That is the value of $x$. Substitute it to find what the question asks for.' },
         { value: ask === 'area' ? Q(P) : null, tag: 'formula-error', feedback: 'That is the perimeter. Area is length × width.' },
       ]),
+    }), (pr) => {
+      const coef = numStep(`The perimeter equation is $${perimTerms} = ${P}$. Combine like terms. What is the coefficient of x?`, Q(A1), ['The perimeter adds every side, so a side length counts as many times as that side appears.', 'Distribute: multiply each expression by the number in front of it.', 'Add the x-terms together.', 'The constant terms combine separately.'], `$${perimTerms} = ${combined}$.`, [{ value: Q(sides.reduce((t, sd) => t + sd.l.a, 0)), tag: 'formula-error', feedback: 'Each side length appears more than once in the perimeter. Count every side.' }]);
+      const xStep = (final: boolean) => {
+        const prompt = `So $${combined} = ${P}$. What is x?`;
+        const hints: H4 = ['Undo the constant term first.', C1 === 0 ? 'There is no constant term here.' : 'Move the constant term to the other side by doing the opposite operation.', `Then divide both sides by ${A1}.`, 'Check that every side length comes out positive.'];
+        const expl = `$${A1}x = ${P - C1}$, so $x = ${x}$.`;
+        return final ? finalStep(pr, prompt, hints, expl) : numStep(prompt, Q(x), hints, expl, [{ value: Q(P + C1, A1), tag: 'inverse-operation', feedback: 'Undo the constant with the opposite operation.' }, { value: Q(P, A1), tag: 'inverse-operation', feedback: 'Move the constant term before dividing.' }]);
+      };
+      if (ask === 'x' && C1 === 0) return [coef, xStep(true)];
+      if (ask === 'x') return [coef, numStep(`So $${combined} = ${P}$. Undo the constant term. $${A1}x$ = what?`, Q(P - C1), ['Do the opposite of the constant term to both sides.', C1 < 0 ? `Add ${-C1} to both sides.` : `Subtract ${C1} from both sides.`, 'The x-term stays on the left.', 'Do not divide yet.'], `$${A1}x = ${P} ${C1 < 0 ? '+' : '-'} ${Math.abs(C1)} = ${P - C1}$.`, [{ value: Q(P + C1), tag: 'inverse-operation', feedback: 'Undo the constant with the opposite operation.' }]), finalStep(pr, `So $${A1}x = ${P - C1}$. What is x?`, [`$${A1}x$ means ${A1} times x.`, `Undo the multiplication: divide both sides by ${A1}.`, `Work out $${P - C1} \\div ${A1}$.`, 'Check that every side length comes out positive.'], `Dividing both sides by ${A1} gives $x = ${x}$.`)];
+      const target = ask === 'base' ? sides[1].l : sides[0].l;
+      const what = ask === 'area' ? 'length' : ask === 'base' ? 'base' : ask === 'side' ? 'side' : 'length';
+      const sub = (final: boolean) => {
+        const prompt = `Substitute $x = ${x}$ into $${linTex(target)}$. What is the ${what}?`;
+        const hints: H4 = [`The ${what} is $${linTex(target)}$.`, `Replace x with ${x}.`, 'Multiply before you add or subtract.', 'A length must be positive.'];
+        const expl = `$${linTex(target)} = ${linAt(target, x)}$.`;
+        return final ? finalStep(pr, prompt, hints, expl) : numStep(prompt, Q(linAt(target, x)), hints, expl, [{ value: Q(x), tag: 'other', feedback: 'That is the value of x. Substitute it into the expression.' }]);
+      };
+      if (ask !== 'area') return [coef, xStep(false), sub(true)];
+      return [coef, xStep(false), sub(false), finalStep(pr, `The width is $${linTex(sides[1].l)}$. Find it, then multiply. What is the area of the rectangle?`, ['Area of a rectangle = length × width.', `Substitute x = ${x} into the width expression.`, 'Multiply the length by the width.', 'Area is in square units, not the perimeter.'], `The width is ${W0}, and $${L0} \\cdot ${W0} = ${L0 * W0}$.`)];
     });
   }
   throw new Error('algebraSides');
@@ -793,7 +954,7 @@ export const genPerimArea: GeneratorDef = {
       const ps = [pt('A', x1, y1), pt('B', x1 + w, y1), pt('C', x1 + w, y1 + h), pt('D', x1, y1 + h)];
       const askArea = rng.bool();
       const key = askArea ? w * h : 2 * (w + h);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.04',
         tags: ['graph'],
         prompt: [p(`Rectangle $ABCD$ has vertices $${ps.map(ptTex).join('$, $')}$. Find its ${askArea ? 'area' : 'perimeter'}.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -804,7 +965,11 @@ export const genPerimArea: GeneratorDef = {
           askArea ? { text: 'Multiply.', tex: `A = ${w} \\cdot ${h} = ${key}`, why: 'The area of a rectangle is length times width.' } : { text: 'Add all four sides.', tex: `P = 2(${w}) + 2(${h}) = ${key}`, why: 'Opposite sides of a rectangle are equal.' },
         ],
         misconceptions: numberMisconceptions(Q(key), [{ value: Q(askArea ? 2 * (w + h) : w * h), tag: 'formula-error', feedback: askArea ? 'That is the perimeter. Area is length times width.' : 'That is the area. Perimeter adds the side lengths.' }, { value: Q(w + h), tag: 'formula-error', feedback: askArea ? 'Multiply the side lengths.' : 'A rectangle has four sides; add all of them.' }]),
-      });
+      }), (pr) => [
+        numStep('What is the length of side AB?', Q(w), ['A and B have the same y-coordinate, so AB is horizontal.', 'Subtract the x-coordinates.', 'A length is never negative.', 'You can count grid squares to check.'], `$AB = ${x1 + w} - ${neg(x1)} = ${w}$.`, [{ value: Q(Math.abs(x1 + w + x1)), tag: 'sign-error', feedback: 'Subtract the x-coordinates; do not add them.' }]),
+        numStep('What is the length of side BC?', Q(h), ['B and C have the same x-coordinate, so BC is vertical.', 'Subtract the y-coordinates.', 'A length is never negative.', 'You can count grid squares to check.'], `$BC = ${y1 + h} - ${neg(y1)} = ${h}$.`, [{ value: Q(Math.abs(y1 + h + y1)), tag: 'sign-error', feedback: 'Subtract the y-coordinates; do not add them.' }]),
+        finalStep(pr, askArea ? 'What is the area of the rectangle?' : 'What is the perimeter of the rectangle?', [askArea ? 'Area measures the space inside.' : 'Perimeter is the distance all the way around.', askArea ? 'Area = length × width.' : 'A rectangle has two sides of each length.', 'Use the side lengths from the last two steps.', askArea ? 'Area is in square units.' : 'Add all four sides.'], askArea ? 'Length × width counts the unit squares inside the rectangle.' : 'Opposite sides of a rectangle are equal, so the perimeter is 2 × length + 2 × width.'),
+      ]);
     }
     if (difficulty === 2) {
       if (rng.int(0, 3) === 0) return quadArea(rng);
@@ -820,7 +985,7 @@ export const genPerimArea: GeneratorDef = {
         const ps = raw.map(([x, y], i) => pt('ABC'[i], x, y));
         if (!fitsGrid(ps, 11)) return genPerimArea.generate(rng, 2);
         const key = Q(base * Math.abs(h), 2);
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.04',
           tags: ['graph'],
           prompt: [p(`Find the area of triangle $ABC$ with vertices $${ps.map(ptTex).join('$, $')}$.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -832,7 +997,11 @@ export const genPerimArea: GeneratorDef = {
             { text: 'Use the area formula.', tex: `A = \\frac{1}{2}(${base})(${Math.abs(h)}) = ${numStr(key)}` },
           ],
           misconceptions: numberMisconceptions(key, [{ value: Q(base * Math.abs(h)), tag: 'formula-error', feedback: 'Remember the ½ in the triangle area formula.' }]),
-        });
+        }), (pr) => [
+          numStep(`Side AB is ${horiz ? 'horizontal' : 'vertical'}. What is its length (the base)?`, Q(base), [`A and B have the same ${horiz ? 'y' : 'x'}-coordinate.`, `Subtract their ${horiz ? 'x' : 'y'}-coordinates.`, 'A length is never negative.', 'You can count grid squares to check.'], `$AB = ${base}$.`, []),
+          numStep(`What is the height: the ${horiz ? 'vertical' : 'horizontal'} distance from C to the line through A and B?`, Q(Math.abs(h)), ['The height is measured at a right angle to the base.', horiz ? 'The base is horizontal, so the height is vertical.' : 'The base is vertical, so the height is horizontal.', horiz ? 'Subtract the y-coordinate of A from the y-coordinate of C.' : 'Subtract the x-coordinate of A from the x-coordinate of C.', 'A height is a distance, so it is positive.'], `$h = |${horiz ? ps[2].y : ps[2].x} - ${neg(horiz ? y1 : x1)}| = ${Math.abs(h)}$.`, [{ value: Q(h), tag: 'sign-error', feedback: 'A height is a distance, so it is positive.' }]),
+          finalStep(pr, 'Area = ½ · base · height. What is the area of the triangle?', ['A triangle is half of a parallelogram with the same base and height.', 'Multiply the base by the height.', 'Then take half.', 'Area is in square units.'], 'Two copies of the triangle make a parallelogram with area base × height, so the triangle has half of that.'),
+        ]);
       }
       if (rng.bool()) {
         // perimeter of a parallelogram with horizontal sides and slanted sides: exact or rounded
@@ -849,7 +1018,7 @@ export const genPerimArea: GeneratorDef = {
         const two = root(4 * n);
         const plain = `${2 * w}+${two.plain}`;
         const v = 2 * w + 2 * Math.sqrt(n);
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.04',
           tags: ['graph', 'multi-step'],
           prompt: [p(`Find the perimeter of parallelogram $ABCD$ with vertices $${ps.map(ptTex).join('$, $')}$. ${exact ? 'Give an exact answer in simplest radical form.' : 'Round to the nearest tenth.'}`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -864,7 +1033,12 @@ export const genPerimArea: GeneratorDef = {
           misconceptions: exact
             ? stringMisconceptions(plain, [{ answer: `${w}+${r.plain}`, tag: 'formula-error', feedback: 'That is only two sides. A parallelogram has four: add AB + BC + CD + DA.' }, { answer: String(2 * w + 2 * (Math.abs(dx) + dy)), tag: 'formula-error', feedback: 'A slanted side is not the sum of its changes. Use the distance formula.' }])
             : numberMisconceptions(Rational.parse(v.toFixed(1)), [{ value: Rational.parse((w + Math.sqrt(n)).toFixed(1)), tag: 'formula-error', feedback: 'That is only two sides. A parallelogram has four.' }, { value: Q(2 * w + 2 * (Math.abs(dx) + dy)), tag: 'formula-error', feedback: 'A slanted side is not the sum of its changes. Use the distance formula.' }]),
-        });
+        }), (pr) => [
+          numStep('What is the length of side AB?', Q(w), ['A and B have the same y-coordinate, so AB is horizontal.', 'Subtract the x-coordinates.', 'A length is never negative.', 'Count grid squares to check.'], `$AB = ${A.x + w} - ${neg(A.x)} = ${w}$.`, []),
+          numStep('Side BC is slanted. What is $BC^2 = (x_C - x_B)^2 + (y_C - y_B)^2$?', Q(n), ['Find the change in x and the change in y from B to C.', 'Square each change.', sqTip('', dx, dy), 'Add the two squares.'], `$BC^2 = ${neg(dx)}^2 + ${dy}^2 = ${n}$.`, [{ value: Q(Math.abs(dx) + dy), tag: 'formula-error', feedback: 'Square each change before adding.' }]),
+          ...(exact ? [radStep('So $BC = \\sqrt{' + n + '}$. Write BC in simplest radical form.', n, ['Look for a perfect-square factor of the number under the root.', 'Perfect squares are 4, 9, 16, 25, ...', 'Take the square root of that factor out in front.', 'If there is no perfect-square factor, leave the root as it is.'], `$BC = \\sqrt{${n}}${r.out > 1 ? ` = ${r.tex}` : ''}$.`, [{ answer: String(n), tag: 'formula-error', feedback: 'That is BC². Take its square root.' }])] : []),
+          finalStep(pr, exact ? 'Perimeter = 2 · AB + 2 · BC. What is the exact perimeter?' : 'Perimeter = 2 · AB + 2 · BC. What is the perimeter, rounded to the nearest tenth?', ['Opposite sides of a parallelogram are equal: CD = AB and DA = BC.', 'Double each of your two lengths.', exact ? 'A whole number and a radical are unlike terms, so they stay separate.' : 'Use a calculator for the square root.', exact ? 'Double the number in front of the root.' : 'Round only at the end.'], exact ? 'The perimeter is AB + BC + CD + DA = 2·AB + 2·BC, and unlike terms stay separate.' : 'The perimeter is AB + BC + CD + DA = 2·AB + 2·BC; rounding at the end keeps it accurate.'),
+        ]);
       }
       // perimeter of a right triangle with legs on grid lines: exact or rounded
       const [x1, y1] = [rng.int(-7, 1), rng.int(-7, 1)];
@@ -877,7 +1051,7 @@ export const genPerimArea: GeneratorDef = {
       const exact = rng.bool();
       const plain = `${a + b}+${r.plain}`;
       const v = a + b + Math.sqrt(n);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.04',
         tags: ['graph'],
         prompt: [p(`Find the perimeter of triangle $ABC$ with vertices $${ps.map(ptTex).join('$, $')}$. ${exact ? 'Give an exact answer in simplest radical form.' : 'Round to the nearest tenth.'}`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -892,7 +1066,14 @@ export const genPerimArea: GeneratorDef = {
         misconceptions: exact
           ? stringMisconceptions(plain, [{ answer: `${a + b + r.out}sqrt(${r.inside})`, tag: 'radical-simplify', feedback: 'A whole number and a radical are unlike terms; they cannot be added into one radical.' }, { answer: String(a + b + a + b), tag: 'formula-error', feedback: 'The slanted side is not the sum of the legs. Use the distance formula.' }])
           : numberMisconceptions(Rational.parse(v.toFixed(1)), [{ value: Q(2 * (a + b)), tag: 'formula-error', feedback: 'The slanted side is not the sum of the legs. Use the distance formula.' }]),
-      });
+      }), (pr) => [
+        numStep('What is the length of side AB?', Q(a), ['A and B have the same y-coordinate.', 'Subtract the x-coordinates.', 'A length is never negative.', 'Count grid squares to check.'], `$AB = ${a}$.`, []),
+        numStep('What is the length of side AC?', Q(b), ['A and C have the same x-coordinate.', 'Subtract the y-coordinates.', 'A length is never negative.', 'Count grid squares to check.'], `$AC = ${b}$.`, []),
+        exact
+          ? radStep('Side BC is slanted. How long is BC? Give it in simplest radical form.', n, ['BC is the hypotenuse of a right triangle with legs AB and AC.', '$BC^2 = AB^2 + AC^2$.', 'Take the square root of the sum.', 'Take out any perfect-square factor.'], `$BC = \\sqrt{${a}^2 + ${b}^2} = \\sqrt{${n}}${r.out > 1 ? ` = ${r.tex}` : ''}$.`, [{ answer: String(n), tag: 'formula-error', feedback: 'That is BC². Take its square root.' }, { answer: String(a + b), tag: 'formula-error', feedback: 'The slanted side is not the sum of the legs. Use the distance formula.' }])
+          : numStep('Side BC is slanted. What is $BC^2 = AB^2 + AC^2$?', Q(n), ['BC is the hypotenuse of a right triangle with legs AB and AC.', 'Square each leg.', 'Add the squares.', 'Do not take the square root yet.'], `$BC^2 = ${a}^2 + ${b}^2 = ${n}$.`, [{ value: Q(a + b), tag: 'formula-error', feedback: 'Square each leg before adding.' }]),
+        finalStep(pr, exact ? 'Add the three sides. What is the exact perimeter?' : 'BC is the square root of that. Add the three sides. What is the perimeter, rounded to the nearest tenth?', ['The perimeter is AB + AC + BC.', 'Add the two whole-number sides.', exact ? 'A whole number and a radical are unlike terms, so they stay separate.' : 'Use a calculator for the square root.', exact ? 'Write the whole number first, then the radical.' : 'Round only at the end.'], exact ? 'The perimeter adds all three sides; the radical stays separate because it is an unlike term.' : 'The perimeter adds all three sides; rounding only at the end keeps the tenths digit right.'),
+      ]);
     }
     if (rng.int(0, 2) === 0) return algebraSides(rng);
     if (rng.int(0, 2) > 0) {
@@ -917,7 +1098,7 @@ export const genPerimArea: GeneratorDef = {
       const side = triangle ? 'AC' : 'AD';
       const mAB = Q(B.y - A.y, B.x - A.x);
       const mAD = Q(D.y - A.y, D.x - A.x);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.04',
         tags: ['graph', 'multi-step'],
         prompt: [p(triangle ? `Find the area of right triangle $ABC$ with vertices $${ps.map(ptTex).join('$, $')}$. The right angle is at $A$.` : `$ABCD$ is a rectangle with vertices $${ps.map(ptTex).join('$, $')}$. Find its area.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -935,7 +1116,11 @@ export const genPerimArea: GeneratorDef = {
           { value: Q(Math.abs(B.x - A.x) * Math.abs(D.y - A.y)), tag: 'formula-error', feedback: 'The sides are slanted. Find their lengths with the distance formula.' },
           ...(triangle ? [{ value: Q(prod), tag: 'formula-error' as const, feedback: 'Remember the ½ in the triangle area formula.' }] : []),
         ]),
-      });
+      }), (pr) => [
+        radStep('How long is AB? Give it in simplest radical form.', ab, ['AB is slanted, so use the distance formula.', '$AB^2 = (\\text{change in } x)^2 + (\\text{change in } y)^2$.', 'Take the square root of $AB^2$.', 'Take out any perfect-square factor.'], `$AB = \\sqrt{${B.x - A.x}^2 + ${B.y - A.y}^2} = \\sqrt{${ab}} = ${rab.tex}$.`, [{ answer: String(ab), tag: 'formula-error', feedback: 'That is AB². Take its square root.' }, { answer: String(Math.abs(B.x - A.x) + Math.abs(B.y - A.y)), tag: 'formula-error', feedback: 'A slanted side is not the sum of its changes. Use the distance formula.' }]),
+        radStep(`How long is ${side}? Give it in simplest radical form.`, ad, [`${side} meets AB at a right angle at A.`, 'It is slanted too, so use the distance formula.', `Find $${side}^2$, then take its square root.`, 'Take out any perfect-square factor.'], `$${side} = \\sqrt{${neg(D.x - A.x)}^2 + ${neg(D.y - A.y)}^2} = \\sqrt{${ad}} = ${rad.tex}$.`, [{ answer: String(ad), tag: 'formula-error', feedback: `That is ${side}². Take its square root.` }, { answer: String(Math.abs(D.x - A.x) + Math.abs(D.y - A.y)), tag: 'formula-error', feedback: 'A slanted side is not the sum of its changes. Use the distance formula.' }]),
+        finalStep(pr, triangle ? 'The legs AB and AC are a base and its height. Area = ½ · AB · AC. What is the area?' : 'AB and AD are the length and width. Area = AB · AD. What is the area?', [triangle ? 'Multiply the two legs, then take half.' : 'Multiply the two side lengths.', 'Multiply the numbers in front of the roots, and multiply the numbers under the roots.', 'Simplify the root: the product under the root is a perfect square.', 'The area is a rational number.'], triangle ? 'The two legs are perpendicular, so one is the height for the other.' : 'Adjacent sides of a rectangle are perpendicular, so they are its length and width.'),
+      ]);
     }
     // box method for a triangle with no horizontal or vertical side
     const ps = [pt('A', rng.int(-8, 8), rng.int(-8, 8)), pt('B', rng.int(-8, 8), rng.int(-8, 8)), pt('C', rng.int(-8, 8), rng.int(-8, 8))];
@@ -951,7 +1136,7 @@ export const genPerimArea: GeneratorDef = {
     const corners = [tri(A, B), tri(B, C), tri(C, A)];
     const key = Q(W * H * 2 - corners.reduce((s, c) => s + c, 0), 2);
     if (!key.gt(0)) return genPerimArea.generate(rng, 3);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S8.04',
       tags: ['graph', 'multi-step'],
       prompt: [p(`Find the area of triangle $ABC$ with vertices $${ps.map(ptTex).join('$, $')}$.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -963,7 +1148,11 @@ export const genPerimArea: GeneratorDef = {
         { text: 'Subtract.', tex: `${W * H} - ${corners.map((c) => numStr(Q(c, 2))).join(' - ')} = ${numStr(key)}` },
       ],
       misconceptions: numberMisconceptions(key, [{ value: Q(W * H, 2), tag: 'formula-error', feedback: 'Half the box is only right when a side of the triangle is a side of the box. Subtract the corner triangles instead.' }]),
-    });
+    }), (pr) => [
+      numStep('Draw the smallest box with horizontal and vertical sides around the triangle. What is the area of the box?', Q(W * H), ['The box runs from the smallest x to the largest x, and from the smallest y to the largest y.', 'Width = largest x − smallest x.', 'Height = largest y − smallest y.', 'Multiply the width by the height.'], `The box is ${W} by ${H}, so its area is ${W * H}.`, [{ value: Q(2 * (W + H)), tag: 'formula-error', feedback: 'That is the perimeter of the box. Find its area.' }]),
+      numStep('Each side of triangle ABC cuts a right triangle off a corner of the box. What is the total area of these three corner triangles?', Q(corners.reduce((t, c) => t + c, 0), 2), ['Each corner triangle has a horizontal leg and a vertical leg.', 'The legs are the change in x and the change in y along one side of ABC.', 'Each corner triangle has area ½ · (change in x) · (change in y).', 'Add the three areas.'], `$${corners.map((c) => numStr(Q(c, 2))).join(' + ')} = ${numStr(Q(corners.reduce((t, c) => t + c, 0), 2))}$.`, [{ value: Q(corners.reduce((t, c) => t + c, 0)), tag: 'formula-error', feedback: 'Remember the ½ in each corner triangle’s area.' }]),
+      finalStep(pr, 'Subtract the corner triangles from the box. What is the area of triangle ABC?', ['The box is made of triangle ABC and the three corner triangles.', 'So the triangle is what is left of the box.', 'Use your answers from the last two steps.', 'Area is in square units.'], 'The box area is the triangle plus the three corner triangles, so subtracting the corners leaves the triangle.'),
+    ]);
   },
   verify(pr) {
     const ps = readPts(pr);
@@ -1041,7 +1230,7 @@ export const genClassify: GeneratorDef = {
         const sAC = Q(C.y - A.y).div(C.x - A.x);
         const sBC = Q(C.y - B.y).div(C.x - B.x);
         const correct = right ? 'Yes, because two of its sides are perpendicular' : 'No, because no two of its sides are perpendicular';
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.05',
           tags: ['graph'],
           prompt: [p(`Is triangle $ABC$ with vertices $${ps.map(ptTex).join('$, $')}$ a right triangle? Choose the answer with the correct reason.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -1052,7 +1241,12 @@ export const genClassify: GeneratorDef = {
             { text: right ? 'Two slopes multiply to −1.' : 'No two slopes multiply to −1.', tex: right ? (() => { const pr2: Array<[string, Rational, Rational]> = [['m_{AB} \\cdot m_{AC}', sAB, sAC], ['m_{AB} \\cdot m_{BC}', sAB, sBC], ['m_{AC} \\cdot m_{BC}', sAC, sBC]]; const hit = pr2.find(([, u, v]) => u.mul(v).eq(-1))!; return `${hit[0]} = ${hit[1].toTex()} \\cdot ${hit[2].isNegative() ? `\\left(${hit[2].toTex()}\\right)` : hit[2].toTex()} = -1`; })() : undefined, why: right ? 'Those sides are perpendicular, so the triangle has a right angle.' : 'No pair of sides is perpendicular, so there is no right angle.' },
           ],
           misconceptions: [],
-        });
+        }), (pr) => [
+          slopeStep(A, B, 'AB'),
+          slopeStep(A, C, 'AC'),
+          slopeStep(B, C, 'BC'),
+          finalStep(pr, 'Is triangle ABC a right triangle?', ['A right triangle has two perpendicular sides.', 'Perpendicular slopes multiply to −1.', 'Check all three pairs of slopes: AB and AC, AB and BC, AC and BC.', 'If no pair multiplies to −1, there is no right angle.'], right ? 'Two sides are perpendicular, so they meet at a right angle.' : 'No pair of sides is perpendicular, so no angle is a right angle.', { feedback: wrongFeedback(pr, (l) => (/same length/.test(l) ? 'Equal sides make a triangle isosceles, not right. A right angle needs perpendicular sides.' : /parallel/.test(l) ? 'Two sides of a triangle always meet at a vertex, so they are never parallel.' : right ? 'Look again: two of your slopes multiply to −1.' : 'Check each pair: no two of your slopes multiply to −1.')), tag: 'slope-reciprocal' }),
+        ]);
       }
       const iso = rng.bool();
       const a = rng.nonzeroInt(-5, 5);
@@ -1064,7 +1258,7 @@ export const genClassify: GeneratorDef = {
       const isIso = new Set(L).size < 3;
       if (isIso !== iso || cross(vec(A, B), vec(A, C)) === 0 || !fitsGrid(ps, 10) || (C.x === B.x && C.y === B.y)) return genClassify.generate(rng, 1);
       const correct = iso ? 'Isosceles' : 'Scalene';
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.05',
         tags: ['graph'],
         prompt: [p(`Classify triangle $ABC$ with vertices $${ps.map(ptTex).join('$, $')}$ by its side lengths.`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -1075,7 +1269,12 @@ export const genClassify: GeneratorDef = {
           { text: `${correct}.`, why: iso ? 'Two sides have the same length.' : 'All three sides have different lengths.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        sqLenStep(A, B, 'AB'),
+        sqLenStep(B, C, 'BC'),
+        sqLenStep(C, A, 'CA'),
+        finalStep(pr, 'Classify the triangle by its side lengths.', ['Compare your three squared lengths.', 'Equal squares mean equal lengths.', 'Exactly two equal sides: isosceles. No equal sides: scalene.', 'Three equal sides: equilateral.'], iso ? 'Two sides have the same length, so the triangle is isosceles.' : 'All three sides have different lengths, so the triangle is scalene.', { feedback: { Equilateral: 'Equilateral needs all three sides equal. Compare your three squared lengths.', Isosceles: 'No two of your squared lengths are equal.', Scalene: 'Two of your squared lengths are equal, so two sides are equal.' }, tag: 'formula-error' }),
+      ]);
     }
     if (difficulty === 2 || rng.bool()) {
       const kind = rng.pick(['Square', 'Rectangle', 'Rhombus', 'Parallelogram', 'Trapezoid'] as const);
@@ -1088,7 +1287,7 @@ export const genClassify: GeneratorDef = {
         const u = vec(ps[i], ps[(i + 1) % 4]);
         return u.x === 0 ? '\\text{undefined}' : Q(u.y, u.x).toTex();
       };
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.05',
         tags: ['graph', 'multi-step'],
         prompt: [p(`Quadrilateral $ABCD$ has vertices $${ps.map(ptTex).join('$, $')}$. What is the most specific name for $ABCD$${withReason ? ', and why' : ''}?`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -1100,6 +1299,22 @@ export const genClassify: GeneratorDef = {
           { text: REASON[kind] + '.', why: 'Use the most specific name that fits all the facts.' },
         ],
         misconceptions: [],
+      }), (pr) => {
+        const [A, B, C, D] = ps;
+        const pairs = (cross(vec(A, B), vec(D, C)) === 0 ? 1 : 0) + (cross(vec(A, D), vec(B, C)) === 0 ? 1 : 0);
+        const parallelStep = choiceStep('Compare the slopes of opposite sides: AB with CD, and BC with DA. How many pairs of opposite sides are parallel?', pairs === 2 ? 'Both pairs' : pairs === 1 ? 'Exactly one pair' : 'Neither pair', ['Both pairs', 'Exactly one pair', 'Neither pair'].filter((o) => o !== (pairs === 2 ? 'Both pairs' : 'Exactly one pair')), ['Find the slope of each of the four sides.', 'Parallel sides have equal slopes.', 'Check AB with CD first, then BC with DA.', 'Count how many of those two pairs match.'], pairs === 2 ? 'Both pairs of opposite sides have equal slopes, so ABCD is a parallelogram (or a special one).' : 'Only one pair of opposite sides has equal slopes, so ABCD is a trapezoid.', { 'Both pairs': 'Look again: one pair of opposite sides has different slopes.', 'Exactly one pair': 'Look again: both pairs of opposite sides have equal slopes.', 'Neither pair': 'At least one pair of opposite sides has equal slopes.' }, 'slope-calc');
+        const fin = finalStep(pr, `What is the most specific name for $ABCD$${withReason ? ', and why' : ''}?`, ['Use your answers from the earlier steps.', 'Right angles and four equal sides: square.', 'Right angles only: rectangle. Four equal sides only: rhombus.', 'Two pairs of parallel sides and nothing more: parallelogram. One pair: trapezoid.'], 'The most specific name is the one that uses every fact you found.', { feedback: wrongFeedback(pr, (l) => QUAD_FEEDBACK[l.split(':')[0]] ?? 'Check the facts from the earlier steps.'), tag: 'formula-error' });
+        if (pairs !== 2) return [parallelStep, fin];
+        const right = dot(vec(A, B), vec(A, D)) === 0;
+        const equal = d2(A, B) === d2(A, D);
+        const mAB = Q(B.y - A.y, B.x - A.x);
+        const mAD = Q(D.y - A.y, D.x - A.x);
+        return [
+          parallelStep,
+          choiceStep('Find the slopes of AB and AD. Do sides AB and AD meet at a right angle?', right ? 'Yes: their slopes multiply to −1' : 'No: their slopes do not multiply to −1', [right ? 'No: their slopes do not multiply to −1' : 'Yes: their slopes multiply to −1'], ['Perpendicular sides meet at a right angle.', 'Find $m_{AB}$ and $m_{AD}$.', 'Multiply the two slopes.', 'A product of −1 means perpendicular.'], `$m_{AB} \\cdot m_{AD} = ${mAB.toTex()} \\cdot ${slopeTex(mAD)} = ${mAB.mul(mAD).toTex()}$.`, { [right ? 'No: their slopes do not multiply to −1' : 'Yes: their slopes multiply to −1']: 'Multiply the two slopes again and compare the product with −1.' }, 'slope-reciprocal'),
+          choiceStep('Find $AB^2$ and $AD^2$. Are sides AB and AD the same length?', equal ? 'Yes: AB and AD are equal' : 'No: AB and AD are different', [equal ? 'No: AB and AD are different' : 'Yes: AB and AD are equal'], ['Use the distance formula, or just the squared lengths.', '$AB^2 = (\\text{change in } x)^2 + (\\text{change in } y)^2$.', 'Find $AD^2$ the same way.', 'Equal squares mean equal lengths.'], `$AB^2 = ${d2(A, B)}$ and $AD^2 = ${d2(A, D)}$.`, { [equal ? 'No: AB and AD are different' : 'Yes: AB and AD are equal']: 'Find the two squared lengths again and compare them.' }, 'formula-error'),
+          fin,
+        ];
       });
     }
     // fourth vertex of a parallelogram
@@ -1108,7 +1323,7 @@ export const genClassify: GeneratorDef = {
     const C = pt('C', B.x + rng.nonzeroInt(-5, 5), B.y + rng.nonzeroInt(-5, 5));
     const D = { x: A.x + C.x - B.x, y: A.y + C.y - B.y };
     if (cross(vec(A, B), vec(B, C)) === 0 || !fitsGrid([B, C, D], 10)) return genClassify.generate(rng, 3);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S8.05',
       tags: ['graph', 'multi-step'],
       prompt: [p(`Three vertices of parallelogram $ABCD$ are $${ptTex(A)}$, $${ptTex(B)}$ and $${ptTex(C)}$. Find vertex $D$.`), { t: 'graph', spec: graphOf([A, B, C], [[A, B], [B, C]]) }],
@@ -1120,8 +1335,12 @@ export const genClassify: GeneratorDef = {
         { text: 'Take the same step from A.', tex: `D = (${A.x} + ${neg(C.x - B.x)}, ${A.y} + ${neg(C.y - B.y)}) = (${D.x}, ${D.y})` },
         { text: 'Check with the midpoints of the diagonals.', tex: `M_{AC} = M_{BD} = \\left(${halfStr(A.x + C.x)}, ${halfStr(A.y + C.y)}\\right)`, why: 'The diagonals of a parallelogram bisect each other.' },
       ],
-      misconceptions: [{ answer: `(${C.x + B.x - A.x}, ${C.y + B.y - A.y})`, tag: 'formula-error', feedback: 'That makes A, B, D, C a parallelogram in a different order. Go around the vertices in order A, B, C, D.' }] as Misconception[],
-    });
+      misconceptions: [ptMis(C.x + B.x - A.x, C.y + B.y - A.y, 'formula-error', 'That makes A, B, D, C a parallelogram in a different order. Go around the vertices in order A, B, C, D.'), ptMis(A.x + B.x - C.x, A.y + B.y - C.y, 'formula-error', 'That puts D opposite C instead of opposite B. In ABCD, D is next to both A and C.')],
+    }), (pr) => [
+      numStep('What is the change in x from B to C?', Q(C.x - B.x), ['In parallelogram ABCD, side AD is parallel to side BC and the same length.', 'So the step from A to D is the same as the step from B to C.', 'Subtract the x-coordinate of B from the x-coordinate of C.', minusHint(C.x, B.x)], `$${C.x} - ${neg(B.x)} = ${C.x - B.x}$.`, [{ value: Q(B.x - C.x), tag: 'sign-error', feedback: 'Subtract in the order C minus B, so the step goes from B to C.' }]),
+      numStep('What is the change in y from B to C?', Q(C.y - B.y), ['Now do the same in the y-direction.', 'Subtract the y-coordinate of B from the y-coordinate of C.', moveTip(C.y - B.y, 'y'), minusHint(C.y, B.y)], `$${C.y} - ${neg(B.y)} = ${C.y - B.y}$.`, [{ value: Q(B.y - C.y), tag: 'sign-error', feedback: 'Subtract in the order C minus B, so the step goes from B to C.' }]),
+      finalStep(pr, 'Take the same step from A. What are the coordinates of D?', ['Add the change in x to the x-coordinate of A.', 'Add the change in y to the y-coordinate of A.', 'Write D as an ordered pair.', 'Check: the diagonals AC and BD should have the same midpoint.'], 'Opposite sides of a parallelogram are parallel and equal, so AD makes the same step as BC.'),
+    ]);
   },
   verify(pr) {
     const ps = readPts(pr);
@@ -1182,7 +1401,7 @@ export const genGeoContext: GeneratorDef = {
         const P2 = pt(mp.l2, P1.x + dx, P1.y + dy);
         if (Number.isInteger(Math.sqrt(n)) || !fitsGrid([P2], 12)) return genGeoContext.generate(rng, 1);
         const v = mp.scale.toNumber() * Math.sqrt(n);
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.06',
           tags: ['real-world', 'graph'],
           prompt: [p(`On a map, ${mp.place1} is at $${ptTex(P1)}$ and ${mp.place2} is at $${ptTex(P2)}$, and each grid unit is ${mp.scaleText}. What is the straight-line distance between them, in ${mp.unit}? Round to the nearest tenth.`), { t: 'graph', spec: graphOf([P1, P2], [[P1, P2]], true) }],
@@ -1193,7 +1412,11 @@ export const genGeoContext: GeneratorDef = {
             { text: 'Convert with the scale, then round.', tex: `\\sqrt{${n}} \\times ${numStr(mp.scale)} \\approx ${v.toFixed(3)} \\approx ${v.toFixed(1)}`, why: 'Rounding before multiplying can change the tenths digit.' },
           ],
           misconceptions: numberMisconceptions(Rational.parse(v.toFixed(1)), [{ value: Rational.parse(Math.sqrt(n).toFixed(1)), tag: 'units', feedback: `That is the distance in grid units. Multiply by ${mp.scaleText}.` }, { value: mp.scale.mul(Math.abs(dx) + Math.abs(dy)), tag: 'formula-error', feedback: 'That is the distance along the streets. The straight-line distance uses the distance formula.' }]),
-        });
+        }), (pr) => [
+          numStep(`In grid units, what is the squared distance $(x_2 - x_1)^2 + (y_2 - y_1)^2$ from ${mp.place1} to ${mp.place2}?`, Q(n), ['Find the change in x and the change in y between the two places.', 'Square each change.', sqTip('', dx, dy), 'Add the two squares.'], `$${neg(dx)}^2 + ${neg(dy)}^2 = ${n}$.`, [{ value: Q(Math.abs(dx) + Math.abs(dy)), tag: 'formula-error', feedback: 'Square each change before adding. (Adding the changes gives the distance along the streets.)' }]),
+          radStep('So the distance is the square root of that, in grid units. Write it exactly, in simplest radical form.', n, ['Take the square root of your sum.', 'Look for a perfect-square factor under the root.', 'Take its square root out in front.', 'If there is no perfect-square factor, leave the root as it is.'], `The distance is $${root(n).tex}$ grid units.`, [{ answer: String(n), tag: 'formula-error', feedback: 'That is the squared distance. Take its square root.' }]),
+          finalStep(pr, `Each grid unit is ${mp.scaleText}. What is the distance in ${mp.unit}, rounded to the nearest tenth?`, ['Multiply the grid distance by the scale.', 'Use a calculator for the square root.', 'Keep all the digits until the end.', 'Round only the final answer.'], 'Every grid unit stands for the same real distance, so multiply by the scale; rounding first could change the tenths digit.'),
+        ]);
       }
       const [a0, b0, c] = rng.pick(TRIPLES);
       const a = a0 * rng.pick([1, -1]);
@@ -1201,7 +1424,7 @@ export const genGeoContext: GeneratorDef = {
       const P2 = pt(mp.l2, P1.x + a, P1.y + b);
       if (!fitsGrid([P2], 12)) return genGeoContext.generate(rng, 1);
       const key = mp.scale.mul(c);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.06',
         tags: ['real-world', 'graph'],
         prompt: [p(`On a map, ${mp.place1} is at $${ptTex(P1)}$ and ${mp.place2} is at $${ptTex(P2)}$, and each grid unit is ${mp.scaleText}. What is the straight-line distance between them, in ${mp.unit}?`), { t: 'graph', spec: graphOf([P1, P2], [[P1, P2]], true) }],
@@ -1212,13 +1435,17 @@ export const genGeoContext: GeneratorDef = {
           { text: 'Convert with the scale.', tex: `${c} \\times ${numStr(mp.scale)} = ${numStr(key)}`, why: 'Each grid unit stands for the same real distance.' },
         ],
         misconceptions: numberMisconceptions(key, [{ value: Q(c), tag: 'units', feedback: `That is the distance in grid units. Multiply by ${mp.scaleText}.` }, { value: mp.scale.mul(a0 + b0), tag: 'formula-error', feedback: 'That is the distance along the streets. The straight-line distance uses the distance formula.' }]),
-      });
+      }), (pr) => [
+        numStep(`In grid units, what is the squared distance $(x_2 - x_1)^2 + (y_2 - y_1)^2$ from ${mp.place1} to ${mp.place2}?`, Q(c * c), ['Find the change in x and the change in y between the two places.', 'Square each change.', sqTip('', a, b), 'Add the two squares.'], `$${neg(a)}^2 + ${neg(b)}^2 = ${c * c}$.`, [{ value: Q(a0 + b0), tag: 'formula-error', feedback: 'Square each change before adding. (Adding the changes gives the distance along the streets.)' }]),
+        numStep('What is the distance in grid units?', Q(c), ['Take the square root of your sum.', 'Which whole number times itself gives the sum?', 'Try the perfect squares 25, 36, 64, 100, ...', 'A distance is positive.'], `$\\sqrt{${c * c}} = ${c}$ grid units.`, [{ value: Q(c * c, 2), tag: 'formula-error', feedback: 'Take the square root, not half.' }]),
+        finalStep(pr, `Each grid unit is ${mp.scaleText}. What is the distance in ${mp.unit}?`, ['Multiply the grid distance by the scale.', `Each grid unit is ${mp.scaleText}.`, 'Multiply, do not divide.', `The answer is in ${mp.unit}.`], 'Each grid unit stands for the same real distance, so multiply by the scale.'),
+      ]);
     }
     if (difficulty === 2) {
       if (rng.bool()) {
         const P2 = pt(mp.l2, rng.int(-8, 8), rng.int(-8, 8));
         if ((P1.x + P2.x) % 2 || (P1.y + P2.y) % 2 || P1.x === P2.x || P1.y === P2.y) return genGeoContext.generate(rng, 2);
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S8.06',
           tags: ['real-world'],
           prompt: [p(`Two friends want to meet halfway between ${mp.place1} at $${ptTex(P1)}$ and ${mp.place2} at $${ptTex(P2)}$ on a grid map. At what point should they meet?`)],
@@ -1226,8 +1453,12 @@ export const genGeoContext: GeneratorDef = {
           inputHint: 'Type a point like (2, -1).',
           hints: ['Halfway between two points is their midpoint.', 'Average the x-coordinates.', 'Average the y-coordinates.', 'Write the meeting point as an ordered pair.'],
           solution: [{ text: 'Use the midpoint formula.', tex: `\\left(\\frac{${P1.x} + ${neg(P2.x)}}{2}, \\frac{${P1.y} + ${neg(P2.y)}}{2}\\right) = (${(P1.x + P2.x) / 2}, ${(P1.y + P2.y) / 2})`, why: 'The midpoint is the same distance from both places.' }],
-          misconceptions: [{ answer: `(${halfStr(P2.x - P1.x)}, ${halfStr(P2.y - P1.y)})`, tag: 'formula-error', feedback: 'Add the coordinates before dividing by 2.' }] as Misconception[],
-        });
+          misconceptions: [ptMis(halfStr(P2.x - P1.x), halfStr(P2.y - P1.y), 'formula-error', 'Add the coordinates before dividing by 2.'), ptMis(P1.x + P2.x, P1.y + P2.y, 'formula-error', 'Divide each sum by 2.')],
+        }), (pr) => [
+          numStep('Halfway between the two places is their midpoint. What is its x-coordinate?', Q(P1.x + P2.x, 2), ['The midpoint averages the coordinates.', 'Add the two x-coordinates.', plusHint(P1.x, P2.x), 'Divide the sum by 2.'], `$\\frac{${P1.x} + ${neg(P2.x)}}{2} = ${(P1.x + P2.x) / 2}$.`, [{ value: Q(P2.x - P1.x, 2), tag: 'formula-error', feedback: 'Add the x-coordinates before dividing by 2.' }, { value: Q(P1.x + P2.x), tag: 'formula-error', feedback: 'Divide the sum by 2.' }]),
+          numStep('What is the y-coordinate of the midpoint?', Q(P1.y + P2.y, 2), ['Average the y-coordinates the same way.', 'Add the two y-coordinates.', plusHint(P1.y, P2.y), 'Divide the sum by 2.'], `$\\frac{${P1.y} + ${neg(P2.y)}}{2} = ${(P1.y + P2.y) / 2}$.`, [{ value: Q(P2.y - P1.y, 2), tag: 'formula-error', feedback: 'Add the y-coordinates before dividing by 2.' }, { value: Q(P1.y + P2.y), tag: 'formula-error', feedback: 'Divide the sum by 2.' }]),
+          finalStep(pr, 'At what point should they meet?', ['The meeting point is the midpoint.', 'Use your answers from the last two steps.', 'The x-coordinate goes first.', 'Write it as an ordered pair.'], 'The midpoint is the same distance from both places, so each friend walks the same distance.'),
+        ]);
       }
       // fencing or sod for a rectangular park, with a cost
       const w = rng.int(2, 8);
@@ -1238,7 +1469,7 @@ export const genGeoContext: GeneratorDef = {
       const price = fence ? rng.pick([Q(12), Q(15), Q(25, 2)]) : rng.pick([Q(1, 2), Q(3, 4), Q(2)]);
       const amount = fence ? 2 * (w + h) * s : w * h * s * s;
       const cost = price.mul(amount);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.06',
         tags: ['real-world', 'graph', 'multi-step'],
         prompt: [p(`A rectangular park $ABCD$ is drawn on a grid with vertices $${ps.map(ptTex).join('$, $')}$, and each grid unit is ${s} feet. ${fence ? `Fencing costs ${money(price)} per foot. How much does it cost to fence the whole park?` : `Sod costs ${money(price)} per square foot. How much does it cost to cover the park with sod?`}`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -1253,7 +1484,12 @@ export const genGeoContext: GeneratorDef = {
           { value: price.mul(fence ? 2 * (w + h) : w * h), tag: 'units', feedback: 'Convert the grid units to feet before finding the cost.' },
           ...(fence ? [] : [{ value: price.mul(w * h * s), tag: 'units' as const, feedback: `Each grid square is ${s} feet by ${s} feet, so multiply the area by ${s * s}, not ${s}.` }]),
         ]),
-      });
+      }), (pr) => [
+        numStep('How long is side AB in feet?', Q(w * s), ['Find AB in grid units by subtracting the x-coordinates.', `Each grid unit is ${s} feet.`, 'Multiply the grid length by the scale.', 'The answer is in feet.'], `$AB = ${w}$ grid units $= ${w} \\times ${s} = ${w * s}$ feet.`, [{ value: Q(w), tag: 'units', feedback: `That is in grid units. Multiply by ${s} to get feet.` }]),
+        numStep('How long is side BC in feet?', Q(h * s), ['Find BC in grid units by subtracting the y-coordinates.', `Each grid unit is ${s} feet.`, 'Multiply the grid length by the scale.', 'The answer is in feet.'], `$BC = ${h}$ grid units $= ${h} \\times ${s} = ${h * s}$ feet.`, [{ value: Q(h), tag: 'units', feedback: `That is in grid units. Multiply by ${s} to get feet.` }]),
+        numStep(fence ? 'Fencing goes all the way around. What is the perimeter of the park in feet?' : 'Sod covers the inside. What is the area of the park in square feet?', Q(amount), [fence ? 'Perimeter is the distance around the outside.' : 'Area is the space inside.', fence ? 'A rectangle has two sides of each length.' : 'Area of a rectangle = length × width.', 'Use your lengths in feet from the last two steps.', fence ? 'Perimeter = 2 × AB + 2 × BC.' : 'Area is in square feet.'], fence ? `$2(${w * s}) + 2(${h * s}) = ${amount}$ feet.` : `$${w * s} \\times ${h * s} = ${amount}$ square feet.`, [{ value: Q(fence ? w * s * h * s : 2 * (w * s + h * s)), tag: 'formula-error', feedback: fence ? 'That is the area. Fencing goes around: find the perimeter.' : 'That is the perimeter. Sod covers the inside: find the area.' }, { value: fence ? null : Q(w * h * s), tag: 'units', feedback: `Each grid square is ${s} feet by ${s} feet. Multiply the lengths in feet.` }]),
+        finalStep(pr, fence ? `Fencing costs ${money(price)} per foot. What is the total cost?` : `Sod costs ${money(price)} per square foot. What is the total cost?`, ['Cost = amount × price per unit.', `Use your answer from the last step.`, `Multiply by the price.`, 'Give the answer in dollars.'], fence ? 'Each foot of fence costs the same, so multiply the number of feet by the price per foot.' : 'Each square foot of sod costs the same, so multiply the number of square feet by the price per square foot.'),
+      ]);
     }
     const pick3 = rng.int(0, 2);
     if (pick3 === 0) {
@@ -1267,7 +1503,7 @@ export const genGeoContext: GeneratorDef = {
       const corners = ps.map((u, i) => Math.abs(u.x - ps[(i + 1) % 4].x) * Math.abs(u.y - ps[(i + 1) % 4].y));
       const grid = Q(2 * W * H - corners.reduce((t, c) => t + c, 0), 2);
       const key = grid.mul(s * s);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.06',
         tags: ['real-world', 'graph', 'multi-step'],
         prompt: [p(`A builder draws a four-sided lot $ABCD$ on a grid with vertices $${ps.map(ptTex).join('$, $')}$, and each grid unit is ${s} meters. What is the area of the lot, in square meters?`), { t: 'graph', spec: graphOf(ps, polygonSegments(ps)) }],
@@ -1280,7 +1516,12 @@ export const genGeoContext: GeneratorDef = {
           { text: 'Convert with the scale.', tex: `${numStr(grid)} \\times ${s}^2 = ${numStr(grid)} \\times ${s * s} = ${numStr(key)}`, why: 'Areas scale by the square of the length scale.' },
         ],
         misconceptions: numberMisconceptions(key, [{ value: grid.mul(s), tag: 'units', feedback: `Each square grid unit is ${s} m by ${s} m, so multiply by ${s * s}, not ${s}.` }, { value: grid, tag: 'units', feedback: 'That is the area in square grid units. Convert to square meters.' }]),
-      });
+      }), (pr) => [
+        numStep('Draw the smallest box with horizontal and vertical sides around the lot. What is the area of the box, in square grid units?', Q(W * H), ['The box runs from the smallest x to the largest x, and from the smallest y to the largest y.', 'Width = largest x − smallest x.', 'Height = largest y − smallest y.', 'Multiply the width by the height.'], `The box is ${W} by ${H} grid units, so its area is ${W * H} square grid units.`, [{ value: Q(2 * (W + H)), tag: 'formula-error', feedback: 'That is the perimeter of the box. Find its area.' }]),
+        numStep('Each side of the lot cuts a right triangle off a corner of the box. What is the total area of the four corner triangles, in square grid units?', Q(corners.reduce((t, c) => t + c, 0), 2), ['Each corner triangle has a horizontal leg and a vertical leg.', 'The legs are the change in x and the change in y along one side of the lot.', 'Each corner triangle has area ½ · (change in x) · (change in y).', 'Add the four areas.'], `$${corners.map((c) => numStr(Q(c, 2))).join(' + ')} = ${numStr(Q(corners.reduce((t, c) => t + c, 0), 2))}$.`, [{ value: Q(corners.reduce((t, c) => t + c, 0)), tag: 'formula-error', feedback: 'Remember the ½ in each corner triangle’s area.' }]),
+        numStep('Subtract. What is the area of the lot in square grid units?', grid, ['The box is made of the lot and the four corner triangles.', 'Subtract the corner triangles from the box.', 'Use your answers from the last two steps.', 'Do not use the scale yet.'], `$${W * H} - ${numStr(Q(corners.reduce((t, c) => t + c, 0), 2))} = ${numStr(grid)}$ square grid units.`, []),
+        finalStep(pr, `Each grid unit is ${s} meters. What is the area of the lot in square meters?`, [`One square grid unit is ${s} m by ${s} m.`, 'Find how many square meters are in one square grid unit.', 'Multiply the area in square grid units by that number.', 'Areas scale by the square of the length scale.'], `Each square grid unit is ${s} × ${s} = ${s * s} square meters.`),
+      ]);
     }
     if (pick3 === 1) {
       // streets vs straight path
@@ -1289,7 +1530,7 @@ export const genGeoContext: GeneratorDef = {
       const P2 = pt(mp.l2, P1.x + a, P1.y + b);
       if (!fitsGrid([P2], 12)) return genGeoContext.generate(rng, 3);
       const key = mp.scale.mul(a0 + b0 - c);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S8.06',
         tags: ['real-world', 'multi-step'],
         prompt: [p(`On a grid map, ${mp.place1} is at $${ptTex(P1)}$ and ${mp.place2} is at $${ptTex(P2)}$, and each grid unit is ${mp.scaleText}. The streets run only east–west and north–south. How many ${mp.unit} shorter is a straight path than walking along the streets?`), { t: 'graph', spec: graphOf([P1, P2], [[P1, P2]], true) }],
@@ -1301,7 +1542,12 @@ export const genGeoContext: GeneratorDef = {
           { text: 'Difference, converted.', tex: `(${a0 + b0} - ${c}) \\times ${numStr(mp.scale)} = ${numStr(key)}`, why: 'The straight path is the hypotenuse, which is shorter than the two legs together.' },
         ],
         misconceptions: numberMisconceptions(key, [{ value: Q(a0 + b0 - c), tag: 'units', feedback: `That is in grid units. Multiply by ${mp.scaleText}.` }]),
-      });
+      }), (pr) => [
+        numStep('Walking along the streets means going across and then up or down. How long is that walk in grid units?', Q(a0 + b0), ['Find the horizontal distance between the two places.', 'Find the vertical distance between them.', 'Distances along streets are positive, whichever way you walk.', 'Add the two distances.'], `$${a0} + ${b0} = ${a0 + b0}$ grid units.`, [{ value: Q(Math.abs(a + b)), tag: 'sign-error', feedback: 'Use the size of each change: walking left or down still covers distance.' }]),
+        numStep('How long is the straight path in grid units?', Q(c), ['The straight path is the hypotenuse of a right triangle.', 'Use the distance formula.', 'Square the two changes and add.', 'Take the square root.'], `$\\sqrt{${a0}^2 + ${b0}^2} = \\sqrt{${c * c}} = ${c}$ grid units.`, [{ value: Q(c * c), tag: 'formula-error', feedback: 'That is the squared distance. Take its square root.' }]),
+        numStep('How many grid units shorter is the straight path?', Q(a0 + b0 - c), ['Compare the street walk with the straight path.', 'Subtract the shorter distance from the longer one.', 'Use your answers from the last two steps.', 'Do not use the scale yet.'], `$${a0 + b0} - ${c} = ${a0 + b0 - c}$ grid units.`, []),
+        finalStep(pr, `Each grid unit is ${mp.scaleText}. How many ${mp.unit} shorter is the straight path?`, ['Convert the difference with the scale.', 'Multiply by the length of one grid unit.', 'Multiply, do not divide.', `The answer is in ${mp.unit}.`], 'Every grid unit stands for the same real distance, so the difference converts like any length.'),
+      ]);
     }
     // is a new path parallel or perpendicular to a road?
     const m = rng.pick(SLOPES.filter((x) => x.den <= 2 && x.abs().num <= 3));
@@ -1313,7 +1559,7 @@ export const genGeoContext: GeneratorDef = {
     const T1 = pt('T', R1.x + rng.int(1, 4), R1.y + rng.int(3, 6));
     const T2 = pt('U', T1.x + Number(m2.den) * 2, T1.y + Number(m2.num) * 2);
     if (!fitsGrid([R2, T1, T2], 12) || cross(vec(R1, R2), vec(R1, T1)) === 0) return genGeoContext.generate(rng, 3);
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S8.06',
       tags: ['real-world', 'graph'],
       prompt: [p(`A straight road runs through $${ptTex(R1)}$ and $${ptTex(R2)}$ on a grid map. A new bike path will run through $${ptTex(T1)}$ and $${ptTex(T2)}$. How is the bike path related to the road?`), { t: 'graph', spec: graphOf([R1, R2, T1, T2], [[R1, R2], [T1, T2]]) }],
@@ -1325,7 +1571,7 @@ export const genGeoContext: GeneratorDef = {
         { text: `${rel}.`, why: rel === 'Parallel' ? 'The slopes are equal.' : rel === 'Perpendicular' ? 'The slopes multiply to −1.' : 'The slopes are not equal and do not multiply to −1.' },
       ],
       misconceptions: [],
-    });
+    }), (pr) => relationSteps(pr, slopeStep(R1, R2, 'RS', 'What is the slope of the road, through R and S?'), slopeStep(T1, T2, 'TU', 'What is the slope of the bike path, through T and U?'), m, m2, rel, 'How is the bike path related to the road?'));
   },
   verify(pr) {
     const ps = readPts(pr);
@@ -1366,5 +1612,189 @@ export const genGeoContext: GeneratorDef = {
     return Math.abs(got.toNumber() - sc * straight) < 1e-9 ? [] : ['distance wrong'];
   },
 };
+
+// ---------------------------------------------------------------------------
+// Guided steps: verify() also recomputes every step answer from the prompt's points and lines
+// (and, where it can, from the final answer by another route), and checks the last step answers the problem.
+// ---------------------------------------------------------------------------
+const labelIs = (pr: Problem, i: number, want: string): string[] => (stepLabel(pr, i) === want ? [] : [`step ${i + 1} should be "${want}", got "${stepLabel(pr, i)}"`]);
+const keyNum = (pr: Problem): number => (pr.answer.kind === 'number' ? Rational.parse(pr.answer.value).toNumber() : pr.answer.kind === 'expression' ? numVal(pr.answer.value) : NaN);
+const sqrtStr = (n: number) => `sqrt(${n})`;
+
+addStepChecks(genDistance, (pr) => {
+  const ps = readPts(pr);
+  const A = ps.get('A')!;
+  const text = textAll(pr);
+  const mm = /The point \$\(x, (-?\d+)\)\$ is \$(\d+)\$ units/.exec(text);
+  if (mm) {
+    const y0 = Number(mm[1]);
+    const c = Number(mm[2]);
+    const vals = pr.answer.kind === 'solutions' ? pr.answer.values.map(Number) : [NaN, NaN];
+    // the two answers sit symmetrically about A.x; half the gap between them is the square root in step 3
+    return expectSteps(pr, [y0 - A.y, c * c - (y0 - A.y) ** 2, Math.abs(vals[0] - vals[1]) / 2, null]);
+  }
+  const B = ps.get('B')!;
+  const C = ps.get('C');
+  if (C) return expectSteps(pr, [d2(A, B), d2(A, C), null]);
+  if (A.x === B.x || A.y === B.y) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, A.y === B.y ? 'Only the x-coordinates' : 'Only the y-coordinates')];
+  const errs = expectSteps(pr, [B.x - A.x, B.y - A.y, d2(A, B), null]);
+  // step 3 is the square of the distance in the answer key (exact answers only)
+  if (pr.answer.kind !== 'number' || pr.answer.roundTo === undefined) if (Math.abs(keyNum(pr) ** 2 - d2(A, B)) > 1e-9) errs.push('step 3 is not the squared distance');
+  return errs;
+});
+
+addStepChecks(genMidpoint, (pr) => {
+  const ps = readPts(pr);
+  const A = ps.get('A')!;
+  if (pr.answer.kind !== 'point') return ['kind'];
+  const ans = { x: Number(pr.answer.x), y: Number(pr.answer.y) };
+  const M = ps.get('M');
+  // B - M = M - A: the step from A to M is also the step from M to the answer
+  if (M) return expectSteps(pr, [ans.x - M.x, ans.y - M.y, null]);
+  const B = ps.get('B')!;
+  if (/diameter/.test(textAll(pr))) return [...expectSteps(pr, [null, Q(A.x + B.x, 2), null]), ...labelIs(pr, 0, 'At the midpoint of the diameter')];
+  return expectSteps(pr, [Q(A.x + B.x, 2), Q(A.y + B.y, 2), null]);
+});
+
+addStepChecks(genParallelPerp, (pr) => {
+  const text = textAll(pr);
+  if (/What kind of line is it\?/.test(text)) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, /to the line \$y = /.test(text) ? 'Horizontal, with slope 0' : 'Vertical, with undefined slope')];
+  const ps = readPts(pr);
+  if (ps.has('D')) {
+    const [A, B, C, D] = ['A', 'B', 'C', 'D'].map((k) => ps.get(k)!);
+    const m1 = Q(B.y - A.y).div(B.x - A.x);
+    const m2 = Q(D.y - C.y).div(D.x - C.x);
+    return expectSteps(pr, [m1, m2, m1.mul(m2), null]);
+  }
+  const lines = readLines(pr);
+  if (lines.length === 2) return expectSteps(pr, [lines[0]!.m, lines[1]!.m, lines[0]!.m.mul(lines[1]!.m), null]);
+  const g = lines[0]!;
+  if (pr.answer.kind === 'number') return /parallel to/.test(text) ? expectSteps(pr, [g.m, null]) : expectSteps(pr, [g.m, Q(1).div(g.m), null]);
+  if (pr.answer.kind !== 'equation') return ['kind'];
+  // the new slope and intercept are read back from the answer equation
+  const ans = lineFromTex(pr.answer.value)!;
+  return expectSteps(pr, [g.m, ans.m, ans.b, null]);
+});
+
+/** Read the side expressions of an algebra perimeter problem (same parse as verifyAlgebraSides). */
+function readAlgebra(text: string) {
+  const desc = text.slice(0, text.indexOf(' Its '));
+  const fns = [...desc.matchAll(/\$([^$]*x[^$]*)\$/g)].map((m) => m[1]).filter((e) => /^[\dx +-]+$/.test(e)).map((e) => {
+    const node = parseExpression(texToExpr(e));
+    const c = evalNumeric(node, { x: 0 });
+    return { a: evalNumeric(node, { x: 1 }) - c, c };
+  });
+  const total = Number(/Its (?:perimeter|area) is \$(\d+)\$/.exec(text)![1]);
+  return { fns, total };
+}
+
+addStepChecks(genPerimArea, (pr) => {
+  const ps = readPts(pr);
+  const text = textAll(pr);
+  const order = ['A', 'B', 'C', 'D'].filter((k) => ps.has(k)).map((k) => ps.get(k)!);
+  if (/Its (perimeter|area) is \$\d+\$/.test(text)) {
+    const { fns, total } = readAlgebra(text);
+    if (/^A triangle has a base/.test(text)) {
+      const h = Number(/height of \$(\d+)\$/.exec(text)![1]);
+      return expectSteps(pr, [h / 2, (2 * total) / h, null]);
+    }
+    const mult = /rectangle|parallelogram/.test(text) ? [2, 2] : /rhombus/.test(text) ? [4] : [2, 1];
+    const A1 = fns.reduce((t, f, i) => t + mult[i] * f.a, 0);
+    const C1 = fns.reduce((t, f, i) => t + mult[i] * f.c, 0);
+    const x = (total - C1) / A1;
+    if (/Find \$x\$/.test(text)) return C1 === 0 ? expectSteps(pr, [A1, null]) : expectSteps(pr, [A1, total - C1, null]);
+    if (/Find the area/.test(text)) return expectSteps(pr, [A1, x, fns[0].a * x + fns[0].c, null]);
+    return expectSteps(pr, [A1, x, null]);
+  }
+  const [A, B, C] = order;
+  const shoe = Math.abs(shoelace2(order)) / 2;
+  if (/area of (parallelogram|rhombus) \$ABCD\$/.test(text)) return expectSteps(pr, [B.x - A.x, shoe / (B.x - A.x), null]);
+  if (/area of square \$ABCD\$/.test(text)) {
+    const errs = expectSteps(pr, [B.x - A.x, B.y - A.y, null]);
+    if ((B.x - A.x) ** 2 + (B.y - A.y) ** 2 !== shoe) errs.push('square area is not AB squared');
+    return errs;
+  }
+  if (/^Rectangle \$ABCD\$/.test(text)) return expectSteps(pr, [Math.abs(B.x - A.x), Math.abs(C.y - B.y), null]);
+  if (/right triangle \$ABC\$|is a rectangle with vertices/.test(text)) {
+    const other = order.length === 4 ? order[3] : C;
+    return [...expectSteps(pr, [null, null, null]), ...stepAccepts(pr, 0, sqrtStr(d2(A, B)), 'AB'), ...stepAccepts(pr, 1, sqrtStr(d2(A, other)), 'second side')];
+  }
+  if (/area of triangle \$ABC\$/.test(text)) {
+    const xs = order.map((q) => q.x);
+    const ys = order.map((q) => q.y);
+    if (A.y === B.y || A.x === B.x) {
+      const base = Math.sqrt(d2(A, B));
+      return expectSteps(pr, [base, (2 * shoe) / base, null]);
+    }
+    // box method: the corner triangles are whatever the box has beyond the triangle (shoelace)
+    const box = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+    return expectSteps(pr, [box, box - shoe, null]);
+  }
+  if (/perimeter of parallelogram/.test(text)) {
+    const n = d2(B, C);
+    return /exact answer/.test(text) ? [...expectSteps(pr, [Math.sqrt(d2(A, B)), n, null, null]), ...stepAccepts(pr, 2, sqrtStr(n), 'BC')] : expectSteps(pr, [Math.sqrt(d2(A, B)), n, null]);
+  }
+  if (/perimeter of triangle/.test(text)) {
+    const n = d2(B, C);
+    return /exact answer/.test(text) ? [...expectSteps(pr, [Math.sqrt(d2(A, B)), Math.sqrt(d2(A, C)), null, null]), ...stepAccepts(pr, 2, sqrtStr(n), 'BC')] : expectSteps(pr, [Math.sqrt(d2(A, B)), Math.sqrt(d2(A, C)), n, null]);
+  }
+  return ['unknown perimeter/area variant'];
+});
+
+addStepChecks(genClassify, (pr) => {
+  const ps = readPts(pr);
+  const text = textAll(pr);
+  const [A, B, C] = ['A', 'B', 'C'].map((k) => ps.get(k)!);
+  if (/Find vertex \$D\$/.test(text)) {
+    if (pr.answer.kind !== 'point') return ['kind'];
+    // the step from B to C equals the step from A to the answer D
+    return expectSteps(pr, [Number(pr.answer.x) - A.x, Number(pr.answer.y) - A.y, null]);
+  }
+  if (/right triangle/.test(text)) return expectSteps(pr, [Q(B.y - A.y).div(B.x - A.x), Q(C.y - A.y).div(C.x - A.x), Q(C.y - B.y).div(C.x - B.x), null]);
+  if (/by its side lengths/.test(text)) return expectSteps(pr, [d2(A, B), d2(B, C), d2(C, A), null]);
+  const D = ps.get('D')!;
+  const k = vClassify([A, B, C, D]);
+  if (k === 'Trapezoid') return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, 'Exactly one pair')];
+  const right = k === 'Square' || k === 'Rectangle';
+  const equal = k === 'Square' || k === 'Rhombus';
+  return [...expectSteps(pr, [null, null, null, null]), ...labelIs(pr, 0, 'Both pairs'), ...labelIs(pr, 1, right ? 'Yes: their slopes multiply to −1' : 'No: their slopes do not multiply to −1'), ...labelIs(pr, 2, equal ? 'Yes: AB and AD are equal' : 'No: AB and AD are different')];
+});
+
+addStepChecks(genGeoContext, (pr) => {
+  const ps = readPts(pr);
+  const text = textAll(pr);
+  if (/bike path/.test(text)) {
+    const [R, S, T, U] = ['R', 'S', 'T', 'U'].map((k) => ps.get(k)!);
+    const m1 = Q(S.y - R.y).div(S.x - R.x);
+    const m2 = Q(U.y - T.y).div(U.x - T.x);
+    return expectSteps(pr, [m1, m2, m1.mul(m2), null]);
+  }
+  if (/meet halfway/.test(text)) {
+    const [P1, P2] = [...ps.values()];
+    return expectSteps(pr, [Q(P1.x + P2.x, 2), Q(P1.y + P2.y, 2), null]);
+  }
+  const order = ['A', 'B', 'C', 'D'].map((k) => ps.get(k)!);
+  if (/four-sided lot/.test(text)) {
+    const xs = order.map((q) => q.x);
+    const ys = order.map((q) => q.y);
+    const box = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+    const lot = Math.abs(shoelace2(order)) / 2;
+    return expectSteps(pr, [box, box - lot, lot, null]);
+  }
+  if (/rectangular park/.test(text)) {
+    const s = Number(/each grid unit is (\d+) feet/.exec(text)![1]);
+    const ab = Math.sqrt(d2(order[0], order[1])) * s;
+    const bc = Math.sqrt(d2(order[1], order[2])) * s;
+    return expectSteps(pr, [ab, bc, /fence/.test(text) ? 2 * (ab + bc) : ab * bc, null]);
+  }
+  const [P1, P2] = [...ps.values()];
+  const n = d2(P1, P2);
+  if (/shorter is a straight path/.test(text)) {
+    const street = Math.abs(P2.x - P1.x) + Math.abs(P2.y - P1.y);
+    return expectSteps(pr, [street, Math.sqrt(n), street - Math.sqrt(n), null]);
+  }
+  if (/Round to the nearest tenth/.test(text)) return [...expectSteps(pr, [n, null, null]), ...stepAccepts(pr, 1, sqrtStr(n), 'grid distance')];
+  return expectSteps(pr, [n, Math.sqrt(n), null]);
+});
 
 export const U8_GENERATORS: GeneratorDef[] = [genDistance, genMidpoint, genParallelPerp, genPerimArea, genClassify, genGeoContext];

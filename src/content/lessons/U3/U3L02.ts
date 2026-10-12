@@ -9,7 +9,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U3L02: LessonContent = {
   lessonId: 'U3L02',
-  goal: 'Rewrite square roots in simplest radical form, like $\\sqrt{72} = 6\\sqrt{2}$, and simplify cube roots, like $\\sqrt[3]{54} = 3\\sqrt[3]{2}$, including cube roots of negative numbers.',
+  goal: 'You will rewrite square roots in simplest radical form, like $\\sqrt{72} = 6\\sqrt{2}$, and simplify cube roots, like $\\sqrt[3]{54} = 3\\sqrt[3]{2}$, including cube roots of negative numbers.',
   needToKnow: [
     { t: 'p', text: 'This lesson builds on three things you already know:' },
     {

@@ -62,6 +62,7 @@ export const U1L01: LessonContent = {
     { t: 'math', tex: 'f(3) = 2(3) + 5 = 6 + 5 = 11' },
     { t: 'p', text: 'The statement $f(3) = 11$ says: when the input is $3$, the output is $11$. On a graph, that is the point $(3, 11)$.' },
     { t: 'callout', variant: 'warning', title: 'Use parentheses for negative inputs', text: 'For $f(-4)$, write $f(-4) = 2(-4) + 5 = -8 + 5 = -3$. Without parentheses it is easy to lose the negative sign.' },
+    { t: 'callout', variant: 'tip', title: 'Fractions in the rule', text: 'A rule can multiply $x$ by a fraction. For $f(x) = \\frac{1}{2}x - 2$, $f(6) = \\frac{1}{2}(6) - 2 = 3 - 2 = 1$. Multiplying by $\\frac{1}{2}$ is the same as dividing by $2$, and multiplying by $\\frac{2}{5}$ means dividing by $5$ and then multiplying by $2$.' },
     { t: 'p', text: '### Reading function notation from a table or a graph' },
     { t: 'p', text: 'In a table, $f(a)$ is the output in the row where the input is $a$. On a graph, $f(a)$ is the $y$-value of the point on the graph straight above or below $x = a$.' },
     {
@@ -78,7 +79,7 @@ export const U1L01: LessonContent = {
       steps: [
         { text: 'List the inputs.', tex: '3,\\ -2,\\ 5,\\ 0', why: 'A function is broken only when an input repeats with a different output, so the inputs are what to check.' },
         { text: 'No input repeats.', why: 'The outputs $1$ and $1$ repeat, but they belong to different inputs ($3$ and $5$). That is allowed.' },
-        { text: 'Conclusion: it **is** a function.' },
+        { text: 'Conclusion: it **is** a function.', why: 'Every input appears only once, so no input can have two different outputs.' },
       ],
       answer: 'Yes, it is a function.',
     },
@@ -89,9 +90,20 @@ export const U1L01: LessonContent = {
       steps: [
         { text: 'Substitute $-2$ for $x$, using parentheses.', tex: 'g(-2) = -3(-2) + 4', why: 'The number inside $g(\\ )$ is the input, so it replaces $x$.' },
         { text: 'Multiply.', tex: 'g(-2) = 6 + 4', why: 'A negative times a negative is positive: $-3 \\cdot (-2) = 6$. Multiplication comes before addition.' },
-        { text: 'Add.', tex: 'g(-2) = 10' },
+        { text: 'Add.', tex: 'g(-2) = 10', why: 'After multiplying, the only operation left is adding $4$: $6 + 4 = 10$.' },
       ],
       answer: '$g(-2) = 10$',
+    },
+    {
+      title: 'Evaluate with a fraction in the rule',
+      kind: 'intermediate',
+      problem: [{ t: 'p', text: 'For $h(x) = -\\frac{2}{5}x + 3$, find $h(-10)$.' }],
+      steps: [
+        { text: 'Substitute $-10$ for $x$, using parentheses.', tex: 'h(-10) = -\\tfrac{2}{5}(-10) + 3', why: 'The input replaces $x$, and the parentheses keep its negative sign safe.' },
+        { text: 'Multiply the fraction by the input.', tex: '-\\tfrac{2}{5}(-10) = \\tfrac{20}{5} = 4', why: 'To multiply a fraction by a whole number, multiply the top and keep the bottom: $(-2)(-10) = 20$, and $20 \\div 5 = 4$. A negative times a negative is positive.' },
+        { text: 'Add.', tex: 'h(-10) = 4 + 3 = 7', why: 'Multiplication comes before addition, so the $+3$ is added last.' },
+      ],
+      answer: '$h(-10) = 7$',
     },
     {
       title: 'A common mistake: f(3) is not f times 3',
@@ -137,7 +149,7 @@ export const U1L01: LessonContent = {
       steps: [
         { text: 'Find $-2$ on the $x$-axis.', why: 'The input of $f(-2)$ is $-2$, and inputs are on the horizontal axis.' },
         { text: 'Go straight up to the line. You reach the point $(-2, 3)$.', tex: '(-2,\\ 3)', why: 'The point on the graph above $x = -2$ has the output as its $y$-coordinate.' },
-        { text: 'Read the $y$-value.', tex: 'f(-2) = 3' },
+        { text: 'Read the $y$-value.', tex: 'f(-2) = 3', why: 'The $y$-value of a point on the graph is the output for that input, so $f(-2)$ is the height $3$.' },
       ],
       answer: '$f(-2) = 3$',
     },

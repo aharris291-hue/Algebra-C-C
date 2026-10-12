@@ -3,13 +3,14 @@
  * S2.05 solutions of systems of linear inequalities (test points, find a point in the region).
  * S2.06 model a situation with a system of inequalities and reason about it.
  */
-import type { GeneratorDef, Rng, GraphSpec, Block } from '../../core/curriculum/types';
+import type { GeneratorDef, Rng, GraphSpec, Block, ProblemStep, Problem } from '../../core/curriculum/types';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Rational } from '../../core/math/rational';
 import { linearTex, linearPlain, coefTex } from '../../core/math/format';
 import { Q, p, makeProblem, numStr, money, makeChoice, choiceLabel, numberMisconceptions, stringMisconceptions } from './util';
-import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds, latticeSolutions, ptTex } from './u2-common';
+import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds, latticeSolutions, ptTex, stepChoice, lastStepErrors, stepLabel, optionMisList } from './u2-common';
 import { buildSystem, systemText, SysInstance, SYS_CONTEXTS, countOf, ifThereAre } from './u2-contexts';
 
 interface Line {
@@ -65,6 +66,285 @@ function sideOf(l: Line): string {
 }
 
 // ---------------------------------------------------------------------------
+// Guided steps (difficulty 1)
+// ---------------------------------------------------------------------------
+
+/** Right side of a boundary line at x. */
+const rhsAt = (l: Line, x: number) => l.m.mul(Q(x)).add(l.b);
+
+const BOTH_TRUE = (pt: string) => `Both are true, so ${pt} is a solution of the system.`;
+const ONLY_FIRST = (pt: string) => `Only the first is true, so ${pt} is not a solution of the system.`;
+const ONLY_SECOND = (pt: string) => `Only the second is true, so ${pt} is not a solution of the system.`;
+const NEITHER = (pt: string) => `Both are false, so ${pt} is not a solution of the system.`;
+
+/** One "substitute x into the right side" step for a boundary line. */
+function rhsStep(l: Line, which: string, x: number, y: number): ProblemStep {
+  const rhsTex = linearTex(l.m, l.b);
+  const flat = l.m.isZero();
+  const sub = flat ? rhsTex : `${l.m.toTex()}(${x})${l.b.isZero() ? '' : l.b.isNegative() ? ` - ${l.b.neg().toTex()}` : ` + ${l.b.toTex()}`}`;
+  const v = rhsAt(l, x);
+  return {
+    prompt: [
+      p(
+        flat
+          ? `Test the point $(${x}, ${y})$ in the ${which} inequality, $${lineTex(l)}$. The right side, $${rhsTex}$, has no $x$ in it. What is its value when $x = ${x}$?`
+          : `Test the point $(${x}, ${y})$ in the ${which} inequality, $${lineTex(l)}$. Substitute $x = ${x}$ into the right side, $${rhsTex}$. What number do you get?`,
+      ),
+    ],
+    answer: { kind: 'number', value: numStr(v) },
+    hints: flat
+      ? ['The boundary $y = ' + rhsTex + '$ is a horizontal line.', 'A horizontal line has the same height at every $x$.', 'There is no $x$ to replace, so nothing changes when $x$ changes.', 'The value is just the number on the right side.']
+      : [
+          'In an ordered pair $(x, y)$ the first number is $x$.',
+          `Replace $x$ with $${x}$: $${sub}$.`,
+          'Multiply first, then add or subtract.',
+          x < 0 ? 'A negative times a negative is positive; a negative times a positive is negative.' : 'Keep track of the signs as you combine.',
+        ],
+    misconceptions: numberMisconceptions(v, [
+      { value: rhsAt(l, y), tag: 'other', feedback: `Use the $x$-value, $${x}$, the first number in the pair.` },
+      { value: x === 0 ? null : rhsAt(l, -x), tag: 'sign-error', feedback: 'Check the sign of the product: put the input in parentheses and multiply carefully.' },
+      { value: l.m.mul(Q(x)).sub(l.b), tag: 'sign-error', feedback: `Keep the sign of the constant: the line is $y = ${rhsTex}$.` },
+    ]),
+    explanation: flat ? `The ${which} boundary line is horizontal, so its height is $${v.toTex()}$ at every $x$.` : `$${sub} = ${v.toTex()}$: that is the height of the ${which} boundary line at $x = ${x}$.`,
+  };
+}
+
+/** Steps for "which point is a solution of the system" (difficulty 1): test the first option in both inequalities, decide, then choose. */
+function systemTestSteps(lines: [Line, Line], first: { x: number; y: number }, answer: { kind: 'choice'; options: { id: string; label: string }[]; correct: string }): ProblemStep[] {
+  const { x, y } = first;
+  const pt = ptTex(x, y);
+  const [l1, l2] = lines;
+  const r1 = rhsAt(l1, x);
+  const r2 = rhsAt(l2, x);
+  const t1 = holds(linePlain(l1), x, y);
+  const t2 = holds(linePlain(l2), x, y);
+  const labels = [BOTH_TRUE(pt), ONLY_FIRST(pt), ONLY_SECOND(pt), NEITHER(pt)];
+  const right = t1 && t2 ? 0 : t1 ? 1 : t2 ? 2 : 3;
+  const verdict = stepChoice(labels[right], labels.filter((_, i) => i !== right), x * 7 + y);
+  const c1 = `${y} ${OP_TEX[l1.op]} ${r1.toTex()}`;
+  const c2 = `${y} ${OP_TEX[l2.op]} ${r2.toTex()}`;
+  const tv = (b: boolean) => (b ? 'true' : 'false');
+  return [
+    rhsStep(l1, 'first', x, y),
+    rhsStep(l2, 'second', x, y),
+    {
+      prompt: [p(`Now compare. Is $${c1}$ true? Is $${c2}$ true? What does that say about ${pt}?`)],
+      answer: verdict,
+      hints: [
+        'A solution of a system must make **every** inequality true.',
+        `Compare the $y$-value, $${y}$, with each number you found.`,
+        'On a number line, the number farther to the right is greater.',
+        'If even one statement is false, the point is not a solution of the system.',
+      ],
+      misconceptions: verdict.options
+        .filter((o) => o.id !== verdict.correct)
+        .map((o) => ({
+          answer: o.id,
+          tag: 'other' as const,
+          feedback: o.label.startsWith('Both are true') ? 'Check each comparison again. A point is a solution of the system only when **both** statements are true.' : `Check each comparison again: $${c1}$ is ${tv(t1)} and $${c2}$ is ${tv(t2)}.`,
+        })),
+      explanation: `$${c1}$ is ${tv(t1)} and $${c2}$ is ${tv(t2)}, so ${pt} is ${t1 && t2 ? '' : 'not '}a solution of the system.`,
+    },
+    {
+      prompt: [p('Test the other points the same way, or look for the region where both shadings overlap. Which point is a solution of the system?')],
+      answer,
+      hints: [
+        'Substitute each point into **both** inequalities.',
+        'On the graph, the solutions are where the blue and orange shading overlap.',
+        'A point that passes only one inequality is not a solution of the system.',
+        'Only one choice makes both inequalities true.',
+      ],
+      misconceptions: answer.options
+        .filter((o) => o.id !== answer.correct)
+        .map((o) => ({ answer: o.id, tag: 'other' as const, feedback: `Test ${o.label} in both inequalities: at least one of them is false.` })),
+      explanation: `${choiceLabel(answer)} is the only choice that makes both inequalities true.`,
+    },
+  ];
+}
+
+/** Label for how one inequality is graphed. */
+const graphLabel = (strict: boolean, above: boolean) => `${strict ? 'Dashed' : 'Solid'} line, shaded ${above ? 'above' : 'below'}`;
+
+/** A "how is this inequality graphed?" step. */
+function graphStep(l: Line, which: string): ProblemStep {
+  const strict = isStrict(l.op);
+  const above = isGreater(l.op);
+  const ans = stepChoice(graphLabel(strict, above), [graphLabel(!strict, above), graphLabel(strict, !above), graphLabel(!strict, !above)], l.m.toNumber() * 3 + l.b.toNumber() + (above ? 1 : 0));
+  const fb = (lab: string): string => {
+    const lineOk = lab.startsWith(strict ? 'Dashed' : 'Solid');
+    const sideOk = lab.endsWith(above ? 'above' : 'below');
+    if (lineOk) return `The line type is right. Check the side: $y ${above ? '>' : '<'}$ means the $y$-values are ${above ? 'greater' : 'less'} than the line, so shade ${above ? 'above' : 'below'}.`;
+    if (sideOk) return `The side is right. Check the line: $${OP_TEX[l.op]}$ ${strict ? 'leaves out the line, so it is dashed' : 'includes "or equal to", so the line is solid'}.`;
+    return `Check both parts: $${OP_TEX[l.op]}$ gives a ${strict ? 'dashed' : 'solid'} line, and it shades ${above ? 'above' : 'below'}.`;
+  };
+  return {
+    prompt: [p(`Look at the ${which} inequality, $${lineTex(l)}$. How is it graphed?`)],
+    answer: ans,
+    hints: [
+      'Two decisions: is the boundary line included, and which side holds the solutions?',
+      '$\\le$ and $\\ge$ include the line (solid); $<$ and $>$ leave it out (dashed).',
+      'When $y$ is alone on the left, $y >$ or $y \\ge$ means the points above the line; $y <$ or $y \\le$ means below.',
+      `The symbol here is $${OP_TEX[l.op]}$. Decide the line type first, then the side.`,
+    ],
+    misconceptions: ans.options.filter((o) => o.id !== ans.correct).map((o) => ({ answer: o.id, tag: 'graph-reading' as const, feedback: fb(o.label) })),
+    explanation: `$${OP_TEX[l.op]}$ ${strict ? 'leaves out the boundary, so the line is dashed' : 'includes the boundary, so the line is solid'}, and the solutions are ${above ? 'above' : 'below'} it.`,
+  };
+}
+
+/** Steps for "give one point in the solution region" (difficulty 1): how each inequality is graphed, then a point in the overlap. */
+function systemPointSteps(lines: [Line, Line], answer: Extract<Problem['answer'], { kind: 'region-point' }>): ProblemStep[] {
+  return [
+    graphStep(lines[0], 'first'),
+    graphStep(lines[1], 'second'),
+    {
+      prompt: [p('Now find the region where both shadings overlap and give one point inside it. Check your point in both inequalities before you answer.')],
+      answer,
+      inputHint: 'Type a point like (2, -1). Any point that works is correct.',
+      hints: [
+        'The solutions of the system are where the blue and orange shading overlap.',
+        'Choose a grid point well inside the overlap, not on either line.',
+        'Substitute your point into both inequalities: both must be true.',
+        'If a point fails one inequality, move it toward the side that inequality shades and test again.',
+      ],
+      explanation: 'Your point is in both shaded regions, so it makes both inequalities true.',
+    },
+  ];
+}
+
+/** Steps for "which system models this situation?" (difficulty 1): the count inequality, the money inequality, then the system. */
+function modelSystemSteps(s: SysInstance, answer: { kind: 'choice'; options: { id: string; label: string }[]; correct: string }): ProblemStep[] {
+  const { ctx } = s;
+  const cWord = ctx.countOp === '<=' ? 'at most' : 'at least';
+  const mWord = ctx.moneyOp === '<=' ? 'at most' : 'at least';
+  const countRel = s.countRel;
+  const moneyRel = s.moneyRel;
+  const mLhs = `${numStr(s.a)}x + ${numStr(s.b)}y`;
+  const mLhsTex = `${coefTex(s.a)}x + ${coefTex(s.b)}y`;
+  return [
+    {
+      prompt: [p(`First the count. Write an inequality for the number of ${ctx.countWhat}, using $x$ and $y$.`)],
+      answer: { kind: 'inequality', value: countRel },
+      inputHint: 'Type an inequality using x and y.',
+      hints: [
+        `$x$ counts the ${ctx.xNoun} and $y$ counts the ${ctx.yNoun}.`,
+        `The total number of ${ctx.countWhat} is $x + y$.`,
+        `Find the phrase about the count: "${cWord} $${s.n}$".`,
+        `"${cWord}" means $${OP_TEX[ctx.countOp]}$. Put the total on the left and $${s.n}$ on the right.`,
+      ],
+      misconceptions: stringMisconceptions(countRel, [
+        { answer: `x + y ${FLIP_OP[ctx.countOp]} ${s.n}`, tag: 'inequality-direction', feedback: `"${cWord}" means ${ctx.countOp === '<=' ? 'that number or fewer' : 'that number or more'}. Check the direction of the symbol.` },
+        { answer: `x + y ${ctx.countOp} ${numStr(s.t)}`, tag: 'equation-setup', feedback: `$${s.t.toTex()}$ is the money amount. The count is compared with $${s.n}$.` },
+      ]),
+      explanation: `The count is $x + y$, and "${cWord} $${s.n}$" gives $x + y ${OP_TEX[ctx.countOp]} ${s.n}$.`,
+    },
+    {
+      prompt: [p(`Now the money. Write an inequality for the ${ctx.moneyWhat}, using $x$ and $y$.`)],
+      answer: { kind: 'inequality', value: moneyRel },
+      inputHint: 'Type an inequality using x and y.',
+      hints: [
+        'Each kind of item adds its price times how many.',
+        `The ${ctx.xNoun} give $${coefTex(s.a)}x$ dollars.`,
+        `Add the ${ctx.yNoun}: $${mLhsTex}$. Then find the phrase about the money.`,
+        `"${mWord}" means $${OP_TEX[ctx.moneyOp]}$. Compare with $${s.t.toTex()}$.`,
+      ],
+      misconceptions: stringMisconceptions(moneyRel, [
+        { answer: `${numStr(s.b)}x + ${numStr(s.a)}y ${ctx.moneyOp} ${numStr(s.t)}`, tag: 'equation-setup', feedback: `Match each price with its own item: ${money(s.a)} goes with the ${ctx.xNoun} ($x$).` },
+        { answer: `${mLhs} ${FLIP_OP[ctx.moneyOp]} ${numStr(s.t)}`, tag: 'inequality-direction', feedback: `"${mWord}" means ${ctx.moneyOp === '<=' ? 'that amount or less' : 'that amount or more'}. Check the direction of the symbol.` },
+        { answer: `${mLhs} ${ctx.moneyOp} ${s.n}`, tag: 'equation-setup', feedback: `$${s.n}$ is the count. The money is compared with $${s.t.toTex()}$.` },
+      ]),
+      explanation: `The ${ctx.moneyWhat} is $${mLhsTex}$, and "${mWord} ${money(s.t)}" gives $${mLhsTex} ${OP_TEX[ctx.moneyOp]} ${s.t.toTex()}$.`,
+    },
+    {
+      prompt: [p('Both conditions must be true at the same time, so together they form a system. Which system models the situation?')],
+      answer,
+      hints: [
+        'Find the choice that contains both of your inequalities.',
+        `The count inequality compares $x + y$ with $${s.n}$.`,
+        `The money inequality compares $${mLhsTex}$ with $${s.t.toTex()}$.`,
+        'Check each symbol against its phrase.',
+      ],
+      misconceptions: answer.options
+        .filter((o) => o.id !== answer.correct)
+        .map((o) => ({ answer: o.id, tag: 'equation-setup' as const, feedback: `Compare that choice with your two inequalities: ${o.label.includes(`x + y ${OP_TEX[ctx.countOp]} ${s.n}`) ? 'the count part matches, so check the money part' : 'check the count part'}.` })),
+      explanation: `${choiceLabel(answer)}: one inequality for the count and one for the money.`,
+    },
+  ];
+}
+
+/** Steps for "greatest/least whole number of y given x" (difficulty 1). */
+function maxInContextSteps(s: SysInstance, X: number, ask: 'greatest' | 'least', y: number, finalMisc: Misconception[]): ProblemStep[] {
+  const { ctx } = s;
+  const cOp = ctx.countOp;
+  const mOp = ctx.moneyOp;
+  const aX = s.a.mul(Q(X));
+  const rest = s.t.sub(aX);
+  const bound = rest.div(s.b);
+  const cb = s.n - X;
+  const exact = bound.isInteger() || bound.isTerminatingDecimal();
+  const boundTex = exact ? numStr(bound) : `${bound.toTex()} \\approx ${bound.round(2).toDecimalString(2)}`;
+  return [
+    {
+      prompt: [p(`Start with the count condition, $x + y ${OP_TEX[cOp]} ${s.n}$. Substitute $x = ${X}$ and solve for $y$: $y ${OP_TEX[cOp]}$ what number?`)],
+      answer: { kind: 'number', value: String(cb) },
+      hints: [
+        `Replace $x$ with $${X}$: $${X} + y ${OP_TEX[cOp]} ${s.n}$.`,
+        `To get $y$ alone, undo the $+ ${X}$.`,
+        `Subtract $${X}$ from both sides.`,
+        `Work out $${s.n} - ${X}$.`,
+      ],
+      misconceptions: numberMisconceptions(Q(cb), [
+        { value: Q(s.n + X), tag: 'inverse-operation', feedback: `$${X}$ is added to $y$, so undo it by **subtracting** $${X}$.` },
+        { value: Q(X - s.n), tag: 'sign-error', feedback: `Subtract in the right order: $${s.n} - ${X}$.` },
+      ]),
+      explanation: `$${X} + y ${OP_TEX[cOp]} ${s.n}$ becomes $y ${OP_TEX[cOp]} ${cb}$ after subtracting $${X}$ from both sides.`,
+    },
+    {
+      prompt: [p(`Now the money condition, $${coefTex(s.a)}x + ${coefTex(s.b)}y ${OP_TEX[mOp]} ${s.t.toTex()}$. Substitute $x = ${X}$, then subtract the ${ctx.xNoun} part from both sides: $${coefTex(s.b)}y ${OP_TEX[mOp]}$ what number?`)],
+      answer: { kind: 'number', value: numStr(rest) },
+      hints: [
+        `The ${ctx.xNoun} part is $${s.a.toTex()}(${X})$.`,
+        `$${s.a.toTex()}(${X}) = ${aX.toTex()}$, so the condition is $${aX.toTex()} + ${coefTex(s.b)}y ${OP_TEX[mOp]} ${s.t.toTex()}$.`,
+        `Subtract $${aX.toTex()}$ from both sides.`,
+        `Work out $${s.t.toTex()} - ${aX.toTex()}$.`,
+      ],
+      misconceptions: numberMisconceptions(rest, [
+        { value: s.t.add(aX), tag: 'inverse-operation', feedback: `The ${ctx.xNoun} part is added, so undo it by **subtracting**.` },
+        { value: s.t.sub(Q(X)), tag: 'equation-setup', feedback: `Multiply the price by how many first: the ${ctx.xNoun} part is $${s.a.toTex()}(${X})$, not $${X}$.` },
+        { value: aX.sub(s.t), tag: 'sign-error', feedback: `Subtract in the right order: $${s.t.toTex()} - ${aX.toTex()}$.` },
+      ]),
+      explanation: `$${s.a.toTex()}(${X}) = ${aX.toTex()}$, and $${s.t.toTex()} - ${aX.toTex()} = ${rest.toTex()}$, so $${coefTex(s.b)}y ${OP_TEX[mOp]} ${rest.toTex()}$.`,
+    },
+    {
+      prompt: [p(`Divide both sides of $${coefTex(s.b)}y ${OP_TEX[mOp]} ${rest.toTex()}$ by $${s.b.toTex()}$: $y ${OP_TEX[mOp]}$ what number?${exact ? '' : ' Give it as a fraction, or as a decimal rounded to two places.'}`)],
+      answer: exact ? { kind: 'number', value: numStr(bound) } : { kind: 'number', value: numStr(bound), roundTo: 2 },
+      hints: [
+        `$${coefTex(s.b)}y$ means $${s.b.toTex()}$ times $y$, so divide to undo it.`,
+        `Divide $${rest.toTex()}$ by $${s.b.toTex()}$.`,
+        'Dividing by a positive number keeps the inequality symbol the same.',
+        bound.isInteger() ? `Think: $${s.b.toTex()}$ times what number is $${rest.toTex()}$?` : 'The result is not a whole number. That is fine here: rounding comes in the next step.',
+      ],
+      misconceptions: numberMisconceptions(bound, [
+        { value: rest.mul(s.b), tag: 'inverse-operation', feedback: `$${coefTex(s.b)}y$ is a multiplication, so undo it by **dividing**.` },
+        { value: rest.sub(s.b), tag: 'inverse-operation', feedback: `$${coefTex(s.b)}y$ is a multiplication, so undo it by **dividing**, not subtracting.` },
+      ]),
+      explanation: `$${rest.toTex()} \\div ${s.b.toTex()} = ${boundTex}$, and the symbol stays the same because $${s.b.toTex()}$ is positive: $y ${OP_TEX[mOp]} ${boundTex}$.`,
+    },
+    {
+      prompt: [p(`So $y ${OP_TEX[cOp]} ${cb}$ and $y ${OP_TEX[mOp]} ${boundTex}$, and $y$ counts ${ctx.yNoun}, so it is a whole number that is not negative. What is the **${ask}** number of ${ctx.yNoun}?`)],
+      answer: { kind: 'number', value: String(y) },
+      hints: [
+        '$y$ has to satisfy **both** results at the same time.',
+        `One result sets a largest value and the other sets a smallest value. You want the ${ask} whole number between them.`,
+        ask === 'greatest' ? 'If the largest allowed value is not whole, round **down**: rounding up would break the condition.' : 'If the smallest allowed value is not whole, round **up**: rounding down would break the condition.',
+        `Check your answer in both conditions with $x = ${X}$.`,
+      ],
+      misconceptions: finalMisc,
+      explanation: `The ${ask} whole number that satisfies both is $${y}$.`,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // S2.05: which point is a solution of the system?
 // ---------------------------------------------------------------------------
 
@@ -95,6 +375,24 @@ export const genSystemTest: GeneratorDef = {
     if (showGraph) prompt.push({ t: 'graph', spec: systemGraph(lines), caption: 'Blue shows the first inequality and orange shows the second.' });
     const all = [correct, ...distractors];
     const answer = makeChoice(rng, ptTex(correct.x, correct.y), distractors.map((d) => ptTex(d.x, d.y)));
+    const misconceptions = optionMisList(
+      answer,
+      distractors.map((q): [string, MisconceptionTag, string] => {
+        const pt = ptTex(q.x, q.y);
+        const claim = (i: number) => {
+          const l = lines[i];
+          return `$${q.y} ${OP_TEX[l.op]} ${rhsAt(l, q.x).toTex()}$`;
+        };
+        const ord = (i: number) => (i === 0 ? 'first' : 'second');
+        if (q.on1 || q.on2) {
+          const i = q.on1 ? 0 : 1;
+          return [pt, 'boundary-line', `${pt} is on the boundary line of the ${ord(i)} inequality, and that line is dashed: the symbol $${OP_TEX[lines[i].op]}$ has no "or equal to", so points on the line are not solutions of it.`];
+        }
+        if (!q.s1 && !q.s2) return [pt, 'other', `Substitute ${pt} into both inequalities: ${claim(0)} and ${claim(1)} are both false.${showGraph ? ' It is outside both shaded regions.' : ''}`];
+        const i = q.s1 ? 1 : 0;
+        return [pt, 'other', `${pt} makes the ${ord(1 - i)} inequality true, but check the ${ord(i)} one: ${claim(i)} is false. A solution of a system must make **both** inequalities true${showGraph ? ', so it must be where the two shadings overlap' : ''}.`];
+      }),
+    );
     const check = (q: { x: number; y: number }) => {
       const r = lines.map((l) => {
         const rhs = l.m.mul(Q(q.x)).add(l.b);
@@ -114,7 +412,8 @@ export const genSystemTest: GeneratorDef = {
         'Check each point in both inequalities. Only one point passes both tests.',
       ],
       solution: [...answer.options.map((o) => check(all.find((q) => ptTex(q.x, q.y) === o.label)!)), { text: `The solution is ${ptTex(correct.x, correct.y)}.`, why: 'It is the only option that makes both inequalities true.' }],
-      misconceptions: [],
+      misconceptions,
+      steps: difficulty === 1 ? systemTestSteps(lines, all.find((q) => ptTex(q.x, q.y) === answer.options[0].label)!, answer) : undefined,
     });
   },
   verify(pr) {
@@ -130,6 +429,19 @@ export const genSystemTest: GeneratorDef = {
     const good = pr.answer.options.filter((o) => rels.every((r) => holds(r, ...pt(o.label))));
     const errs: string[] = [];
     if (good.length !== 1 || good[0].id !== pr.answer.correct) errs.push(`${good.length} options satisfy the system`);
+    if (pr.steps?.length === 4) {
+      // the first option tested alone: each boundary height at its x (checked on the boundary line), then the verdict
+      const [x0, y0] = pt(pr.answer.options[0].label);
+      [0, 1].forEach((i) => {
+        const a = pr.steps![i].answer;
+        if (a.kind !== 'number' || !holds(rels[i].replace(/<=|>=|<|>/, '='), x0, Rational.parse(a.value))) errs.push(`boundary-height step ${i + 1} wrong`);
+      });
+      const t1 = holds(rels[0], x0, y0);
+      const t2 = holds(rels[1], x0, y0);
+      const want = t1 && t2 ? 'Both are true' : t1 ? 'Only the first' : t2 ? 'Only the second' : 'Both are false';
+      if (!stepLabel(pr.steps[2]).startsWith(want)) errs.push('verdict step wrong');
+      errs.push(...lastStepErrors(pr));
+    }
     return errs;
   },
 };
@@ -233,6 +545,12 @@ function quadrantGraphChoice(rng: Rng, difficulty: number) {
   const slotOf = (gi: number) => GRAPH_LETTERS[order.indexOf(gi)];
   const answer = { kind: 'choice' as const, options: GRAPH_LETTERS.map((L, i) => ({ id: 'abcd'[i], label: `Graph ${L}` })), correct: 'abcd'[order.indexOf(0)] };
   const lhsTex = `${coefTex(Q(A))}x + ${coefTex(Q(B))}y`;
+  const optOf = (gi: number) => `Graph ${slotOf(gi)}`;
+  const misconceptions = optionMisList(answer, [
+    [optOf(1), 'shading', `${optOf(1)} shades the wrong side of the line. Test $(0, 0)$ in the inequality: if it makes the inequality true, shade the side with the origin; if not, shade the other side.`],
+    [optOf(2), 'boundary-line', `${optOf(2)} draws the boundary line ${strict ? 'solid' : 'dashed'}. The symbol ${strict ? 'has no "or equal to", so points on the line are not solutions' : 'includes "or equal to", so points on the line are solutions'}; check the line type again.`],
+    [optOf(3), 'graph-reading', `${optOf(3)} has the intercepts switched. Set $y = 0$ to find where the line crosses the $x$-axis, and set $x = 0$ to find where it crosses the $y$-axis.`],
+  ]);
   const zeroTrue = holds(`${A}x + ${B}y ${op} ${C}`, 0, 0);
   return makeProblem({
     skillId: 'S2.05',
@@ -252,7 +570,7 @@ function quadrantGraphChoice(rng: Rng, difficulty: number) {
       { text: 'Test $(0, 0)$ to choose the side.', tex: `${A}(0) + ${B}(0) = 0 ${OP_TEX[op]} ${C}\\ \\text{is ${zeroTrue ? 'true' : 'false'}}`, why: `So shade the side of the line ${zeroTrue ? 'that contains' : 'away from'} the origin, which is ${above ? 'above' : 'below'} the line. Graph ${slotOf(1)} shades the wrong side.` },
       { text: `The answer is Graph ${slotOf(0)}.`, why: '$x \\ge 0$ and $y \\ge 0$ keep only the first quadrant, so the solution region is the part of that side of the line in the first quadrant.' },
     ],
-    misconceptions: [],
+    misconceptions,
   });
 }
 
@@ -345,11 +663,12 @@ export const genSystemPoint: GeneratorDef = {
     const prompt: Block[] = [p('Give one point that is a solution of this system.'), { t: 'math', tex: systemTex(lines) }];
     if (showGraph) prompt.push({ t: 'graph', spec: systemGraph(lines), caption: 'Blue shows the first inequality and orange shows the second.' });
     const exCheck = lines.map((l) => `$${ex.y} ${OP_TEX[l.op]} ${l.m.mul(Q(ex.x)).add(l.b).toTex()}$`).join(' and ');
+    const regionAnswer = { kind: 'region-point' as const, constraints: rels, example: { x: String(ex.x), y: String(ex.y) } };
     return makeProblem({
       skillId: 'S2.05',
       tags: showGraph ? ['graph'] : [],
       prompt,
-      answer: { kind: 'region-point', constraints: rels, example: { x: String(ex.x), y: String(ex.y) } },
+      answer: regionAnswer,
       inputHint: 'Type a point like (2, -1). Any point that works is correct.',
       hints: [
         'A solution must make **both** inequalities true.',
@@ -362,6 +681,7 @@ export const genSystemPoint: GeneratorDef = {
         { text: `One point that works is ${ptTex(ex.x, ex.y)}. Many other points work too.`, why: `Check: ${exCheck} are both true.` },
       ],
       misconceptions: [],
+      steps: difficulty === 1 ? systemPointSteps(lines, regionAnswer) : undefined,
     });
   },
   verify(pr) {
@@ -374,6 +694,16 @@ export const genSystemPoint: GeneratorDef = {
     for (let x = -8; x <= 8; x += 2) for (let y = -8; y <= 8; y += 2) if (rels.every((r) => holds(r, x, y)) !== pr.answer.constraints.every((r) => holds(r, x, y))) errs.push(`constraints differ at (${x}, ${y})`);
     const ex = pr.answer.example;
     if (!rels.every((r) => holds(r, Number(ex.x), Number(ex.y)))) errs.push('example is not a solution');
+    if (pr.steps?.length === 3) {
+      // line type from the symbol; side from a point far above the line
+      [0, 1].forEach((i) => {
+        const strict = !/[<>]=/.test(rels[i]);
+        const above = holds(rels[i], 0, 1000);
+        const lab = stepLabel(pr.steps![i]);
+        if (lab !== `${strict ? 'Dashed' : 'Solid'} line, shaded ${above ? 'above' : 'below'}`) errs.push(`graph step ${i + 1} wrong`);
+      });
+      errs.push(...lastStepErrors(pr));
+    }
     return errs.slice(0, 1);
   },
 };
@@ -405,11 +735,12 @@ export const genModelSystem: GeneratorDef = {
       const swapNums = `x + y ${OP_TEX[ctx.moneyOp]} ${s.t.toTex()}`;
       const swapNums2 = `${coefTex(s.a)}x + ${coefTex(s.b)}y ${OP_TEX[ctx.countOp]} ${s.n}`;
       const correct = pairLabel(tx.count, tx.moneyT);
+      const answer = makeChoice(rng, correct, [pairLabel(flipC, tx.moneyT), pairLabel(tx.count, flipM), pairLabel(swapNums, swapNums2)]);
       return makeProblem({
         skillId: 'S2.06',
         tags: ['real-world', 'word'],
         prompt: [setup, p('Which system models this situation?')],
-        answer: makeChoice(rng, correct, [pairLabel(flipC, tx.moneyT), pairLabel(tx.count, flipM), pairLabel(swapNums, swapNums2)]),
+        answer,
         hints: ['There are two limits: one on **how many** and one on **money**.', countHelp, moneyHelp, 'Check that each number is compared with the right total and that each symbol matches its phrase.'],
         solution: [
           { text: 'Count constraint.', tex: tx.count, why: countHelp },
@@ -417,6 +748,7 @@ export const genModelSystem: GeneratorDef = {
           { text: `The system is ${correct}.`, why: 'Both conditions must be true at the same time, so they form a system.' },
         ],
         misconceptions: [],
+        steps: modelSystemSteps(s, answer),
       });
     }
     if (difficulty === 2) {
@@ -481,6 +813,12 @@ export const genModelSystem: GeneratorDef = {
       const lab = choiceLabel(pr.answer);
       const parts = [...lab.matchAll(/\$(.+?)\$/g)].map((m) => relTexToPlain(m[1]));
       if (!(same(parts[0], count) && same(parts[1], moneyR))) errs.push('chosen system wrong');
+      if (pr.steps?.length === 3) {
+        const [s1, s2] = [pr.steps[0].answer, pr.steps[1].answer];
+        if (s1.kind !== 'inequality' || !same(s1.value, count)) errs.push('count step wrong');
+        if (s2.kind !== 'inequality' || !same(s2.value, moneyR)) errs.push('money step wrong');
+        errs.push(...lastStepErrors(pr));
+      }
     } else if (pr.answer.kind === 'inequality') {
       const q = (pr.prompt[1] as { text: string }).text;
       const isMoney = SYS_CONTEXTS.some((c) => q.includes(c.moneyWhat));
@@ -537,6 +875,15 @@ export const genMaxInContext: GeneratorDef = {
       if (showSystem) prompt.push(p(`The system is $${sysTex(s).count}$ and $${sysTex(s).moneyT}$.`));
       prompt.push(p(`${ifThereAre(ctx, X)}, what is the **${ask}** number of ${ctx.yNoun} that meets both conditions?`));
       const other = ask === 'greatest' ? y + 1 : y - 1;
+      const misconceptions = numberMisconceptions(
+        Q(y),
+        [countBound, Q(moneyBound.floor()), Q(moneyBound.floor()).add(Q(1)), Q(other)]
+          .filter((v) => !v.isNegative() && !rels.every((r) => holds(r, X, v)))
+          .map((v) => {
+            const broken = rels.filter((r) => !holds(r, X, v)).map((r) => (r === s.countRel ? 'count' : 'money'));
+            return { value: v, tag: 'other' as const, feedback: `Check it: ${countOf(ctx, 'y', v.toTex())} breaks the ${broken.join(' and the ')} condition${broken.length > 1 ? 's' : ''}. The answer has to satisfy both.` };
+          }),
+      );
       return makeProblem({
         skillId: 'S2.06',
         tags: ['real-world', 'word', 'multi-step'],
@@ -555,15 +902,8 @@ export const genMaxInContext: GeneratorDef = {
           { text: `Whole numbers that satisfy both: from $${minY}$ to ${hasMax ? `$${maxY}$` : 'as many as you like'}.`, why: 'Both conditions must hold at the same time, and you cannot have part of an item.' },
           { text: `The ${ask} is $${y}$.`, why: `Check $${other}$: ${other < 0 ? 'a count cannot be negative' : `it breaks ${rels.filter((r) => !holds(r, X, other)).map((r) => (r === s.countRel ? 'the count condition' : 'the money condition')).join(' and ')}`}.` },
         ],
-        misconceptions: numberMisconceptions(
-          Q(y),
-          [countBound, Q(moneyBound.floor()), Q(moneyBound.floor()).add(Q(1)), Q(other)]
-            .filter((v) => !v.isNegative() && !rels.every((r) => holds(r, X, v)))
-            .map((v) => {
-              const broken = rels.filter((r) => !holds(r, X, v)).map((r) => (r === s.countRel ? 'count' : 'money'));
-              return { value: v, tag: 'other' as const, feedback: `Check it: ${countOf(ctx, 'y', v.toTex())} breaks the ${broken.join(' and the ')} condition${broken.length > 1 ? 's' : ''}. The answer has to satisfy both.` };
-            }),
-        ),
+        misconceptions,
+        steps: difficulty === 1 ? maxInContextSteps(s, X, ask, y, misconceptions) : undefined,
       });
     }
     return genMaxInContext.generate(rng, difficulty);
@@ -591,7 +931,16 @@ export const genMaxInContext: GeneratorDef = {
         best = y;
       }
     }
-    return best === Number(pr.answer.value) ? [] : [`brute force ${best}, key ${pr.answer.value}`];
+    const errs = best === Number(pr.answer.value) ? [] : [`brute force ${best}, key ${pr.answer.value}`];
+    if (pr.steps?.length === 4) {
+      const v = pr.steps.map((st) => (st.answer.kind === 'number' ? Rational.parse(st.answer.value) : null));
+      // each bound checked by putting it back: X + bound = n, a·X + rest = t, b·bound = rest
+      if (!v[0] || X + v[0].toNumber() !== n) errs.push('count-bound step wrong');
+      if (!v[1] || !v[1].add(Q(a * X)).eq(Q(t))) errs.push('money-rest step wrong');
+      if (!v[2] || !v[1] || !v[2].mul(Q(b)).eq(v[1])) errs.push('money-bound step wrong');
+      errs.push(...lastStepErrors(pr));
+    }
+    return errs;
   },
 };
 

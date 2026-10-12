@@ -11,7 +11,9 @@ import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { polyTex, polyPlain } from '../../core/math/format';
 import { p, makeProblem, makeChoice, choiceLabel, texToExpr, Q } from './util';
-import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, mathOf, gcd, gcdAll, factorPairs, pairLabel } from './u4-common';
+import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, mathOf, gcd, gcdAll, factorPairs, pairLabel, fixedChoice, choiceMis, choiceMisList, exprMis, numMis, gstep, checkSteps, pickLabel } from './u4-common';
+
+type ChoiceSpec = { kind: 'choice'; options: { id: string; label: string }[]; correct: string };
 
 const EXPANDED_HINT = 'Type an answer like 2x^2 - 5x + 3.';
 const FACTORED_HINT = 'Type an answer like 3x(x - 2) or (2x + 1)(x - 3).';
@@ -113,6 +115,93 @@ function partValue(poly: Poly, part: Part): number {
   }
 }
 
+type Term = { deg: number; coef: number };
+const termLabel = (t: Term) => `$${termsTex([t])}$`;
+/** Which term a part question is about (null for "how many terms"). */
+const PART_TERM: Record<Part, number | null> = { leading: 2, degree: 2, constant: 0, xcoef: 1, terms: null };
+
+/** Guided steps for a parts question: first find the right term (or count the signs), then name the part. */
+function partSteps(terms: Term[], tex: string, part: Part, val: number, answer: ChoiceSpec): ProblemStep[] {
+  const finalMis = partChoiceMis(terms, part, val, answer);
+  return partStepsWith(terms, tex, part, val, answer, finalMis);
+}
+
+/** Feedback for each wrong option of a parts question, from the number on the option. */
+function partChoiceMis(terms: Term[], part: Part, val: number, answer: ChoiceSpec): Misconception[] {
+  return answer.options
+    .filter((o) => o.id !== answer.correct)
+    .map((o): Misconception => {
+      const x = Number(o.label.replace(/\$/g, ''));
+      if (part === 'terms') return { answer: o.id, tag: 'unlike-terms', feedback: 'Count the pieces of the expression that are separated by $+$ and $-$ signs. Each piece is one term.' };
+      if (part === 'degree') return { answer: o.id, tag: 'exponent-rule', feedback: 'The degree is the exponent on $x$ in the term with the highest power of $x$, not a coefficient or a count.' };
+      if (x === -val) return { answer: o.id, tag: 'sign-error', feedback: 'Check the sign. The sign in front of a term belongs to that term: a minus sign makes its number negative.' };
+      if (terms.some((t) => t.coef === x)) return { answer: o.id, tag: 'other', feedback: 'That number belongs to a different term. First find the term the question is about, then read its number.' };
+      if (terms.some((t) => t.coef === -x)) return { answer: o.id, tag: 'sign-error', feedback: 'That has the wrong sign, and it belongs to a different term. Find the term the question is about and keep its sign.' };
+      return { answer: o.id, tag: 'other', feedback: 'That number is not in the expression. Find the term the question is about and read its number, with its sign.' };
+    });
+}
+
+function partStepsWith(terms: Term[], tex: string, part: Part, val: number, answer: ChoiceSpec, finalMis: Misconception[]): ProblemStep[] {
+  if (part === 'terms') {
+    const signs = (tex.slice(1).match(/ [+-] /g) ?? []).length;
+    return [
+      gstep(
+        `Terms are separated by $+$ and $-$ signs. In $${tex}$, how many $+$ or $-$ signs sit **between** two terms? (A negative sign at the very front does not separate two terms.)`,
+        { kind: 'number', value: String(signs) },
+        ['A term is a number, a variable, or a number times a variable, such as $5x$ or $-3x^{2}$.', 'Look for each sign that has a term on its left and a term on its right.', 'Skip a sign at the very start: nothing is in front of it.', 'Point to each separating sign and count them one at a time.'],
+        'Each sign between two terms starts a new term.',
+        terms[0].coef < 0 ? numMis(signs, [{ value: signs + 1, tag: 'unlike-terms', feedback: 'The negative sign at the very front is part of the first term. It does not separate two terms.' }]) : [],
+      ),
+      gstep(
+        `So how many **terms** does $${tex}$ have?`,
+        answer,
+        ['Each separating sign starts a new term.', 'There is always one more term than separating signs.', 'Add $1$ to the number of separating signs you counted.', 'Check by pointing to each term in turn.'],
+        'Every piece between the signs is one term.',
+        finalMis,
+      ),
+    ];
+  }
+  const want = terms.find((t) => t.deg === PART_TERM[part])!;
+  const others = terms.filter((t) => t !== want);
+  const which = part === 'constant' ? 'has **no variable**' : part === 'xcoef' ? 'has $x$ to the **first power** (just $x$, with no exponent)' : 'has the **highest power** of $x$';
+  const pick = fixedChoice(termLabel(want), others.map(termLabel));
+  const wrongTerm = (t: Term) =>
+    choiceMis(
+      pick,
+      termLabel(t),
+      'other',
+      t.deg === 0 ? 'That term has no $x$ at all.' : t.deg === 1 ? (part === 'constant' ? 'That term has an $x$ in it.' : 'That term is $x$ to the first power. Is there a term with a higher power of $x$?') : part === 'constant' ? 'That term has $x^{2}$ in it.' : 'That term has $x^{2}$, which is $x$ to the second power.',
+    );
+  const second =
+    part === 'leading'
+      ? 'What is the **leading coefficient**, the number multiplying that term?'
+      : part === 'degree'
+        ? 'What is the **degree**, the exponent on $x$ in that term?'
+        : part === 'constant'
+          ? 'What is the **constant term**? Include its sign.'
+          : 'What is the **coefficient of $x$**, the number multiplying $x$? Include its sign.';
+  return [
+    gstep(
+      `Which term of $${tex}$ ${which}?`,
+      pick,
+      ['The terms are the pieces separated by $+$ and $-$ signs.', part === 'constant' ? 'A constant is a number with no letter attached.' : part === 'xcoef' ? '$x$ with no exponent means $x^{1}$.' : 'Compare the exponents on $x$ in each term. A number alone has $x^{0}$.', 'Keep the sign in front of a term with that term.', 'Look at each term and its power of $x$ one at a time.'],
+      part === 'constant' ? 'The constant term is the only term with no variable.' : part === 'xcoef' ? 'That term is $x$ to the first power.' : 'That term has $x^{2}$, the highest power in the expression.',
+      others.map(wrongTerm),
+    ),
+    gstep(
+      `${second} The expression is $${tex}$.`,
+      answer,
+      part === 'degree'
+        ? ['The degree is an exponent, not a coefficient.', 'Look at the exponent on $x$ in the term you found.', 'A squared variable has exponent $2$; a plain $x$ has exponent $1$.', 'Read the small raised number on $x$.']
+        : part === 'constant'
+          ? ['The constant term is a number by itself, with no variable.', 'Use the term you just found.', 'A minus sign in front of the term makes the number negative.', 'Write that term, sign included, as a number.']
+          : ['A coefficient is the number multiplying the variable.', 'Use the term you just found.', 'A minus sign in front of the term makes the number negative.', 'If no number is written in front of the variable, the coefficient is $1$ (or $-1$ with a minus sign).'],
+      part === 'degree' ? 'The degree of a polynomial is the highest power of its variable.' : 'The sign in front of a term belongs to its coefficient.',
+      finalMis,
+    ),
+  ];
+}
+
 export const genInterpretParts: GeneratorDef = {
   id: 'u4.interpret-parts',
   skillId: 'S4.01',
@@ -156,7 +245,13 @@ export const genInterpretParts: GeneratorDef = {
                       : `At $p = 0$ the number sold would be $${N} - ${m}(0) = ${N}$.`,
             },
           ],
-          misconceptions: [],
+          misconceptions: choiceMisList(answer, [
+            [L.sold, 'other', `The number sold is the whole factor $${N} - ${m}p$, which changes as the price changes.`],
+            [L.price, 'other', 'The price of one item is the variable $p$ by itself.'],
+            [L.drop, 'other', `The drop in sales for each \\$1 increase in price is $${m}$, the number multiplying $p$ inside the parentheses.`],
+            [L.free, 'other', `The number given out at a price of \\$0 is the value of $${N} - ${m}p$ when $p = 0$.`],
+            [L.revenue, 'other', 'The total money taken in is the whole product $R(p)$, price times number sold, not one piece of it.'],
+          ]),
         });
       }
       if (roll === 3) {
@@ -185,7 +280,12 @@ export const genInterpretParts: GeneratorDef = {
             { text: 'Read the model as one side times the other side.', tex: `A(x) = \\underbrace{(x + ${a})}_{\\text{side made } ${a} \\text{ ft longer}} \\cdot \\underbrace{(x + ${b})}_{\\text{side made } ${b} \\text{ ft longer}}`, why: 'Area of a rectangle is length times width, and each side started at $x$ feet.' },
             { text: `So $${shown}$ is: ${L[ask].charAt(0).toLowerCase() + L[ask].slice(1)}.`, why: ask === 'orig' ? 'The problem defines $x$ as the side of the original square.' : 'It is a length in feet, not an area: it is one factor of the area.' },
           ],
-          misconceptions: [],
+          misconceptions: choiceMisList(answer, [
+            [L.sideA, 'other', `The side that was made $${a}$ feet longer is $x + ${a}$: the original side $x$ plus $${a}$.`],
+            [L.sideB, 'other', `The side that was made $${b}$ feet longer is $x + ${b}$: the original side $x$ plus $${b}$.`],
+            [L.orig, 'other', 'The side of the original square is $x$ by itself, as the first sentence says.'],
+            [L.area, 'units', 'The area of the new garden is the whole product $A(x)$, measured in square feet, not one piece of it.'],
+          ]),
         });
       }
       const v = rng.pick([32, 48, 64, 80]);
@@ -206,6 +306,13 @@ export const genInterpretParts: GeneratorDef = {
           'The term with $t$ to the first power is the part that grows steadily with time, like a speed times a time. The $t^{2}$ term grows faster and faster.',
           'The greatest height and the landing time come from solving or graphing, not from reading one number.',
         ],
+        misconceptions: choiceMisList(answer, [
+          [CTX_LABELS.start, 'other', `The starting height is the constant term, $${h0}$: it is what is left when you substitute $t = 0$.`],
+          [CTX_LABELS.speed, 'other', `The upward speed at the throw is $${v}$, the coefficient of $t$: feet per second times seconds gives feet.`],
+          [CTX_LABELS.gravity, 'other', 'The effect of gravity is the $-16$ in the $-16t^{2}$ term, which subtracts more and more height as time goes on.'],
+          [CTX_LABELS.max, 'other', 'The greatest height is not one of the numbers written in the function. You find it from the vertex.'],
+          [CTX_LABELS.time, 'other', 'The landing time is not one of the numbers written in the function. You find it by solving $h(t) = 0$.'],
+        ]),
         solution:
           askK === 'start'
             ? [{ text: 'Substitute $t = 0$.', tex: `h(0) = -16(0)^{2} + ${v}(0) + ${h0} = ${h0}`, why: `At the moment the ball is thrown its height is ${h0} feet, so the constant term is the starting height.` }]
@@ -215,7 +322,6 @@ export const genInterpretParts: GeneratorDef = {
                   { text: 'The term $-16t^{2}$ is negative and grows like $t^{2}$.', why: 'It subtracts more height each second than the second before, which is how gravity pulls a thrown ball back down faster and faster.' },
                   { text: 'So $-16$ is the effect of gravity.', why: 'In feet and seconds, gravity speeds a falling object up by $32$ feet per second every second, and the model uses half of that, $16$. It is negative because gravity pulls down.' },
                 ],
-        misconceptions: [],
       });
     }
     if (difficulty === 2 && rng.int(0, 2) === 0) {
@@ -241,7 +347,14 @@ export const genInterpretParts: GeneratorDef = {
           'Exactly one choice appears as a factor in the product.',
         ],
         solution: [{ text: `The expression is $${k}$ times $${linTex(1, -r1)}$ times $${linTex(1, -r2)}$.`, why: 'Each of these is a factor.' }, { text: `So $${linTex(1, -correct)}$ is a factor.` }],
-        misconceptions: [],
+        misconceptions: choiceMisList(
+          answer,
+          fakes.map((r): [string, MisconceptionTag, string] =>
+            r === -r1 || r === -r2
+              ? [`$${linTex(1, -r)}$`, 'sign-error', `Check the sign inside the binomial: $${linTex(1, -r)}$ and $${linTex(1, r)}$ are different factors. Compare the choice with the product exactly, sign included.`]
+              : [`$${linTex(1, -r)}$`, 'factoring', 'That binomial is not one of the parts being multiplied. The factors are the number in front and the binomials in parentheses, exactly as written.'],
+          ),
+        ),
       });
     }
     const a = nz(rng, -6, 9);
@@ -267,11 +380,13 @@ export const genInterpretParts: GeneratorDef = {
       terms: 'Terms are separated by $+$ and $-$ signs.',
       degree: 'The degree is the highest power of $x$ that appears.',
     };
+    const steps = difficulty === 1 ? partSteps(terms, tex, part, val, answer) : undefined;
     return makeProblem({
       skillId: 'S4.01',
       tags: [],
       prompt: [p(PART_Q[part]), { t: 'math', tex }],
       answer,
+      ...(steps ? { steps } : {}),
       hints: [
         'Write the expression in standard form, highest power first: $ax^{2} + bx + c$.',
         'A coefficient is the number multiplying a variable. A subtraction sign makes the coefficient negative.',
@@ -282,7 +397,7 @@ export const genInterpretParts: GeneratorDef = {
         { text: 'Write the expression in standard form.', tex: polyTex(poly, ['x']), why: 'Ordering the terms by power makes each part easy to name.' },
         { text: `The answer is $${val}$.`, why: why[part] },
       ],
-      misconceptions: [],
+      misconceptions: partChoiceMis(terms, part, val, answer),
     });
   },
   verify(pr) {
@@ -351,6 +466,12 @@ export const genInterpretParts: GeneratorDef = {
     const want = partValue(poly, part);
     const errs: string[] = [];
     if (key !== `$${want}$`) errs.push(`key ${key}, expected ${want}`);
+    if (pr.steps) {
+      // step 1 re-derived from the printed expression: count the separating signs, or find the term by its power
+      const d = PART_TERM[part];
+      const first = d === null ? String((tex.replace(/^-/, '').match(/[+-]/g) ?? []).length) : pickLabel(pr.steps[0].answer, termLabel({ deg: d, coef: poly.coeff('x', d).toInt() }));
+      errs.push(...checkSteps(pr, [first, null]));
+    }
     if (new Set(pr.answer.options.map((o) => o.label)).size !== pr.answer.options.length) errs.push('duplicate options');
     return errs;
   },
@@ -404,6 +525,11 @@ export const genAddSubPoly: GeneratorDef = {
       solution.push({ text: 'Distribute the minus sign to every term in the second polynomial.', tex: parts.map((q, i) => (i === 0 ? pTex(q) : pTex(q).startsWith('-') ? ` - ${pTex(q).slice(1)}` : ` + ${pTex(q)}`)).join(''), why: 'Subtracting a polynomial means adding its opposite.' });
     }
     solution.push({ text: 'Combine like terms: $x^{2}$ terms together, $x$ terms together, and constants together.', tex: `= ${pTex(result)}` });
+    if (difficulty === 1) {
+      const x4 = X([result.coeff('x', 0).toNumber(), result.coeff('x', 1).toNumber(), 0, 0, result.coeff('x', 2).toNumber()]);
+      mis.push({ poly: x4, answer: pPlain(x4), tag: 'exponent-rule', feedback: 'When you add like terms, the exponent stays the same: $3x^{2} + 2x^{2} = 5x^{2}$, not $5x^{4}$. Only the coefficients are added.' });
+    }
+    const misconceptions = polyMisconceptions(result, mis);
     return makeProblem({
       skillId: 'S4.02',
       tags: [],
@@ -417,11 +543,66 @@ export const genAddSubPoly: GeneratorDef = {
         'Write the answer with the highest power first.',
       ],
       solution,
-      misconceptions: polyMisconceptions(result, mis),
+      misconceptions,
+      ...(difficulty === 1 ? { steps: addSteps(P, Qp, result, misconceptions) } : {}),
     });
   },
-  verify: (pr) => verifySameAndForm(pr),
+  verify: (pr) => {
+    const errs = verifySameAndForm(pr);
+    if (pr.steps) {
+      // re-read the two polynomials from the prompt and add each column's coefficients
+      const parts = (mathOf(pr) ?? '').split('\\right) + \\left(').map((t) => texPoly(t.replace(/^\\left\(|\\right\)$/g, '')));
+      if (parts.length !== 2) return [...errs, 'cannot read the two polynomials'];
+      const cols = [2, 1, 0].filter((d) => parts.every((q) => !q.coeff('x', d).isZero()));
+      errs.push(...checkSteps(pr, [...cols.map((d) => parts[0].coeff('x', d).add(parts[1].coeff('x', d)).toString()), null]));
+    }
+    return errs;
+  },
 };
+
+const COL_NAME: Record<number, string> = { 2: '$x^{2}$', 1: '$x$', 0: 'constant' };
+
+/** Steps for adding two polynomials: combine each column of like terms, then write the sum. */
+function addSteps(P: Poly, Qp: Poly, result: Poly, finalMis: Misconception[]): ProblemStep[] {
+  const steps: ProblemStep[] = [];
+  const tex = `${paren(P)} + ${paren(Qp)}`;
+  for (const d of [2, 1, 0]) {
+    const c1 = P.coeff('x', d).toNumber();
+    const c2 = Qp.coeff('x', d).toNumber();
+    if (c1 === 0 || c2 === 0) continue; // only one term in this column: nothing to combine
+    const t1 = termsTex([{ deg: d, coef: c1 }]);
+    const t2 = termsTex([{ deg: d, coef: c2 }]);
+    const sum = c1 + c2;
+    steps.push(
+      gstep(
+        `In $${tex}$, combine the ${COL_NAME[d]} terms, $${t1}$ and $${t2}$. What is the ${d === 0 ? 'combined constant' : `coefficient of ${COL_NAME[d]}`} in the sum?`,
+        { kind: 'number', value: String(sum) },
+        [
+          'Like terms have the same variable raised to the same power, so they can be added.',
+          `Only the ${COL_NAME[d]} terms go together in this step.`,
+          'Add the numbers in front, keeping the sign in front of each term with its number.',
+          `Find $${c1} + ${c2 < 0 ? `(${c2})` : c2}$.`,
+        ],
+        `$${t1} + ${c2 < 0 ? `(${t2})` : t2} = ${termsTex([{ deg: d, coef: sum }]) || '0'}$${d > 0 ? ': the power of $x$ stays the same when like terms are added' : ''}.`,
+        numMis(sum, [
+          c1 < 0 || c2 < 0 ? { value: Math.abs(c1) + Math.abs(c2), tag: 'sign-error', feedback: 'A minus sign in front of a term makes its number negative. Adding a negative number makes the total smaller.' } : null,
+          { value: c1 - c2, tag: 'sign-error', feedback: 'This problem adds the two polynomials, so add the numbers instead of subtracting them.' },
+        ]),
+      ),
+    );
+  }
+  steps.push(
+    gstep(
+      `Now write the whole sum $${tex}$ in standard form.`,
+      { kind: 'expression', value: pPlain(result), form: 'expanded' },
+      ['Every column of like terms is combined into one term.', 'Use the combined numbers you found. A term that appears in only one polynomial is copied as it is.', 'A combined coefficient of $0$ means that term disappears.', 'Write the $x^{2}$ term first, then the $x$ term, then the constant.'],
+      `$${tex} = ${pTex(result)}$.`,
+      finalMis,
+      EXPANDED_HINT,
+    ),
+  );
+  return steps;
+}
 
 // ---------------------------------------------------------------------------
 // S4.03: multiply polynomials
@@ -457,6 +638,7 @@ export const genMultiplyPoly: GeneratorDef = {
           { text: 'Multiply.', tex: `= ${pTex(result)}` },
         ],
         misconceptions: polyMisconceptions(result, [{ poly: forgot, answer: pPlain(forgot), tag: 'distribution', feedback: `Multiply $${kk}x$ by **both** terms in the parentheses, including the $${b}$.` }]),
+        steps: distributeSteps(kk, a, b, tex, pPlain(result), pTex(result), polyMisconceptions(result, [{ poly: forgot, answer: pPlain(forgot), tag: 'distribution', feedback: `Multiply $${kk}x$ by **both** terms in the parentheses, including the $${b}$.` }])),
       });
     }
     const a = difficulty === 2 ? 1 : rng.int(2, 5);
@@ -505,8 +687,61 @@ export const genMultiplyPoly: GeneratorDef = {
       steps,
     });
   },
-  verify: (pr) => verifySameAndForm(pr),
+  verify: (pr) => {
+    const errs = verifySameAndForm(pr);
+    if (pr.steps && pr.difficulty === 1) {
+      // re-read kx(ax + b) and multiply the monomial by each inside term separately
+      const m = /^(-?\d+)x\\left\((.+)\\right\)$/.exec(mathOf(pr) ?? '');
+      if (!m) return [...errs, 'cannot read the product'];
+      const kk = Number(m[1]);
+      const inner = texPoly(m[2]);
+      errs.push(...checkSteps(pr, [pPlain(X([0, 0, kk * inner.coeff('x', 1).toNumber()])), pPlain(X([0, kk * inner.coeff('x', 0).toNumber()])), null]));
+    } else errs.push(...checkSteps(pr));
+    return errs;
+  },
 };
+
+/** Steps for kx(ax + b): multiply the outside term by each inside term, then write the sum. */
+function distributeSteps(kk: number, a: number, b: number, tex: string, plain: string, resultTex: string, finalMis: Misconception[]): ProblemStep[] {
+  const out = `${kk}x`;
+  const first = X([0, 0, kk * a]);
+  const second = X([0, kk * b]);
+  const aTerm = termsTex([{ deg: 1, coef: a }]);
+  const par = (t: string, neg: boolean) => (neg ? `(${t})` : t);
+  return [
+    gstep(
+      `In $${tex}$, multiply the outside term $${out}$ by the **first** term inside, $${aTerm}$. What is the product?`,
+      { kind: 'expression', value: pPlain(first) },
+      ['The distributive property says the outside term multiplies **each** term inside the parentheses.', 'Multiply the numbers, then multiply the variables.', '$x \\cdot x = x^{2}$.', `Multiply $${kk}$ by $${a}$, and $x$ by $x$.`],
+      `$${par(out, kk < 0)} \\cdot ${par(aTerm, a < 0)} = ${pTex(first)}$, because the numbers multiply and $x \\cdot x = x^{2}$.`,
+      exprMis(pPlain(first), [
+        { answer: pPlain(X([0, kk * a])), tag: 'exponent-rule', feedback: '$x$ times $x$ is $x^{2}$, not $x$. Multiply the variables as well as the numbers.' },
+        { answer: pPlain(X([0, 0, kk + a])), tag: 'arithmetic-error', feedback: 'Multiply the numbers in front; do not add them.' },
+        { answer: pPlain(X([0, 0, -kk * a])), tag: 'sign-error', feedback: 'Check the sign: a negative times a positive is negative, and a negative times a negative is positive.' },
+      ]),
+      'Type a term like 6x^2.',
+    ),
+    gstep(
+      `Now multiply $${out}$ by the **second** term inside, $${b}$. What is the product?`,
+      { kind: 'expression', value: pPlain(second) },
+      ['Every term inside the parentheses gets multiplied, including the number.', 'Multiply the numbers; the $x$ stays with the product.', `A number times $x$ is a number of $x$'s, like $3 \\cdot 2x = 6x$.`, `Multiply $${kk}$ by $${b}$ and keep the $x$.`],
+      `$${par(out, kk < 0)} \\cdot ${par(String(b), b < 0)} = ${pTex(second)}$.`,
+      exprMis(pPlain(second), [
+        { answer: String(kk * b), tag: 'distribution', feedback: `The outside term is $${out}$, so the product keeps the $x$.` },
+        { answer: pPlain(X([0, -kk * b])), tag: 'sign-error', feedback: 'Check the sign: a negative times a positive is negative, and a negative times a negative is positive.' },
+      ]),
+      'Type a term like -12x.',
+    ),
+    gstep(
+      `Write the whole product $${tex}$ in standard form.`,
+      { kind: 'expression', value: plain, form: 'expanded' },
+      ['The answer is the sum of the two products you found.', 'Write the $x^{2}$ term first, then the $x$ term.', 'A negative product is written with a minus sign.', 'There are no like terms to combine here.'],
+      `$${tex} = ${resultTex}$.`,
+      finalMis,
+      EXPANDED_HINT,
+    ),
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // S4.04: special products
@@ -577,10 +812,65 @@ export const genSpecialProducts: GeneratorDef = {
           ? { poly: missing, answer: polyPlain(missing, vars), tag: 'exponent-rule', feedback: minus ? 'Squaring a difference is not the same as squaring each term. $(a - b)^{2} = a^{2} - 2ab + b^{2}$: you are missing the middle term.' : 'Squaring a sum is not the same as squaring each term. $(a + b)^{2} = a^{2} + 2ab + b^{2}$: you are missing the middle term.' }
           : { poly: missing, answer: polyPlain(missing, vars), tag: 'sign-error', feedback: 'The last product is a positive times a negative, so the constant is **subtracted**: $(a + b)(a - b) = a^{2} - b^{2}$.' },
       ]),
+      ...(difficulty === 1 && isSq && !twoVar
+        ? {
+            steps: squareSteps(b, tex, plain, resultTex, polyMisconceptions(result, [{ poly: missing, answer: polyPlain(missing, vars), tag: 'exponent-rule', feedback: minus ? 'Squaring a difference is not the same as squaring each term. $(a - b)^{2} = a^{2} - 2ab + b^{2}$: you are missing the middle term.' : 'Squaring a sum is not the same as squaring each term. $(a + b)^{2} = a^{2} + 2ab + b^{2}$: you are missing the middle term.' }])),
+          }
+        : {}),
     });
   },
-  verify: (pr) => verifySameAndForm(pr, ['x', 'y']),
+  verify: (pr) => {
+    const errs = verifySameAndForm(pr, ['x', 'y']);
+    if (pr.steps) {
+      // re-read (x + n)^2 and build the pattern pieces from n
+      const m = /^\\left\((.+)\\right\)\^\{2\}$/.exec(mathOf(pr) ?? '');
+      if (!m) return [...errs, 'cannot read the square'];
+      const inner = texPoly(m[1]);
+      const n = inner.coeff('x', 0).toNumber();
+      if (!inner.coeff('x', 1).eq(1)) return [...errs, 'steps expect (x + n)^2'];
+      errs.push(...checkSteps(pr, [pPlain(X([0, n + n])), String(n * n), null]));
+    }
+    return errs;
+  },
 };
+
+/** Steps for (x + b)^2 with the pattern (a + b)^2 = a^2 + 2ab + b^2 (or a - b). */
+function squareSteps(b: number, tex: string, plain: string, resultTex: string, finalMis: Misconception[]): ProblemStep[] {
+  const B = Math.abs(b);
+  const pat = b < 0 ? '(a - b)^{2} = a^{2} - 2ab + b^{2}' : '(a + b)^{2} = a^{2} + 2ab + b^{2}';
+  const mid = X([0, 2 * b]);
+  return [
+    gstep(
+      `Use the pattern $${pat}$ for $${tex}$, with $a = x$ and $b = ${B}$. What is the **middle term**${b < 0 ? ' (with its minus sign)' : ''}?`,
+      { kind: 'expression', value: pPlain(mid) },
+      ['Squaring means the binomial times itself, which makes two equal middle products.', 'The middle term is **twice** the product of the two terms.', `The product of the two terms is $x \\cdot ${B}$.`, b < 0 ? `Double $${pTex(X([0, B]))}$ and keep the minus sign from the pattern.` : `Double $${pTex(X([0, B]))}$.`],
+      `$${b < 0 ? '-' : ''}2(x)(${B}) = ${pTex(mid)}$: the two equal rectangles in the area model, $${pTex(X([0, b]))}$ and $${pTex(X([0, b]))}$, add up to it.`,
+      exprMis(pPlain(mid), [
+        { answer: pPlain(X([0, b])), tag: 'distribution', feedback: 'That is only one of the two middle products. Squaring gives two equal ones, so double it.' },
+        { answer: pPlain(X([0, -2 * b])), tag: 'sign-error', feedback: b < 0 ? 'In $(a - b)^{2}$ the middle term is negative.' : 'In $(a + b)^{2}$ the middle term is positive.' },
+      ]),
+      'Type a term like 10x.',
+    ),
+    gstep(
+      `What is the **last term**, $b^{2}$?`,
+      { kind: 'number', value: String(b * b) },
+      ['Squaring means multiplying a number by itself.', `Here $b = ${B}$.`, 'The last term of a squared binomial is always positive.', `Multiply $${B} \\cdot ${B}$.`],
+      `$${B}^{2} = ${b * b}$, and it is positive because ${b < 0 ? `$(-${B})(-${B})$ is positive` : 'a positive times a positive is positive'}.`,
+      numMis(b * b, [
+        { value: -b * b, tag: 'sign-error', feedback: 'A number times itself is never negative: $(-3)(-3) = 9$. The last term is positive.' },
+        { value: 2 * B, tag: 'exponent-rule', feedback: 'Squaring means times itself, not times $2$.' },
+      ]),
+    ),
+    gstep(
+      `Write $${tex}$ in standard form.`,
+      { kind: 'expression', value: plain, form: 'expanded' },
+      ['Put the three parts of the pattern together: first term squared, middle term, last term.', 'The first term squared is $x^{2}$.', 'Use the middle term and the last term you found.', 'Write the terms from the highest power of $x$ to the lowest.'],
+      `$${tex} = ${resultTex}$.`,
+      finalMis,
+      EXPANDED_HINT,
+    ),
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // S4.05: factor out the GCF
@@ -650,6 +940,19 @@ export const genFactorGcf: GeneratorDef = {
       const wrongInner = inner.scale(Q(-1)).add(X(inner.degreeIn('x') === 2 ? [0, 0, 2 * lead.toInt()] : [0, 2 * lead.toInt()]));
       misconceptions.push({ answer: `${gcfPlain}(${pPlain(wrongInner)})`, tag: 'sign-error', feedback: 'Dividing every term by a negative number flips the sign of **every** term inside, not just the first one. Multiply back out to check.' });
     }
+    let steps: ProblemStep[] | undefined;
+    if (difficulty !== 1) {
+      // the same slip on a longer expression: the last term is left undivided
+      const c0 = inner.coeff('x', 0).toInt();
+      if (c0 !== 0) misconceptions.push({ answer: `${gcfPlain}(${pPlain(inner.add(X([c0 * (g - 1)])))})`, tag: 'distribution', feedback: 'Divide **every** term by the GCF, including the last one. Multiply your answer back out to check.' });
+    }
+    if (difficulty === 1) {
+      // a common slip: the last term is not divided by the GCF
+      const undivided = lin(inner.coeff('x', 1).toNumber(), g * inner.coeff('x', 0).toNumber());
+      const slip = `${gcfPlain}(${pPlain(undivided)})`;
+      if (!undivided.equals(inner)) misconceptions.push({ answer: slip, tag: 'distribution', feedback: 'Divide **every** term by the GCF, including the last one. Multiply your answer back out to check.' });
+      steps = gcfSteps(full, inner, g, k, answer, misconceptions);
+    }
     return makeProblem({
       skillId: 'S4.05',
       tags: [],
@@ -667,12 +970,22 @@ export const genFactorGcf: GeneratorDef = {
         { text: 'Divide each term by the GCF and write the result in parentheses.', tex: `${tex} = ${gcfTex}\\left(${pTex(inner)}\\right)`, why: neg ? 'Dividing each term by a negative number changes every sign. Multiplying back out gives the original expression, and the terms inside have no common factor left.' : 'Multiplying back out gives the original expression, and the terms inside have no common factor left.' },
       ],
       misconceptions,
+      ...(steps ? { steps } : {}),
     });
   },
   verify: (pr) => {
     const errs = verifySameAndForm(pr);
     const tex = mathOf(pr);
     if (tex && texPoly(tex).degreeIn('x') > 2) errs.push('degree above 2');
+    if (tex && pr.steps) {
+      // GCF re-derived from the printed terms: gcd of the coefficients and the lowest power of x present
+      const given = texPoly(tex);
+      const cs = given.coeffsIn('x').map((c) => c.toInt());
+      const g = gcdAll(cs);
+      const low = cs.findIndex((c) => c !== 0);
+      const inside = X(cs.slice(low).map((c) => c / g));
+      errs.push(...checkSteps(pr, [String(g), ...(low === 1 ? [`${g}x`] : []), pPlain(inside), null]));
+    }
     if (pr.answer.kind === 'expression' && /negative GCF/.test((pr.prompt[0] as { text: string }).text)) {
       // the factor outside must be negative and the leading coefficient inside positive
       const m = /^(-\d+)(x?)\((.+)\)$/.exec(pr.answer.value.replace(/\s+/g, ''));
@@ -688,6 +1001,63 @@ export const genFactorGcf: GeneratorDef = {
     return errs;
   },
 };
+
+/** Steps for factoring out a positive GCF g·x^k from g·x^k·(inner). */
+function gcfSteps(full: Poly, inner: Poly, g: number, k: number, answer: string, finalMis: Misconception[]): ProblemStep[] {
+  const tex = pTex(full);
+  const coefs = full.coeffsIn('x').map((c) => c.toInt()).filter((c) => c !== 0).reverse();
+  const smaller = [...Array(g).keys()].filter((d) => d > 1 && d < g && g % d === 0).pop();
+  const gcfPlain = k ? `${g}x` : String(g);
+  const lowTerm = termsTex([{ deg: k, coef: full.coeff('x', k).toInt() }]);
+  const steps: ProblemStep[] = [
+    gstep(
+      `What is the greatest number that divides every coefficient of $${tex}$?`,
+      { kind: 'number', value: String(g) },
+      ['A common factor divides every term with no remainder. The GCF is the greatest such number.', `The coefficients are ${coefs.map((c) => `$${Math.abs(c)}$`).join(' and ')} (ignore the signs).`, 'List the factors of the smaller coefficient, largest first.', 'Take the largest factor that also divides the other coefficient.'],
+      `$${g}$ divides ${coefs.map((c) => `$${Math.abs(c)}$`).join(' and ')}, and no larger number divides both.`,
+      numMis(g, [smaller ? { value: smaller, tag: 'factoring', feedback: 'That number does divide every coefficient, but a larger number does too. The GCF is the greatest one.' } : null, { value: 1, tag: 'factoring', feedback: 'Every number divides by $1$. Look for a larger common factor.' }]),
+    ),
+  ];
+  if (k)
+    steps.push(
+      gstep(
+        `Every term of $${tex}$ also has an $x$. What is the **complete** GCF, the number and the power of $x$ together?`,
+        { kind: 'expression', value: gcfPlain },
+        ['The GCF can include a variable if every term has it.', 'Find the lowest power of $x$ that appears in every term.', `The term $${lowTerm}$ has only one $x$, so the GCF can have at most $x^{1}$.`, 'Put the number you found and that power of $x$ together.'],
+        `$${gcfPlain}$: $${g}$ divides every coefficient and $x$ is the lowest power of $x$ in every term.`,
+        exprMis(gcfPlain, [
+          { answer: String(g), tag: 'factoring', feedback: 'Every term also has a factor of $x$, so the $x$ is part of the GCF too.' },
+          { answer: `${g}x^2`, tag: 'exponent-rule', feedback: 'Not every term has $x^{2}$. Use the lowest power of $x$ that appears in every term.' },
+        ]),
+        'Type something like 4x.',
+      ),
+    );
+  const a = inner.coeff('x', 1).toNumber();
+  const b = inner.coeff('x', 0).toNumber();
+  const noX = k ? X([0, b, a]) : null; // divided the numbers but not the x
+  steps.push(
+    gstep(
+      `Divide each term of $${tex}$ by $${gcfPlain}$. What expression goes inside the parentheses?`,
+      { kind: 'expression', value: pPlain(inner) },
+      ['Factoring out the GCF means dividing every term by it.', 'Divide the numbers, then divide the powers of $x$.', k ? '$x^{2} \\div x = x$ and $x \\div x = 1$.' : 'The $x$ stays where it was, since the GCF has no $x$.', `Divide each term by $${gcfPlain}$, one term at a time.`],
+      `Each term divided by $${gcfPlain}$ gives $${pTex(inner)}$, and $${gcfPlain} \\cdot (${pTex(inner)})$ multiplies back to $${tex}$.`,
+      exprMis(pPlain(inner), [
+        { answer: pPlain(lin(a, g * b)), tag: 'distribution', feedback: 'Divide **every** term by the GCF, including the last one.' },
+        noX ? { answer: pPlain(noX), tag: 'exponent-rule', feedback: 'Divide by the whole GCF, including the $x$: $x^{2} \\div x = x$.' } : null,
+      ]),
+      'Type an expression like 2x + 5.',
+    ),
+    gstep(
+      `Write $${tex}$ in factored form.`,
+      { kind: 'expression', value: answer, form: 'factored' },
+      ['Factored form is the GCF times the parentheses.', `The GCF is $${gcfPlain}$.`, 'Put the expression you found inside the parentheses.', 'Check by multiplying back out.'],
+      `$${tex} = ${gcfPlain}\\left(${pTex(inner)}\\right)$.`,
+      finalMis,
+      FACTORED_HINT,
+    ),
+  );
+  return steps;
+}
 
 // ---------------------------------------------------------------------------
 // S4.06: factor x^2 + bx + c
@@ -817,7 +1187,7 @@ export const genFactorAx2: GeneratorDef = {
       {
         prompt: [p(`For $${pTex(inner)}$, what is $a \\cdot c$?`)],
         answer: { kind: 'number', value: String(A * C) },
-        hints: [`$a = ${A}$ is the coefficient of $x^{2}$.`, `$c = ${C}$ is the constant term.`, 'Multiply them, keeping the sign.', 'A negative times a positive is negative.'],
+        hints: [`$a = ${A}$ is the coefficient of $x^{2}$.`, `$c = ${C}$ is the constant term.`, 'Multiply them, keeping the sign.', A < 0 && C < 0 ? 'A negative times a negative is positive.' : A < 0 || C < 0 ? 'A negative times a positive is negative.' : 'Both numbers are positive, so the product is positive.'],
         explanation: `$a \\cdot c = ${A} \\cdot ${C < 0 ? `(${C})` : C} = ${A * C}$.`,
       },
       pairStep(A * C, B, rng, [m, n], '($a \\cdot c$)'),
@@ -847,7 +1217,11 @@ export const genFactorAx2: GeneratorDef = {
         { text: 'Split the middle term and factor by grouping.', tex: `${termsTex([{ deg: 2, coef: A }, { deg: 1, coef: m }, { deg: 1, coef: n }, { deg: 0, coef: C }])} = ${a1 === 1 ? '' : a1}x\\left(${linTex(a2, q1)}\\right) ${p1 < 0 ? '-' : '+'} ${Math.abs(p1)}\\left(${linTex(a2, q1)}\\right)`, why: 'Grouping two terms at a time reveals a common binomial factor.' },
         { text: 'Write the factors.', tex: `${tex} = ${k > 1 ? k : ''}${factorsTex}` },
       ],
-      misconceptions: polyMisconceptions(full, [{ poly: swapPoly, answer: k === 1 ? `(${linPlain(a1, q1)})(${linPlain(a2, p1)})` : `${k}(${linPlain(a1, q1)})(${linPlain(a2, p1)})`, tag: 'factoring', feedback: 'Multiply your binomials back out: the middle term does not match. Try the constants the other way around.' }]),
+      misconceptions: polyMisconceptions(full, [
+        { poly: swapPoly, answer: k === 1 ? `(${linPlain(a1, q1)})(${linPlain(a2, p1)})` : `${k}(${linPlain(a1, q1)})(${linPlain(a2, p1)})`, tag: 'factoring', feedback: 'Multiply your binomials back out: the middle term does not match. Try the constants the other way around.' },
+        { poly: lin(a1, -p1).mul(lin(a2, -q1)).scale(Q(k)), answer: `${k === 1 ? '' : k}(${linPlain(a1, -p1)})(${linPlain(a2, -q1)})`, tag: 'sign-error', feedback: 'Check the signs: multiply your binomials back out and compare the middle term and the constant with the original.' },
+        ...(k > 1 ? [{ poly: inner, answer: factorsPlain, tag: 'factoring' as const, feedback: `Your binomials are right, but the greatest common factor $${k}$ is missing. Factoring completely keeps it in front.` }] : []),
+      ]),
       steps,
     });
   },

@@ -12,7 +12,7 @@ import { toPoly, Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, texToExpr, numberMisconceptions } from './util';
 import { radPlain, radTex, splitPower, SQUAREFREE } from './u3-common';
-import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, texEquation, mathOf, quadRoots, checkSolutions, roundedRootOk, gcdAll, gcd, subTex, promptText } from './u4-common';
+import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, texEquation, mathOf, quadRoots, checkSolutions, roundedRootOk, gcdAll, gcd, subTex, promptText, fixedChoice, choiceMis, choiceMisList, numMis, gstep, checkSteps, pickLabel } from './u4-common';
 
 const SOL_HINT = 'Like x = 3, -5 or 2 ± sqrt(5), or none';
 const nz = (rng: Rng, lo: number, hi: number) => rng.nonzeroInt(lo, hi);
@@ -126,12 +126,25 @@ export const genSolveFactoring: GeneratorDef = {
         ],
         explanation: `$${pTex(lhs)} = ${factoredTex}$.`,
       });
+    if (mode === 'factored') {
+      // already factored (difficulty 1): solve each factor = 0 on its own, then put the solutions together
+      const facStep = (fp: number, root: Rational, which: string) =>
+        gstep(
+          `A product is $0$ only when one of its factors is $0$. Set the ${which} factor equal to zero: $${linTex(1, fp)} = 0$. What is $x$?`,
+          numSpec(root),
+          ['The zero product property: if $AB = 0$, then $A = 0$ or $B = 0$.', 'This factor is a small linear equation.', fp > 0 ? `Undo the $+ ${fp}$ by subtracting $${fp}$ from both sides.` : `Undo the $- ${-fp}$ by adding $${-fp}$ to both sides.`, 'The solution has the opposite sign of the number in the factor.'],
+          `$${linTex(1, fp)} = 0$ gives $x = ${root.toTex()}$, and then the ${which} factor is $0$, so the whole product is $0$.`,
+          numMis(root, [{ value: root.neg(), tag: 'sign-error', feedback: `Check: put your answer into $${linTex(1, fp)}$. It must give $0$.` }]),
+        );
+      steps.push(facStep(p1, r1, 'first'), facStep(q1, r2, 'second'));
+    }
     steps.push({
       prompt: [p(`Use the zero product property on $${factoredTex} = 0$. What are the solutions?`)],
       answer: solSpec(values),
       inputHint: SOL_HINT,
       hints: ['If a product is zero, at least one factor is zero.', 'Set each factor equal to zero.', 'Solve each small equation.', 'There are two solutions.'],
-      explanation: `$x = ${first.toTex()}$ or $x = ${second.toTex()}$.`,
+      explanation: `$x = ${first.toTex()}$ or $x = ${second.toTex()}$: each one makes one factor zero.`,
+      ...(misconceptions.length ? { misconceptions } : {}),
     });
     return makeProblem({
       skillId: 'S4.09',
@@ -156,7 +169,14 @@ export const genSolveFactoring: GeneratorDef = {
       steps,
     });
   },
-  verify: verifyEquation,
+  verify(pr) {
+    const errs = verifyEquation(pr);
+    if (errs.length || pr.difficulty !== 1 || pr.answer.kind !== 'solutions') return errs;
+    // steps (difficulty 1): each printed factor (x + n) is zero at x = -n, then all the solutions
+    const fs = [...(mathOf(pr) ?? '').matchAll(/\\left\(x ([+-]) (\d+)\\right\)/g)].map((m) => (m[1] === '-' ? Number(m[2]) : -Number(m[2])));
+    if (fs.length !== 2) return ['cannot read the factors'];
+    return checkSteps(pr, [String(fs[0]), String(fs[1]), pr.answer.values.join(', ')]);
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -174,12 +194,14 @@ export const genSolveSqrt: GeneratorDef = {
     let h = 0;
     let m: number; // (x - h)^2 = m
     let tex: string;
+    let cD1 = 0; // the constant added to x^2 at difficulty 1
     if (difficulty === 1) {
       const n = rng.int(2, 12);
       m = n * n;
       if (rng.bool()) tex = `x^{2} = ${m}`;
       else {
         const c = nz(rng, -20, 20);
+        cD1 = c;
         tex = `x^{2} ${c < 0 ? '-' : '+'} ${Math.abs(c)} = ${m + c}`;
       }
     } else if (difficulty === 2) {
@@ -204,19 +226,31 @@ export const genSolveSqrt: GeneratorDef = {
     const isolated = tex === `${sq} = ${m}`;
     const kConst = -a * m;
     const steps: ProblemStep[] = [];
+    if (isolated && difficulty === 1)
+      steps.push(
+        gstep(
+          `$${sq} = ${m}$ means $x \\cdot x = ${m}$. What **positive** number times itself is $${m}$?`,
+          numSpec(Q(Math.sqrt(m))),
+          ['Taking a square root undoes squaring.', `Think of the perfect squares: $1, 4, 9, 16, 25, \\ldots$`, `Which whole number squared is $${m}$?`, 'Check by multiplying your number by itself.'],
+          `$${Math.sqrt(m)} \\cdot ${Math.sqrt(m)} = ${m}$, so $\\sqrt{${m}} = ${Math.sqrt(m)}$.`,
+          numMis(Math.sqrt(m), [{ value: Q(m, 2), tag: 'exponent-rule', feedback: 'Squaring means times itself, not times $2$, so undo it with a square root, not by dividing by $2$.' }]),
+        ),
+      );
     if (!isolated)
       steps.push({
         prompt: [p(`Isolate the square in $${tex}$. What does $${sq}$ equal?`)],
         answer: { kind: 'number', value: String(m) },
         hints: ['Undo addition or subtraction first.', 'Then divide by the number multiplying the square.', 'Work in the reverse order of operations.', `You should get $${sq} = $ a single number.`],
         explanation: `$${sq} = ${m}$.`,
+        ...(cD1 ? { misconceptions: numMis(m, [{ value: m + 2 * cD1, tag: 'inverse-operation', feedback: `To undo ${cD1 > 0 ? `adding $${cD1}$, subtract $${cD1}$` : `subtracting $${-cD1}$, add $${-cD1}$`} on both sides.` }]) } : {}),
       });
     steps.push({
         prompt: [p(`Now take the square root of both sides of $${sq} = ${m}$ and solve.`)],
         answer: solSpec(sols.values),
         inputHint: SOL_HINT,
         hints: [m < 0 ? 'Can a real number squared be negative?' : 'Taking a square root gives a positive **and** a negative answer: use $\\pm$.', 'Simplify the square root if you can.', h === 0 ? 'Write both solutions.' : `Then add or subtract to get $x$ by itself.`, 'Check each solution in the original equation.'],
-        explanation: m < 0 ? 'A square cannot be negative, so there are no real solutions.' : `$${sols.tex}$.`,
+        explanation: m < 0 ? 'A square cannot be negative, so there are no real solutions.' : `$${sols.tex}$: both the positive and the negative root square to $${m}$.`,
+        ...(m > 0 && sols.values.length === 2 ? { misconceptions: [{ answer: sols.values[0], tag: 'missing-solution' as const, feedback: 'Taking a square root gives two answers, one positive and one negative. Use $\\pm$.' }] } : {}),
       });
     const posOnly = sols.values.length === 2 ? [sols.values[0]] : [];
     return makeProblem({
@@ -246,7 +280,15 @@ export const genSolveSqrt: GeneratorDef = {
       steps,
     });
   },
-  verify: verifyEquation,
+  verify(pr) {
+    const errs = verifyEquation(pr);
+    if (errs.length || pr.difficulty !== 1 || pr.answer.kind !== 'solutions') return errs;
+    // steps (difficulty 1): x^2 = m read from the printed equation (moving the constant), then sqrt(m), then the solutions
+    const m = /^x\^\{2\}(?: ([+-]) (\d+))? = (-?\d+)$/.exec(mathOf(pr) ?? '');
+    if (!m) return ['cannot read the equation'];
+    const sq = Number(m[3]) - (m[1] ? (m[1] === '-' ? -1 : 1) * Number(m[2]) : 0);
+    return checkSteps(pr, [m[1] ? String(sq) : String(Math.round(Math.sqrt(sq))), pr.answer.values.join(', ')]);
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -286,7 +328,7 @@ export const genCompleteSquareSolve: GeneratorDef = {
         prompt: [p(`Solve $${sq} = ${m}$.`)],
         answer: solSpec(sols.values),
         inputHint: SOL_HINT,
-        hints: ['Take the square root of both sides, using $\\pm$.', 'Simplify the radical if you can.', `Then subtract $${h}$ from both sides.`, 'There are two solutions.'],
+        hints: ['Take the square root of both sides, using $\\pm$.', 'Simplify the radical if you can.', h > 0 ? `Then subtract $${h}$ from both sides.` : `Then add $${-h}$ to both sides.`, 'There are two solutions.'],
         explanation: `$${sols.tex}$.`,
       },
     ];
@@ -334,6 +376,13 @@ export const genCompleteSquareVertex: GeneratorDef = {
     const ansTex = `${a === 1 ? '' : a === -1 ? '-' : a}\\left(${linTex(1, h)}\\right)^{2}${kPart}`;
     const b0 = 2 * h; // inside coefficient after factoring a
     const c = full.coeff('x', 0).toInt();
+    // common errors: the sign inside the square, forgetting to subtract the added square, and (a != 1) not multiplying it by a
+    const vform = (hh: number, kk: number) => `${a === 1 ? '' : a === -1 ? '-' : a}(${linPlain(1, hh)})^2${kk === 0 ? '' : kk < 0 ? ` - ${-kk}` : ` + ${kk}`}`;
+    const csMis: Misconception[] = [
+      { answer: vform(-h, k), tag: 'vertex-sign', feedback: `Half of the $x$-coefficient is $${h}$, so the square is $\\left(${linTex(1, h)}\\right)^{2}$. Expand your square to check the sign of the $x$ term.` },
+      { answer: vform(h, c), tag: 'other', feedback: `Adding $${h * h}$ to make a perfect square changes the value. Subtract it again${a !== 1 ? ` (times $${a}$)` : ''} so the expression stays equal.` },
+      ...(a !== 1 ? [{ answer: vform(h, c - h * h), tag: 'distribution' as const, feedback: `The $${h * h}$ you added is inside the parentheses, so it is really $${a} \\cdot ${h * h}$. Subtract $${a * h * h}$, not $${h * h}$.` }] : []),
+    ];
     const steps: ProblemStep[] = [
       ...(a !== 1
         ? [
@@ -349,7 +398,12 @@ export const genCompleteSquareVertex: GeneratorDef = {
         prompt: [p(`What number completes the square for $${pTex(X([0, b0, 1]))}$?`)],
         answer: { kind: 'number', value: String(h * h) },
         hints: ['Take half of the coefficient of $x$.', `Half of $${b0}$ is $${h}$.`, 'Square it.', 'A square is never negative.'],
-        explanation: `$\\left(\\frac{${b0}}{2}\\right)^{2} = ${h * h}$.`,
+        explanation: `$\\left(\\frac{${b0}}{2}\\right)^{2} = ${h * h}$, because $\\left(x + \\frac{b}{2}\\right)^{2} = x^{2} + bx + \\left(\\frac{b}{2}\\right)^{2}$.`,
+        misconceptions: numMis(h * h, [
+          { value: h, tag: 'exponent-rule', feedback: 'That is half of the coefficient. Now square it.' },
+          { value: b0 * b0, tag: 'other', feedback: 'Take half of the coefficient first, then square it.' },
+          { value: -h * h, tag: 'sign-error', feedback: 'A square is never negative.' },
+        ]),
       },
       {
         prompt: [p(`Write $${tex}$ in vertex form.`)],
@@ -357,6 +411,7 @@ export const genCompleteSquareVertex: GeneratorDef = {
         inputHint: 'Type an answer like 2(x - 3)^2 + 1.',
         hints: [`Add and subtract $${h * h}$${a !== 1 ? ' inside the parentheses' : ''}.`, `The perfect square is $\\left(${linTex(1, h)}\\right)^{2}$.`, a !== 1 ? `The subtracted $${h * h}$ is multiplied by $${a}$ when it leaves the parentheses.` : 'Combine the leftover constants.', 'Check by expanding your answer.'],
         explanation: `$${tex} = ${ansTex}$.`,
+        misconceptions: csMis,
       },
     ];
     return makeProblem({
@@ -376,7 +431,7 @@ export const genCompleteSquareVertex: GeneratorDef = {
         { text: `Add and subtract $\\left(\\frac{${b0}}{2}\\right)^{2} = ${h * h}$ inside.`, tex: `${a === 1 ? '' : a}\\left(${pTex(X([h * h, b0, 1]))} - ${h * h}\\right) ${c < 0 ? '-' : '+'} ${Math.abs(c)}`, why: 'Adding and subtracting the same number keeps the expression equal.' },
         { text: 'Write the perfect square and combine the constants.', tex: `= ${ansTex}`, why: a !== 1 ? `The $-${h * h}$ inside is multiplied by $${a}$: $${a} \\cdot (-${h * h}) + ${c < 0 ? `(${c})` : c} = ${k}$.` : `$-${h * h} + ${c < 0 ? `(${c})` : c} = ${k}$.` },
       ],
-      misconceptions: [],
+      misconceptions: csMis,
       steps,
     });
   },
@@ -500,7 +555,10 @@ export const genQuadraticFormula: GeneratorDef = {
           : { text: 'Substitute into the formula.', tex: formulaTex },
         ...(D >= 0 ? [{ text: 'Simplify.', tex: exact.tex + (round ? `\\approx ${values.join(',\\ ')}` : '') }] : []),
       ],
-      misconceptions: !round && difficulty <= 2 && flipped.length === 2 && !(flipped.includes(values[0]) && flipped.includes(values[1])) ? solMis(flipped, 'Check the sign at the start of the formula: it is $-b$. Since $b$ here is $' + b + '$, $-b = ' + -b + '$.') : [],
+      misconceptions:
+        b !== 0 && flipped.length === 2 && !(flipped.includes(values[0]) && flipped.includes(values[1]))
+          ? solMis(round ? values.map((v) => (Number(v) === 0 ? '0.00' : (-Number(v)).toFixed(2))) : flipped, 'Check the sign at the start of the formula: it is $-b$. Since $b$ here is $' + b + '$, $-b = ' + -b + '$.')
+          : [],
       steps,
     });
   },
@@ -542,13 +600,26 @@ export const genDiscriminant: GeneratorDef = {
           prompt: [p(`What is the discriminant of $${tex}$?`)],
           answer: { kind: 'number', value: String(D) },
           hints: [`$a = ${a}$, $b = ${b}$, $c = ${c}$.`, 'Compute $b^{2} - 4ac$.', `$b^{2} = ${b * b}$.`, `$4ac = ${4 * a * c}$.`],
-          explanation: `$b^{2} - 4ac = ${D}$.`,
+          explanation: `$b^{2} - 4ac = ${D}$. It is the number under the square root in the quadratic formula, so its sign decides how many real solutions there are.`,
+          misconceptions: numMis(D, [
+            b !== 0 ? { value: -b * b - 4 * a * c, tag: 'sign-error', feedback: '$b^{2}$ is never negative: a negative number times itself is positive. Square $b$ with its sign.' } : null,
+            c !== 0 ? { value: b * b + 4 * a * c, tag: 'sign-error', feedback: 'Keep the minus sign in $b^{2} - 4ac$, and use the signs of $a$ and $c$ when you find $4ac$.' } : null,
+            c !== 0 ? { value: b * b - a * c, tag: 'formula-error', feedback: 'The discriminant is $b^{2} - 4ac$: multiply $a$ and $c$ by $4$.' } : null,
+          ]),
         },
         {
           prompt: [p(`The discriminant is $${D}$. How many real solutions are there?`)],
-          answer: makeChoice(rng, COUNT_LABEL[count], COUNT_LABEL.filter((_, i) => i !== count)),
+          answer,
           hints: ['Positive means two.', 'Zero means one.', 'Negative means none.', `Is $${D}$ positive, zero or negative?`],
-          explanation: `${COUNT_LABEL[count]}.`,
+          explanation: `${COUNT_LABEL[count]}: ${D > 0 ? 'a positive number has two square roots, so $\\pm$ gives two different solutions.' : D === 0 ? '$\\pm \\sqrt{0}$ adds nothing, so both solutions are the same number.' : 'a negative number has no real square root.'}`,
+          misconceptions: COUNT_LABEL.filter((_, i) => i !== count).map((lab) =>
+            choiceMis(
+              answer,
+              lab,
+              'other',
+              lab === 'Two real solutions' ? 'Two real solutions need a **positive** discriminant, so the $\\pm$ gives two different numbers.' : lab === 'One real solution' ? 'One real solution happens only when the discriminant is exactly $0$.' : 'No real solutions happens only when the discriminant is **negative**: there is no real square root of a negative number.',
+            ),
+          ).filter((m): m is Misconception => !!m),
         },
       ],
     });
@@ -560,7 +631,9 @@ export const genDiscriminant: GeneratorDef = {
     // vertex height, an independent route from the discriminant
     const k = c.sub(b.mul(b).div(a.mul(4)));
     const count = k.isZero() ? 1 : k.sign() !== a.sign() ? 2 : 0;
-    return choiceLabel(pr.answer) === COUNT_LABEL[count] ? [] : ['wrong key'];
+    if (choiceLabel(pr.answer) !== COUNT_LABEL[count]) return ['wrong key'];
+    // steps: the discriminant from the printed equation's coefficients, then the same count
+    return checkSteps(pr, [b.mul(b).sub(a.mul(c).mul(4)).toString(), pickLabel(pr.answer, COUNT_LABEL[count])]);
   },
 };
 
@@ -592,6 +665,9 @@ const METHOD = {
 type MethodKey = keyof typeof METHOD;
 
 const isSquare = (n: number) => n >= 0 && Number.isInteger(Math.sqrt(n));
+const NO_X = 'No: it is just a square and a number, so square roots work';
+const HAS_X = 'Yes: there is a separate $x$-term';
+const numSpec = (v: Rational, unit?: string) => ({ kind: 'number' as const, value: numStr(v), ...(unit ? { unit } : {}) });
 
 // "Is this data point possible?" labels (A.PAR.6.4): exactly one describes each point.
 const POINT = {
@@ -681,6 +757,7 @@ export const genQuadraticContext: GeneratorDef = {
               : { text: 'Use the quadratic formula.', tex: `x = \\frac{${-b} \\pm \\sqrt{${D}}}{${2 * a}} \\Rightarrow ${roots.tex}`, why: `$a = ${a}$, $b = ${b}$, $c = ${c}$.` };
       const opts = (['sqrt', 'factor', 'cts', 'formula'] as MethodKey[]).map((k) => METHOD[k]);
       const answer = makeChoice(rng, METHOD[key], opts.filter((o) => o !== METHOD[key]));
+      const sqStep = fixedChoice(key === 'sqrt' ? NO_X : HAS_X, [key === 'sqrt' ? HAS_X : NO_X]);
       return makeProblem({
         skillId: 'S4.13',
         tags: [],
@@ -699,8 +776,43 @@ export const genQuadraticContext: GeneratorDef = {
         ],
         misconceptions: [],
         steps: [
-          { prompt: [p(`Which method is the most efficient way to solve $${tex}$?`)], answer: makeChoice(rng, METHOD[key], opts.filter((o) => o !== METHOD[key])), hints: ['Is there an $x$-term?', 'Is $b^{2} - 4ac$ a perfect square?', 'Is $a = 1$ with an even $b$?', 'Match the equation to a row of the method table.'], explanation: why[key] },
-          { prompt: [p(`Now solve $${tex}$.`)], answer: solSpec(roots.values), inputHint: SOL_HINT, hints: ['Use the method you chose.', 'Keep both signs of a square root.', 'Simplify any radical.', 'Check by substituting.'], explanation: `$${roots.tex}$.` },
+          gstep(
+            `Look at $${tex}$ before you start. Does it have a separate $x$-term (a number times $x$, standing on its own)?`,
+            sqStep,
+            ['Square roots undo a square, so they are quickest when $x$ appears only inside one square.', 'Look at every term of the equation, not just the first one.', shape === 'square' ? 'Inside $(x - h)^{2}$ the $x$ is part of the square, not a separate term.' : 'A separate $x$-term looks like $6x$ or $-3x$.', 'Ask: if I isolated the squared part, would anything with $x$ be left over?'],
+            key === 'sqrt' ? 'There is no separate $x$-term, so the squared part can be isolated and undone with a square root.' : 'There is a separate $x$-term, so square roots will not work right away; check whether it factors.',
+            [
+              choiceMis(sqStep, NO_X, 'other', `Look again: $${tex}$ has a term that is a number times $x$.`),
+              choiceMis(sqStep, HAS_X, 'other', shape === 'square' ? 'The $x$ is inside the squared binomial; there is no separate $x$-term, so square roots work.' : 'There is no term that is just a number times $x$. Only $x^{2}$ and a constant appear.'),
+            ],
+          ),
+          ...(key === 'sqrt'
+            ? []
+            : [
+                gstep(
+                  `Compute the discriminant $b^{2} - 4ac$ of $${tex}$.`,
+                  numSpec(Q(D)),
+                  ['A perfect-square discriminant means the quadratic factors over the integers.', `Read $a$, $b$ and $c$ with their signs: here $a = ${a}$, $b = ${b}$, $c = ${c}$.`, `$b^{2} = ${b * b}$.`, `Now subtract $4ac = ${4 * a * c}$.`],
+                  `$b^{2} - 4ac = ${b * b} - ${subTex(4 * a * c)} = ${D}$, which ${isSquare(D) ? `is a perfect square ($${Math.sqrt(D)}^{2}$)` : 'is not a perfect square'}.`,
+                  numMis(D, [
+                    { value: -b * b - 4 * a * c, tag: 'sign-error', feedback: '$b^{2}$ is never negative: a negative number times itself is positive.' },
+                    { value: b * b + 4 * a * c, tag: 'sign-error', feedback: 'Keep the minus sign in $b^{2} - 4ac$ and use the sign of $c$.' },
+                    { value: b * b - a * c, tag: 'formula-error', feedback: 'The discriminant is $b^{2} - 4ac$: multiply $a$ and $c$ by $4$.' },
+                  ]),
+                ),
+              ]),
+          gstep(
+            `So which method is the most efficient way to solve $${tex}$?`,
+            answer,
+            ['Use what you found: a separate $x$-term or not, and whether $b^{2} - 4ac$ is a perfect square.', 'No separate $x$-term: square roots. A perfect-square discriminant: factoring.', 'If it does not factor, check $a$ and $b$: completing the square is neat when $a = 1$ and $b$ is even.', 'Otherwise the quadratic formula always works.'],
+            why[key],
+            [
+              choiceMis(answer, METHOD.sqrt, 'other', 'Square roots are quickest only when there is no separate $x$-term.'),
+              choiceMis(answer, METHOD.factor, 'factoring', `$b^{2} - 4ac = ${D}$ is not a perfect square, so this quadratic does not factor over the integers.`),
+              choiceMis(answer, METHOD.cts, 'other', key === 'factor' ? 'It factors, which is quicker than completing the square.' : key === 'sqrt' ? 'Square roots are quicker here: there is no separate $x$-term to complete.' : `Completing the square is neat only when $a = 1$ and $b$ is even; here $a = ${a}$ and $b = ${b}$.`),
+              choiceMis(answer, METHOD.formula, 'other', 'The formula always works, but a quicker method fits this equation. Look at its form again.'),
+            ],
+          ),
         ],
       });
     }
@@ -844,7 +956,26 @@ export const genQuadraticContext: GeneratorDef = {
                     : `$h(${t.toTex()}) = ${ht.toTex()}$, so the point is a solution of the equation, but $t = ${t.toTex()}$ is ${t.isNegative() ? 'before the throw' : 'after the ball has landed'}. A negative height is not possible here.`,
           },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisList(answer, [
+          [
+            POINT.yes,
+            which === 'domain' ? 'interval-endpoint' : 'arithmetic-error',
+            which === 'domain'
+              ? `Fitting the equation is not enough. Check whether $t = ${t.toTex()}$ is a time when the ${thing} is actually in the air, between the throw and the landing.`
+              : `Substitute $t = ${t.toTex()}$: $h(${t.toTex()}) = ${ht.toTex()}$, not $${y.toTex()}$, so the point is not on the graph of the model.`,
+          ],
+          [
+            POINT.otherTime,
+            which === 'domain' ? 'interval-endpoint' : which === 'tooHigh' ? 'graph-reading' : 'arithmetic-error',
+            which === 'domain'
+              ? `Look at the time first: is $t = ${t.toTex()}$ while the ${thing} is in the air? Find when it lands by solving $h(t) = 0$.`
+              : which === 'tooHigh'
+                ? `Compare $${y.toTex()}$ with the maximum height, the height at the vertex, $t = ${tv.toTex()}$. Does the ${thing} ever reach $${y.toTex()}$ feet?`
+                : `Substitute $t = ${t.toTex()}$ into $h(t)$ carefully (square first, then multiply) and compare the result with $${y.toTex()}$.`,
+          ],
+          [POINT.tooHigh, 'graph-reading', `The maximum height is $${K.toTex()}$ feet, at $t = ${tv.toTex()}$, and $${y.toTex()}$ is not above it.`],
+          [POINT.domain, 'interval-endpoint', `$t = ${t.toTex()}$ is between the throw and the landing (about $${T.toFixed(2)}$ seconds), so that time is inside the domain.`],
+        ]),
       });
     }
     // a ball thrown upward: h(t) = -16t^2 + v t + h0
@@ -874,6 +1005,35 @@ export const genQuadraticContext: GeneratorDef = {
     }
     const negRoot = T !== null ? Q(h0).div(Q(-16 * T)) : null; // product of roots = -h0/16
     const D = v * v + 64 * h0;
+    // guided steps for the whole-number landing time (difficulty 1): discriminant, both roots, then the one that makes sense
+    let ballSteps: ProblemStep[] | undefined;
+    if (T !== null && negRoot) {
+      const sq = Math.sqrt(v * v + 64 * h0);
+      ballSteps = [
+        gstep(
+          `The ball hits the ground when $h(t) = 0$: solve $-16t^{2} + ${v}t + ${h0} = 0$ with the quadratic formula. First, what is the discriminant $b^{2} - 4ac$?`,
+          numSpec(Q(v * v + 64 * h0)),
+          ['On the ground the height is $0$, so this is a quadratic equation equal to $0$.', `Read the values with their signs: $a = -16$, $b = ${v}$, $c = ${h0}$.`, `$b^{2} = ${v * v}$, and $4ac = 4(-16)(${h0}) = ${-64 * h0}$.`, 'Subtracting a negative number is adding its opposite.'],
+          `$b^{2} - 4ac = ${v * v} - (${-64 * h0}) = ${v * v + 64 * h0}$, which is $${sq}^{2}$, so the square root will be a whole number.`,
+          numMis(v * v + 64 * h0, [{ value: v * v - 64 * h0, tag: 'sign-error', feedback: '$a = -16$ is negative, so $4ac$ is negative, and subtracting it makes the discriminant bigger.' }, { value: v * v + 16 * h0, tag: 'formula-error', feedback: 'The discriminant is $b^{2} - 4ac$: remember the $4$.' }]),
+        ),
+        gstep(
+          `Now use $t = \\frac{-b \\pm \\sqrt{b^{2} - 4ac}}{2a}$. What are the two solutions of $h(t) = 0$?`,
+          { kind: 'solutions', values: [String(T), numStr(negRoot)], variable: 't' },
+          ['The $\\pm$ gives two solutions: one with $+$ and one with $-$.', `$\\sqrt{${v * v + 64 * h0}} = ${sq}$ and $2a = 2(-16) = -32$.`, `Find $\\frac{-${v} + ${sq}}{-32}$ and $\\frac{-${v} - ${sq}}{-32}$.`, 'Dividing by a negative number flips the sign.'],
+          `$t = \\frac{-${v} \\pm ${sq}}{-32}$ gives $t = ${T}$ or $t = ${negRoot.toTex()}$; both make $h(t) = 0$.`,
+          [{ answer: `${-T}, ${numStr(negRoot.neg())}`, tag: 'sign-error', feedback: 'Check the signs: the denominator $2a = -32$ is negative.' }],
+          'Type both solutions, like 3, -1/2.',
+        ),
+        gstep(
+          'Which solution answers the question? After how many seconds does the ball hit the ground?',
+          { kind: 'number', value: String(T), unit: 'seconds' },
+          ['The model starts at $t = 0$, when the ball is thrown.', 'A negative time would be before the throw.', 'Only one of the two solutions is positive.', 'Keep the positive solution.'],
+          `$t = ${negRoot.toTex()}$ is before the throw, so the ball lands at $t = ${T}$ seconds.`,
+          [{ answer: numStr(negRoot), tag: 'statistics-concept', feedback: 'That solves the equation, but it is a negative time, before the ball was thrown. Choose the solution that makes sense.' }],
+        ),
+      ];
+    }
     return makeProblem({
       skillId: 'S4.13',
       tags: ['real-world', 'multi-step'],
@@ -897,6 +1057,7 @@ export const genQuadraticContext: GeneratorDef = {
         { text: 'Keep the positive solution.', tex: `t ${roundTo ? '\\approx' : '='} ${value}`, why: 'The other solution is negative, which would be a time before the ball was thrown.' },
       ],
       misconceptions: negRoot || T === null ? [{ answer: negRoot ? numStr(negRoot) : ((-v + Math.sqrt(D)) / -32).toFixed(2), tag: 'statistics-concept', feedback: 'That solves the equation, but it is a negative time, before the ball was thrown. Choose the solution that makes sense.' }] : [],
+      ...(ballSteps ? { steps: ballSteps } : {}),
     });
   },
   verify(pr) {
@@ -917,7 +1078,10 @@ export const genQuadraticContext: GeneratorDef = {
       else if (a === 1 && b % 2 === 0) want = 'cts';
       else want = 'formula';
       if (new Set(pr.answer.options.map((o) => o.label)).size !== 4) return ['options'];
-      return choiceLabel(pr.answer) === METHOD[want] ? [] : [`expected ${want}`];
+      if (choiceLabel(pr.answer) !== METHOD[want]) return [`expected ${want}`];
+      // steps: the x-term decision, the discriminant (when there is an x-term), then the method
+      if (!pr.steps) return ['missing steps'];
+      return checkSteps(pr, [pickLabel(pr.steps[0].answer, want === 'sqrt' ? NO_X : HAS_X), ...(want === 'sqrt' ? [] : [String(D)]), pickLabel(pr.answer, METHOD[want])]);
     }
     if (/data point/.test(text)) {
       if (pr.answer.kind !== 'choice' || !tex) return ['unexpected kind'];
@@ -966,7 +1130,13 @@ export const genQuadraticContext: GeneratorDef = {
       if (pr.answer.roundTo === undefined) {
         const t = Rational.parse(pr.answer.value);
         if (!h.evaluate({ t }).isZero()) return ['key is not a root'];
-        return Math.abs(t.toNumber() - root) < 1e-9 ? [] : ['key is not the positive root'];
+        if (Math.abs(t.toNumber() - root) >= 1e-9) return ['key is not the positive root'];
+        if (!pr.steps) return [];
+        // steps: discriminant from the printed coefficients; the other root from the product of the roots, c/a
+        const [c0, b0, a0] = h.coeffsIn('t');
+        const other = c0.div(a0).div(t);
+        if (!h.evaluate({ t: other }).isZero()) return ['second root is not a root'];
+        return checkSteps(pr, [b0.mul(b0).sub(a0.mul(c0).mul(4)).toString(), `${numStr(t)}, ${numStr(other)}`, numStr(t)]);
       }
       return Math.abs(Number(pr.answer.value) - Math.round(root * 100) / 100) < 1e-9 ? [] : [`expected ${root.toFixed(4)}`];
     }

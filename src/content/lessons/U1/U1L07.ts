@@ -65,7 +65,7 @@ export const U1L07: LessonContent = {
       steps: [
         { text: 'Subtract each term minus the one before it.', tex: '14 - 20 = -6,\\quad 8 - 14 = -6,\\quad 2 - 8 = -6', why: 'All the differences match, so the sequence is arithmetic.' },
         { text: 'So $d = -6$.', why: 'The terms are going down, so the common difference is negative.' },
-        { text: 'Keep adding $-6$.', tex: '2 + (-6) = -4,\\quad -4 + (-6) = -10,\\quad -10 + (-6) = -16' },
+        { text: 'Keep adding $-6$.', tex: '2 + (-6) = -4,\\quad -4 + (-6) = -10,\\quad -10 + (-6) = -16', why: 'In an arithmetic sequence the same $d$ is added every time, so each new term is the last one plus $-6$.' },
       ],
       answer: '$d = -6$; the next three terms are $-4, -10, -16$.',
     },
@@ -74,7 +74,7 @@ export const U1L07: LessonContent = {
       kind: 'intermediate',
       problem: [{ t: 'p', text: 'For $7, 11, 15, 19, \\ldots$, write an explicit formula and find $a_{25}$.' }],
       steps: [
-        { text: 'Identify $a_1$ and $d$.', tex: 'a_1 = 7, \\quad d = 11 - 7 = 4' },
+        { text: 'Identify $a_1$ and $d$.', tex: 'a_1 = 7, \\quad d = 11 - 7 = 4', why: 'The explicit formula is built from exactly these two numbers: where the sequence starts and how much it grows each step.' },
         { text: 'Substitute into the explicit formula.', tex: 'a_n = 7 + (n - 1)4', why: 'The pattern is: start at the first term and add $d$ once for each jump.' },
         { text: 'Simplify (optional).', tex: 'a_n = 7 + 4n - 4 = 4n + 3', why: 'Distribute the $4$, then combine $7 - 4 = 3$.' },
         { text: 'Find the 25th term.', tex: 'a_{25} = 4(25) + 3 = 100 + 3 = 103', why: 'Check with the unsimplified form: $7 + 24 \\cdot 4 = 7 + 96 = 103$.' },
@@ -87,7 +87,7 @@ export const U1L07: LessonContent = {
       problem: [{ t: 'p', text: 'For $7, 11, 15, 19, \\ldots$, a student finds the 10th term as $7 + 10 \\cdot 4 = 47$. What went wrong?' }],
       steps: [
         { text: 'Count the jumps.', why: 'The first term, $7$, already counts as term 1. To get from term 1 to term 10, you add $d$ only **9** times, not 10.' },
-        { text: 'Use $n - 1$.', tex: 'a_{10} = 7 + (10 - 1)4 = 7 + 9 \\cdot 4 = 7 + 36 = 43' },
+        { text: 'Use $n - 1$.', tex: 'a_{10} = 7 + (10 - 1)4 = 7 + 9 \\cdot 4 = 7 + 36 = 43', why: 'There are $9$ jumps of $4$ between term 1 and term 10, so add $9 \\cdot 4 = 36$ to the first term.' },
         { text: 'Check by listing.', tex: '7, 11, 15, 19, 23, 27, 31, 35, 39, 43', why: 'The 10th number in the list is $43$. The student answer $47$ is actually the 11th term.' },
       ],
       answer: '$a_{10} = 43$',
@@ -99,7 +99,7 @@ export const U1L07: LessonContent = {
       steps: [
         { text: 'Find $d$ and write the explicit formula.', tex: 'd = 2 - (-3) = 5; \\quad a_n = -3 + (n - 1)5 = 5n - 8', why: 'Distribute: $-3 + 5n - 5 = 5n - 8$.' },
         { text: 'Set the formula equal to the value.', tex: '5n - 8 = 92', why: '$92$ is a term **value**, so it goes where $a_n$ is. The unknown is the term **number** $n$.' },
-        { text: 'Solve for $n$.', tex: '5n = 100 \\;\\Rightarrow\\; n = 20' },
+        { text: 'Solve for $n$.', tex: '5n = 100 \\;\\Rightarrow\\; n = 20', why: 'Add $8$ to both sides to undo the $-8$, then divide by $5$ to undo the multiplication.' },
         { text: 'Check.', tex: 'a_{20} = -3 + 19 \\cdot 5 = -3 + 95 = 92 \\checkmark', why: '$n$ must be a positive whole number. If you got a fraction, the value would not be in the sequence.' },
       ],
       answer: '$92$ is the 20th term ($n = 20$).',
@@ -112,7 +112,7 @@ export const U1L07: LessonContent = {
         { text: 'Start at $12$ and subtract $5$ each time.', tex: '12,\\ 7,\\ 2,\\ -3,\\ -8', why: '$a_{n-1}$ is the term before, so each term is the previous term minus $5$.' },
         { text: 'Read off $a_1$ and $d$.', tex: 'a_1 = 12, \\quad d = -5', why: 'Subtracting $5$ is the same as adding $-5$.' },
         { text: 'Write the explicit formula.', tex: 'a_n = 12 + (n - 1)(-5) = 12 - 5n + 5 = 17 - 5n', why: 'Distribute $-5$: $(n - 1)(-5) = -5n + 5$.' },
-        { text: 'Check with the list.', tex: 'a_5 = 17 - 5(5) = 17 - 25 = -8 \\checkmark' },
+        { text: 'Check with the list.', tex: 'a_5 = 17 - 5(5) = 17 - 25 = -8 \\checkmark', why: 'The formula gives the same 5th term as the list we built with the recursive rule, so the two formulas agree.' },
       ],
       answer: '$12, 7, 2, -3, -8$; $a_n = 12 + (n - 1)(-5) = 17 - 5n$',
     },
@@ -144,7 +144,7 @@ export const U1L07: LessonContent = {
       problem: [{ t: 'p', text: 'You have \\$40 saved at the end of week 1 and add \\$15 every week after that. Write a recursive and an explicit formula for your savings at the end of week $n$. How much will you have at the end of week 12? In which week will you first have at least \\$300?' }],
       steps: [
         { text: 'Write the recursive formula.', tex: 'a_1 = 40, \\quad a_n = a_{n-1} + 15', why: 'You start with \\$40 and each week is the previous week plus \\$15.' },
-        { text: 'Write the explicit formula.', tex: 'a_n = 40 + (n - 1)15 = 40 + 15n - 15 = 15n + 25' },
+        { text: 'Write the explicit formula.', tex: 'a_n = 40 + (n - 1)15 = 40 + 15n - 15 = 15n + 25', why: 'Week $n$ is $n - 1$ weeks after week 1, so \\$15 has been added $n - 1$ times to the first \\$40.' },
         { text: 'Find week 12.', tex: 'a_{12} = 15(12) + 25 = 180 + 25 = 205', why: 'Check: $40 + 11 \\cdot 15 = 40 + 165 = 205$.' },
         { text: 'Find when savings reach \\$300.', tex: '15n + 25 \\ge 300 \\;\\Rightarrow\\; 15n \\ge 275 \\;\\Rightarrow\\; n \\ge 18.\\overline{3}', why: 'Weeks are whole numbers, so round **up** to the next week.' },
         { text: 'Check weeks 18 and 19.', tex: 'a_{18} = 270 + 25 = 295 \\qquad a_{19} = 285 + 25 = 310', why: 'Week 18 is still short of \\$300; week 19 is the first week at or above it.' },

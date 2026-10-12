@@ -178,7 +178,7 @@ export const U7L01: LessonContent = {
       problem: [{ t: 'p', text: 'Maya\'s mean on $5$ quizzes is $85$. Four of her scores are $82, 90, 75$ and $88$. (a) What is the fifth score? (b) She takes a sixth quiz and wants her mean to stay at least $85$. What is the lowest score she can get?' }],
       steps: [
         { text: '(a) Find the total the mean requires.', tex: '5 \\times 85 = 425', why: 'Mean $=$ sum $\\div$ count, so sum $=$ mean $\\times$ count.' },
-        { text: 'Add the scores you know.', tex: '82 + 90 + 75 + 88 = 335' },
+        { text: 'Add the scores you know.', tex: '82 + 90 + 75 + 88 = 335', why: 'The missing score is whatever is left of the $425$ total after the four known scores are counted.' },
         { text: 'Subtract to find the missing score.', tex: '425 - 335 = 90', why: 'The five scores must add to $425$. Check: $\\frac{82 + 90 + 75 + 88 + 90}{5} = \\frac{425}{5} = 85$.' },
         { text: '(b) Find the total needed for 6 quizzes.', tex: '6 \\times 85 = 510, \\qquad 510 - 425 = 85', why: 'To keep a mean of $85$ over $6$ quizzes she needs a total of $510$. She already has $425$, so the sixth score must be at least $85$.' },
       ],

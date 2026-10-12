@@ -1,7 +1,9 @@
 /** Shared helpers for Unit 2 (inequalities) generators. */
-import type { Rng } from '../../core/curriculum/types';
+import type { Rng, Problem, ProblemStep } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
-import { parseRelation, relationHolds } from '../../core/math/answers';
+import { parseRelation, relationHolds, checkAnswer } from '../../core/math/answers';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
+import { canonicalInput } from '../../core/engine/problems';
 import { texToExpr, Q } from './util';
 
 export type Op = '<' | '>' | '<=' | '>=';
@@ -61,3 +63,60 @@ export function latticeSolutions(rels: string[], r: number, strictInterior = fal
 
 /** Point label for a choice option. */
 export const ptTex = (x: Rational | number, y: Rational | number) => `$(${Q(x as never).toTex()}, ${Q(y as never).toTex()})$`;
+
+// ---------------------------------------------------------------------------
+// Guided steps (shared by the Unit 2 generators)
+// ---------------------------------------------------------------------------
+
+/**
+ * A multiple-choice answer for a guided step. The option order comes from `salt` (a number
+ * taken from the problem), not from the generator's rng, so adding steps never changes which
+ * problem a seed produces.
+ */
+export function stepChoice(correct: string, distractors: string[], salt: number): { kind: 'choice'; options: { id: string; label: string }[]; correct: string } {
+  const labels = [correct, ...distractors.filter((d, i, all) => d !== correct && all.indexOf(d) === i)];
+  const shift = Math.abs(Math.trunc(salt)) % labels.length;
+  const order = labels.map((_, i) => (i + shift) % labels.length);
+  const options = order.map((k, i) => ({ id: 'abcdefgh'[i], label: labels[k] }));
+  return { kind: 'choice', options, correct: 'abcdefgh'[order.indexOf(0)] };
+}
+
+/** Option id of a label in a choice answer ('' when absent). */
+export function idOf(a: { options: { id: string; label: string }[] }, label: string): string {
+  return a.options.find((o) => o.label === label)?.id ?? '';
+}
+
+/** Problems shared by every stepped generator: the last step must finish the problem. */
+export function lastStepErrors(pr: Problem): string[] {
+  if (!pr.steps?.length) return [];
+  const last = pr.steps[pr.steps.length - 1];
+  const r = checkAnswer(pr.answer, canonicalInput(last.answer));
+  return r.status === 'correct' ? [] : [`last step answer ${canonicalInput(last.answer)} does not finish the problem (${r.status})`];
+}
+
+/** The correct label of a step's choice answer. */
+export function stepLabel(st: ProblemStep | undefined): string {
+  if (!st || st.answer.kind !== 'choice') return '';
+  const a = st.answer;
+  return a.options.find((o) => o.id === a.correct)?.label ?? '';
+}
+
+/**
+ * Misconception for the wrong option whose label is `label` in a choice answer (null when the
+ * label is absent or is the key). Lets error-specific feedback follow the option, whatever order
+ * makeChoice shuffled it into.
+ */
+export function optionMis(a: { options: { id: string; label: string }[]; correct: string }, label: string, tag: MisconceptionTag, feedback: string): Misconception | null {
+  const o = a.options.find((x) => x.label === label);
+  return o && o.id !== a.correct ? { answer: o.id, tag, feedback } : null;
+}
+
+/** optionMis over a list of [label, tag, feedback], keeping only the options that are present and wrong. */
+export function optionMisList(a: { options: { id: string; label: string }[]; correct: string }, list: Array<[string, MisconceptionTag, string]>): Misconception[] {
+  const out: Misconception[] = [];
+  for (const [label, tag, feedback] of list) {
+    const m = optionMis(a, label, tag, feedback);
+    if (m && !out.some((x) => x.answer === m.answer)) out.push(m);
+  }
+  return out;
+}

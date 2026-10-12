@@ -1,6 +1,7 @@
 /** Shared helpers for the Unit 5 generators: exponent TeX, exact evaluation, monomials and y = a(b)^x models. */
 import type { Rng, Problem } from '../../core/curriculum/types';
 import type { Node } from '../../core/math/parser';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { Rational } from '../../core/math/rational';
 import { Q, numStr } from './util';
@@ -202,3 +203,18 @@ export function textOf(pr: Pick<Problem, 'prompt'>): string {
 }
 
 export const rngSign = (rng: Rng) => (rng.bool() ? 1 : -1);
+
+/**
+ * Misconceptions for a multiple-choice answer, matched by option label: entries whose label is not a
+ * wrong option are skipped, and the first entry for an option wins.
+ */
+export function choiceMisconceptions(spec: { options: { id: string; label: string }[]; correct: string }, list: Array<{ label: string; tag: MisconceptionTag; feedback: string } | null>): Misconception[] {
+  const out: Misconception[] = [];
+  for (const m of list) {
+    if (!m) continue;
+    const o = spec.options.find((x) => x.label === m.label);
+    if (!o || o.id === spec.correct || out.some((x) => x.answer === o.id)) continue;
+    out.push({ answer: o.id, tag: m.tag, feedback: m.feedback });
+  }
+  return out;
+}

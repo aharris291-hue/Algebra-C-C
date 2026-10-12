@@ -6,7 +6,7 @@
  * composing polynomials.
  */
 import type { GeneratorDef, Rng, ProblemStep, Problem, GraphSpec, Block } from '../../core/curriculum/types';
-import type { Misconception } from '../../core/math/answers';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { parseInterval, intervalsEqual } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
@@ -14,6 +14,7 @@ import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
 import {
   X, pTex, pPlain, texPoly, checkSolutions, quadRoots, ev, vertexOf, vtxTex, vtxPlain, vtxPoly, factTex, factPoly, rhsPoly, mathBlocks, promptText, graphOf, substituteTex, joinNums, tailTex, coefTex,
+  fixedChoice, choiceMis, choiceMisList, numMis, gstep, checkSteps, pickLabel,
 } from './u4-common';
 
 const SOL_HINT = 'Like x = 3, -5 or 2 ± sqrt(5), or none';
@@ -62,6 +63,22 @@ function evalFromTable(rng: Rng, difficulty: 1 | 2): Problem {
       hints: [`$f(${x0})$ means the output when the input is $${x0}$.`, 'Inputs are in the $x$ column; outputs are in the $f(x)$ column.', `Find the row where $x = ${x0}$.`, 'Read across that row to the output.'],
       solution: [{ text: `Find the row with $x = ${x0}$.`, why: 'A table pairs each input with its output.' }, { text: 'Read the output.', tex: `f(${x0}) = ${val.toTex()}` }],
       misconceptions: numberMisconceptions(val, [{ value: Q(x0), tag: 'graph-reading', feedback: 'That is the input. $f(' + x0 + ')$ is the output in the same row.' }]),
+      steps: [
+        gstep(
+          `In $f(${x0})$, which number is the **input**?`,
+          numSpec(Q(x0)),
+          ['Function notation $f(\\text{input}) = \\text{output}$.', 'The input is written inside the parentheses.', 'In the table, inputs are in the $x$ column.', `Read the number inside $f(\\;)$.`],
+          `The input is the number inside the parentheses, so look for the row where $x = ${x0}$.`,
+          numMis(x0, [{ value: val, tag: 'graph-reading', feedback: 'That number is an output in the table. The input is the number inside the parentheses of $f(\\;)$.' }]),
+        ),
+        gstep(
+          `Find the row where $x = ${x0}$. What is the output $f(x)$ in that row?`,
+          numSpec(val),
+          ['A table pairs each input with its output in the same row.', 'Go down the $x$ column to the input.', 'Then move across that row to the $f(x)$ column.', `Read the $f(x)$ value next to $x = ${x0}$.`],
+          `The row with $x = ${x0}$ has output $${val.toTex()}$, so $f(${x0}) = ${val.toTex()}$.`,
+          numberMisconceptions(val, [{ value: Q(x0), tag: 'graph-reading', feedback: 'That is the input. $f(' + x0 + ')$ is the output in the same row.' }]),
+        ),
+      ],
     });
   }
   const d = rng.int(1, 3);
@@ -226,6 +243,10 @@ export const genEvaluateQuadratic: GeneratorDef = {
         const m = /What is \$f\((-?\d+)\)\$/.exec(text);
         const row = m && rows.find((r) => r[0].eq(Number(m[1])));
         if (!row) return ['input not in table'];
+        if (pr.steps) {
+          const errs = checkSteps(pr, [m[1], row[1].toString()]);
+          if (errs.length) return errs;
+        }
         return Q(pr.answer.value).eq(row[1]) ? [] : ['wrong value'];
       }
       if (pr.answer.kind !== 'solutions') return ['unexpected kind'];
@@ -280,6 +301,8 @@ interface ConceptQ {
   ask: string;
   correct: string;
   wrong: string[];
+  /** Feedback for each wrong option, with its tag (same order as `wrong`). */
+  fb?: Array<[MisconceptionTag, string]>;
 }
 
 export const genInterpretNotation: GeneratorDef = {
@@ -333,19 +356,92 @@ export const genInterpretNotation: GeneratorDef = {
     } else {
       const target = rng.pick([16, 20, 24, 30, 40].filter((x) => Q(x).lt(ev(h, tv, 't'))));
       const pool: ConceptQ[] = [
-        { ask: 'What does $h(0)$ represent?', correct: `The height of ${thing} at the moment it is ${who.verb}`, wrong: [`The time when ${thing} hits the ground`, `The greatest height ${thing} reaches`, `The speed of ${thing} when it is ${who.verb}`] },
-        { ask: `Which equation would you solve to find when ${thing} hits the ground?`, correct: '$h(t) = 0$', wrong: ['$h(0) = t$', '$t = 0$', '$h(t) = 16$'] },
-        { ask: `Which would you do to find when ${thing} is ${target} feet high?`, correct: `Solve $h(t) = ${target}$`, wrong: [`Find $h(${target})$`, `Solve $h(t) = 0$`, `Find $h(0) + ${target}$`] },
-        { ask: `What does a solution of $h(t) = ${target}$ tell you?`, correct: `A time when ${thing} is ${target} feet above the ground`, wrong: [`The height of ${thing} after ${target} seconds`, `How far ${thing} travels in ${target} seconds`, `The greatest height of ${thing}`] },
+        {
+          ask: 'What does $h(0)$ represent?',
+          correct: `The height of ${thing} at the moment it is ${who.verb}`,
+          wrong: [`The time when ${thing} hits the ground`, `The greatest height ${thing} reaches`, `The speed of ${thing} when it is ${who.verb}`],
+          fb: [
+            ['graph-reading', `The $0$ in $h(0)$ is the input, a time of $0$ seconds. Hitting the ground is about the output: it happens when the height is $0$.`],
+            ['other', `The greatest height happens at the vertex, partway through the flight, not at $t = 0$. $h(0)$ is the output when the time is $0$ seconds.`],
+            ['units', `The function $h$ gives a height in feet, not a speed. $h(0)$ is the value of $h$ when $t = 0$.`],
+          ],
+        },
+        {
+          ask: `Which equation would you solve to find when ${thing} hits the ground?`,
+          correct: '$h(t) = 0$',
+          wrong: ['$h(0) = t$', '$t = 0$', '$h(t) = 16$'],
+          fb: [
+            ['equation-setup', `$h(0) = t$ mixes up the input and the output: $h(0)$ is the starting height, not a time. When ${thing} lands, which quantity is $0$, the time or the height?`],
+            ['equation-setup', `$t = 0$ is the moment ${thing} is ${who.verb}, not when it lands. When it hits the ground, which quantity is $0$, the time or the height?`],
+            ['equation-setup', `The $16$ comes from the $-16$ in front of $t^{2}$, which is about gravity, not a height. Ask yourself what the height is when ${thing} is on the ground.`],
+          ],
+        },
+        {
+          ask: `Which would you do to find when ${thing} is ${target} feet high?`,
+          correct: `Solve $h(t) = ${target}$`,
+          wrong: [`Find $h(${target})$`, `Solve $h(t) = 0$`, `Find $h(0) + ${target}$`],
+          fb: [
+            ['graph-reading', `$h(${target})$ is the height after ${target} seconds, because the number in the parentheses is the time. Here ${target} feet is a height, which is an output of $h$.`],
+            ['equation-setup', `Solving $h(t) = 0$ finds when ${thing} hits the ground, at a height of $0$ feet. You want the time for a different height.`],
+            ['equation-setup', `$h(0) + ${target}$ is a height, ${target} feet above the starting height. The question asks for a time.`],
+          ],
+        },
+        {
+          ask: `What does a solution of $h(t) = ${target}$ tell you?`,
+          correct: `A time when ${thing} is ${target} feet above the ground`,
+          wrong: [`The height of ${thing} after ${target} seconds`, `How far ${thing} travels in ${target} seconds`, `The greatest height of ${thing}`],
+          fb: [
+            ['graph-reading', `That would be $h(${target})$, with ${target} as the input. In $h(t) = ${target}$, the ${target} is the output, a height.`],
+            ['units', `$h$ gives the height above the ground, not a distance traveled, and the ${target} in $h(t) = ${target}$ is a height, not a number of seconds.`],
+            ['other', `Nothing in $h(t) = ${target}$ is about the highest point. Think about what the letter you solve for, $t$, stands for.`],
+          ],
+        },
       ];
       q = rng.pick(pool);
     }
     const answer = makeChoice(rng, q.correct, q.wrong);
+    let steps: ProblemStep[] | undefined;
+    if (difficulty === 1) {
+      const sec = `${t0} second${t0 === 1 ? '' : 's'}`;
+      const measure = fixedChoice('A height, in feet', ['A time, in seconds', 'A speed, in feet per second', `The greatest height ${thing} reaches`]);
+      steps = [
+        gstep(
+          `In $h(${t0}) = ${H.toTex()}$, which number is the **input** $t$, the time in seconds?`,
+          numSpec(Q(t0)),
+          ['Function notation is $h(\\text{input}) = \\text{output}$.', 'In $h(t)$, the letter inside the parentheses is $t$, the time.', 'The input is the number written inside the parentheses.', `Look inside $h(\\;)$.`],
+          `The number inside the parentheses is the input: $t = ${t0}$, a time of ${sec}.`,
+          numMis(t0, [{ value: H, tag: 'graph-reading', feedback: 'That number is the output, the value of $h$. The input is the number inside the parentheses.' }]),
+        ),
+        gstep(
+          `So what does the output, $${H.toTex()}$, measure?`,
+          measure,
+          ['The output of a function is what the function gives back for an input.', 'Read the first sentence: what does $h$ model?', '$h(t)$ is the height of the object at time $t$.', 'Match the output to a quantity and its units.'],
+          `$h$ gives the height in feet, so $${H.toTex()}$ is a height of $${H.toTex()}$ feet.`,
+          [
+            choiceMis(measure, 'A time, in seconds', 'graph-reading', 'Time is the input, inside the parentheses. The output of $h$ is a height.'),
+            choiceMis(measure, 'A speed, in feet per second', 'units', 'The function $h$ gives a height in feet, not a speed.'),
+            choiceMis(measure, `The greatest height ${thing} reaches`, 'other', `$h(${t0})$ is the height at that one time. Nothing in the notation says it is the highest point.`),
+          ],
+        ),
+        gstep(
+          `What does $h(${t0}) = ${H.toTex()}$ mean?`,
+          answer,
+          ['Put the two pieces together: the input is a time and the output is a height.', `The time is ${sec}.`, `The height at that time is $${H.toTex()}$ feet.`, 'Pick the sentence that says the height at that time, with nothing extra.'],
+          `At $t = ${t0}$ seconds the height is $${H.toTex()}$ feet: input time, output height.`,
+          [
+            choiceMis(answer, q.wrong[0], 'graph-reading', 'That swaps the input and the output. The number inside the parentheses is the time.'),
+            choiceMis(answer, q.wrong[1], 'other', 'The notation tells the height at one time. It does not say that this is the highest point.'),
+            choiceMis(answer, q.wrong[2], 'units', 'The output of $h$ is a height in feet, not a speed.'),
+          ],
+        ),
+      ];
+    }
     return makeProblem({
       skillId: 'S4.14',
       tags: ['real-world'],
       prompt: [story, eq, p(q.ask)],
       answer,
+      ...(steps ? { steps } : {}),
       hints: [
         'In $h(t)$, the input $t$ is the time in seconds and the output $h(t)$ is the height in feet.',
         'Inside the parentheses is always the input (time). The value of $h$ is always the output (height).',
@@ -356,7 +452,7 @@ export const genInterpretNotation: GeneratorDef = {
         { text: 'Identify the input and output.', why: '$t$ is time in seconds; $h(t)$ is height in feet.' },
         { text: `So the answer is: ${q.correct}`, why: difficulty === 1 ? `The input inside the parentheses is the time, and the value $${H.toTex()}$ is the height at that time.` : 'Match each part of the notation to time or height.' },
       ],
-      misconceptions: [],
+      misconceptions: q.fb ? choiceMisList(answer, q.wrong.map((w, i): [string, MisconceptionTag, string] => [w, q.fb![i][0], q.fb![i][1]])) : [],
     });
   },
   verify(pr) {
@@ -378,6 +474,7 @@ export const genInterpretNotation: GeneratorDef = {
       const errs: string[] = [];
       if (!ev(h, t, 't').eq(Number(m[2]))) errs.push('h(t0) is not the stated height');
       if (!label.startsWith(`${t} second${t === 1 ? '' : 's'} after`) || !label.includes(`is ${m[2]} feet above`)) errs.push('wrong key');
+      if (pr.steps) errs.push(...checkSteps(pr, [m[1], pickLabel(pr.steps[1].answer, 'A height, in feet'), null]));
       const { h: tv } = vertexOf(h, 't');
       if (tv.eq(t)) errs.push('t0 is the vertex time, so the highest-point distractor is true');
       return errs;
@@ -443,6 +540,28 @@ export const genVertexAxis: GeneratorDef = {
         { text: 'Compare with $a(x - h)^{2} + k$.', tex: `f(x) = ${ftex}`, why: `Here $h = ${hTex}$ and $k = ${k.toTex()}$.` },
         { text: ask === 'vertex' ? 'Write the vertex.' : 'The axis of symmetry passes through the vertex.', tex: ask === 'vertex' ? `(${hTex}, ${k.toTex()})` : `x = ${hTex}` },
       ];
+      const inside = `x ${h.isNegative() ? '+' : '-'} ${h.abs().toTex()}`;
+      steps.push(
+        gstep(
+          `Compare $f(x) = ${ftex}$ with vertex form $a(x - h)^{2} + k$. What is $h$?`,
+          numSpec(h),
+          ['In vertex form, $h$ is the number **subtracted** from $x$ inside the parentheses.', 'Adding a number is the same as subtracting its opposite: $x + 3 = x - (-3)$.', 'The vertex is where the inside of the parentheses equals $0$.', `Solve $${inside} = 0$.`],
+          h.isNegative()
+            ? `Rewrite $${inside}$ as $x - (${hTex})$ to match $x - h$, so $h = ${hTex}$: the inside is $0$ when $x = ${hTex}$.`
+            : `$${inside}$ matches $x - h$ with $${hTex}$ in the place of $h$, so $h = ${hTex}$: the inside is $0$ when $x = ${hTex}$.`,
+          numMis(h, [{ value: h.neg(), tag: 'vertex-sign', feedback: 'Watch the sign: $(x - 3)^{2}$ has $h = 3$, and $(x + 3)^{2}$ has $h = -3$.' }]),
+        ),
+      );
+      if (ask === 'vertex')
+        steps.push(
+          gstep(
+            'What is $k$, the number added at the end?',
+            numSpec(k),
+            ['In vertex form, $k$ is added after the squared part.', 'A subtraction at the end means $k$ is negative.', k.isZero() ? 'If nothing is added at the end, $k = 0$.' : 'Keep the sign in front of the last number.', 'Read the last term of the function, with its sign.'],
+            `$k = ${k.toTex()}$, the ${a < 0 ? 'greatest' : 'least'} output of $f$, since the squared part is $0$ at the vertex.`,
+            numMis(k, [k.isZero() ? null : { value: k.neg(), tag: 'sign-error', feedback: 'Keep the sign: a minus sign before the last number makes $k$ negative.' }, { value: A, tag: 'other', feedback: 'That is $a$, the number in front of the parentheses. $k$ is the number added at the end.' }]),
+          ),
+        );
     } else if (difficulty === 2) {
       hints = ['For $ax^{2} + bx + c$, the vertex has $x = -\\frac{b}{2a}$.', `Here $a = ${A.toTex()}$ and $b = ${b.toTex()}$.`, ask === 'vertex' ? 'Substitute that $x$-value into $f$ to get the $y$-value.' : 'The axis of symmetry is the vertical line through the vertex.', 'Be careful with the negative sign in $-\\frac{b}{2a}$.'];
       solution = [
@@ -484,10 +603,17 @@ export const genVertexAxis: GeneratorDef = {
         explanation: `$f(${hTex}) = ${k.toTex()}$.`,
       });
     if (steps.length)
-      steps.push({ prompt: [p(`Write the ${what}.`)], answer, inputHint, hints: hints, explanation: ask === 'vertex' ? `$(${hTex}, ${k.toTex()})$.` : `$x = ${hTex}$.`, misconceptions: valid });
+      steps.push({
+        prompt: [p(`Write the ${what}.`)],
+        answer,
+        inputHint,
+        hints: difficulty === 1 ? (ask === 'vertex' ? ['The vertex is the point $(h, k)$.', 'Use the $h$ and $k$ you found.', 'The $x$-coordinate comes first.', 'Write it as an ordered pair in parentheses.'] : ['The axis of symmetry is the vertical line through the vertex.', 'A vertical line has an equation $x = $ a number.', 'Use the $h$ you found.', 'Write it as $x = h$.']) : hints,
+        explanation: ask === 'vertex' ? `$(${hTex}, ${k.toTex()})$.` : `$x = ${hTex}$.`,
+        misconceptions: valid,
+      });
     return makeProblem({
       skillId: 'S4.15',
-      tags: steps.length ? ['multi-step'] : [],
+      tags: difficulty > 1 && steps.length ? ['multi-step'] : [],
       prompt: [p(`Find the ${what} of the parabola.`), { t: 'math', tex: `f(x) = ${ftex}` }],
       answer,
       inputHint,
@@ -511,9 +637,10 @@ export const genVertexAxis: GeneratorDef = {
       if (!Q(pr.answer.y).eq(ev(f, h))) errs.push('wrong y');
       // the vertex is the extreme value: nearby points are all higher (a > 0) or lower (a < 0)
       for (const d of [Q(1, 3), Q(1), Q(5)]) if (ev(f, h.add(d)).sub(ev(f, h)).sign() !== a.sign()) errs.push('not an extreme point');
+      errs.push(...checkSteps(pr, pr.difficulty === 1 ? [numStr(h), numStr(ev(f, h)), null] : undefined));
       return errs;
     }
-    if (pr.answer.kind === 'equation') return pr.answer.value === `x = ${numStr(h)}` ? [] : ['wrong axis'];
+    if (pr.answer.kind === 'equation') return pr.answer.value === `x = ${numStr(h)}` ? checkSteps(pr, pr.difficulty === 1 ? [numStr(h), null] : undefined) : ['wrong axis'];
     return ['unexpected kind'];
   },
 };
@@ -547,10 +674,83 @@ export const genIntercepts: GeneratorDef = {
         ftex = vtxTex(a, h, k);
         if (!Q(k).eq(ev(f, 0))) misconceptions.push({ answer: String(k), tag: 'graph-reading', feedback: 'That is the $y$-value of the vertex. The $y$-intercept is where $x = 0$.' });
       }
+      // more common slips, kept only when they differ from the key and from each other
+      {
+        const [c0, b0] = f.coeffsIn('x');
+        const extra: Array<{ value: Rational; tag: Misconception['tag']; feedback: string }> =
+          form === 'standard'
+            ? [{ value: b0, tag: 'other', feedback: 'That is the coefficient of $x$. Substitute $x = 0$: every term with an $x$ becomes $0$.' }, { value: ev(f, 1), tag: 'other', feedback: 'That is $f(1)$. The $y$-intercept is the output when $x = 0$.' }]
+            : form === 'factored'
+              ? [{ value: c0.div(a), tag: 'arithmetic-error', feedback: 'Multiply by the leading coefficient too: it is a factor of $f(x)$.' }, { value: c0.neg(), tag: 'sign-error', feedback: 'Check the signs: at $x = 0$ the factor $(x - r)$ is $-r$.' }]
+              : [{ value: c0.sub(ev(vtxPoly(1, vertexOf(f).h.toNumber(), 0), 0).mul(a - 1)), tag: 'order-of-operations', feedback: 'Square first, then multiply by the leading coefficient, then add $k$.' }];
+        const seen = [c0, ...misconceptions.map((m) => Q(m.answer))];
+        for (const e of extra) if (a !== 1 || e.tag !== 'arithmetic-error') if (!seen.some((v) => v.eq(e.value))) { seen.push(e.value); misconceptions.push({ answer: numStr(e.value), tag: e.tag, feedback: e.feedback }); }
+      }
       const y0 = ev(f, 0);
+      const final = gstep(
+        `So what is the $y$-intercept, $f(0)$?`,
+        numSpec(y0),
+        ['The $y$-intercept is the output when $x = 0$.', 'Use the values you found in the earlier steps.', form === 'standard' ? 'Add the constant term to what is left.' : form === 'factored' ? 'Multiply the leading coefficient by both factor values.' : 'Add $k$, the number at the end.', 'Keep track of negative signs.'],
+        `$f(0) = ${y0.toTex()}$, so the graph crosses the $y$-axis at $(0, ${y0.toTex()})$.`,
+        misconceptions,
+        'Type a number like -6.',
+      );
+      let steps: ProblemStep[];
+      if (form === 'standard') {
+        const [, b1, a1] = f.coeffsIn('x');
+        steps = [
+          gstep(
+            `Substitute $x = 0$ into $f(x) = ${ftex}$. What do the $x^{2}$ term and the $x$ term add up to?`,
+            numSpec(Q(0)),
+            ['Every point on the $y$-axis has $x = 0$.', `Replace each $x$ with $0$: $${a1.toTex()}(0)^{2}$ and $${b1.toTex()}(0)$.`, 'Any number times $0$ is $0$.', 'Add the two products.'],
+            'Both terms have a factor of $x$, so both become $0$ when $x = 0$.',
+            numMis(0, [{ value: b1, tag: 'arithmetic-error', feedback: 'Multiply by $0$: any number times $0$ is $0$.' }, { value: a1.add(b1), tag: 'arithmetic-error', feedback: 'Substitute $0$ for $x$ first. Every term with an $x$ becomes $0$.' }]),
+          ),
+          final,
+        ];
+      } else if (form === 'factored') {
+        // the factors in the order they are printed: (x - r) is -r at x = 0
+        const vals = [...ftex.matchAll(/\\left\(x ([+-]) (\d+)\\right\)/g)].map((m) => (m[1] === '-' ? -Number(m[2]) : Number(m[2])));
+        steps = vals.map((v, i) =>
+          gstep(
+            `What is the ${i === 0 ? 'first' : 'second'} factor, $${pTex(X([v, 1]))}$, when $x = 0$?`,
+            numSpec(Q(v)),
+            ['Every point on the $y$-axis has $x = 0$.', `Replace $x$ with $0$ in $${pTex(X([v, 1]))}$.`, 'Keep the sign that is in the factor.', `Find $0 ${v < 0 ? '-' : '+'} ${Math.abs(v)}$.`],
+            `$${pTex(X([v, 1]))}$ at $x = 0$ is $${v}$.`,
+            numMis(v, [{ value: -v, tag: 'sign-error', feedback: 'Keep the sign from the factor: $0 - 3 = -3$ and $0 + 3 = 3$.' }]),
+          ),
+        );
+        steps.push(final);
+      } else {
+        const hv = vertexOf(f).h;
+        const sq = hv.mul(hv);
+        const inside = pTex(X([hv.neg().toNumber(), 1]));
+        steps = [
+          gstep(
+            `Substitute $x = 0$. What is $(${inside.replace('x', '0')})^{2}$?`,
+            numSpec(sq),
+            ['Every point on the $y$-axis has $x = 0$.', 'Work inside the parentheses first.', `$${inside.replace('x', '0')} = ${hv.neg().toTex()}$.`, 'Square that number: multiply it by itself.'],
+            `$(${inside.replace('x', '0')})^{2} = (${hv.neg().toTex()})^{2} = ${sq.toTex()}$.`,
+            numMis(sq, [{ value: sq.neg(), tag: 'sign-error', feedback: 'A number times itself is never negative.' }, { value: hv.abs().mul(2), tag: 'exponent-rule', feedback: 'Squaring means times itself, not times $2$.' }]),
+          ),
+          ...(a === 1
+            ? []
+            : [
+                gstep(
+                  `Multiply by the leading coefficient, $${a}$. What is $${a} \\cdot ${sq.toTex()}$?`,
+                  numSpec(sq.mul(a)),
+                  ['Order of operations: square first, then multiply.', `The squared part is $${sq.toTex()}$.`, a < 0 ? 'A negative times a positive is negative.' : 'Multiply the two positive numbers.', `Multiply $${a}$ by $${sq.toTex()}$.`],
+                  `$${a} \\cdot ${sq.toTex()} = ${sq.mul(a).toTex()}$.`,
+                  numMis(sq.mul(a), [{ value: sq.mul(-a), tag: 'sign-error', feedback: 'Check the sign of the leading coefficient.' }]),
+                ),
+              ]),
+          final,
+        ];
+      }
       return makeProblem({
         skillId: 'S4.15',
         tags: [],
+        steps,
         prompt: [p('What is the $y$-intercept of the graph of this function? Type its $y$-value.'), { t: 'math', tex: `f(x) = ${ftex}` }],
         answer: numSpec(y0),
         inputHint: 'Type a number like -6.',
@@ -602,6 +802,12 @@ export const genIntercepts: GeneratorDef = {
     const roots = quadRoots(cs[2], cs[1], cs[0]);
     const misconceptions: Misconception[] = [];
     if (kind === 'square') misconceptions.push({ answer: String(h + Math.sqrt(m)), tag: 'missing-solution', feedback: 'Taking a square root gives a positive and a negative answer. Use $\\pm$.' });
+    const rootsOf = (q: Poly) => {
+      const qc = q.coeffsIn('x').map((c) => c.toInt());
+      return quadRoots(qc[2], qc[1], qc[0]).values;
+    };
+    if (m > 0) misconceptions.push({ answer: rootsOf(vtxPoly(a, -h, k)).join(', '), tag: 'vertex-sign', feedback: `Watch the sign inside the square: $(x ${h < 0 ? '+' : '-'} ${Math.abs(h)})^{2}$ is $0$ at $x = ${h}$, so the intercepts are centered on $x = ${h}$.` });
+    else misconceptions.push({ answer: rootsOf(vtxPoly(a, h, -k)).join(', '), tag: 'sign-error', feedback: `Isolating the square gives a negative number, $${m}$. No real number squared is negative, so there are no $x$-intercepts.` });
     return makeProblem({
       skillId: 'S4.15',
       tags: ['multi-step'],
@@ -622,7 +828,17 @@ export const genIntercepts: GeneratorDef = {
     const f = rhsPoly(mathBlocks(pr)[0]);
     if (pr.answer.kind === 'number') {
       // y-intercept: the constant coefficient
-      return Q(pr.answer.value).eq(f.coeff('x', 0)) ? [] : ['wrong y-intercept'];
+      if (!Q(pr.answer.value).eq(f.coeff('x', 0))) return ['wrong y-intercept'];
+      // steps re-read from the printed form: factor values at x = 0, or the square at x = 0
+      const tex = mathBlocks(pr)[0];
+      const factors = [...tex.matchAll(/\\left\(x ([+-]) (\d+)\\right\)/g)].map((m) => (m[1] === '-' ? -Number(m[2]) : Number(m[2])));
+      const lead = /^f\(x\) = (-?\d*)\\left/.exec(tex)?.[1];
+      const A = lead === undefined || lead === '' ? 1 : lead === '-' ? -1 : Number(lead);
+      let expected: Array<string | null>;
+      if (factors.length === 2) expected = [String(factors[0]), String(factors[1]), null];
+      else if (factors.length === 1 && /\\right\)\^\{2\}/.test(tex)) expected = [String(factors[0] ** 2), ...(A === 1 ? [] : [String(A * factors[0] ** 2)]), null];
+      else expected = ['0', null];
+      return checkSteps(pr, expected);
     }
     if (pr.answer.kind !== 'solutions') return ['unexpected kind'];
     return checkSolutions(f, pr.answer.values);
@@ -680,6 +896,7 @@ export const genGraphFeatures: GeneratorDef = {
       const label = (w: string, v: number) => `A ${w} value of $${v}$`;
       const distractors = [label(other, k), ...(h !== k ? [label(kind, h), label(other, h)] : [label(kind, k + 1), label(kind, k - 1)])];
       const answer = makeChoice(rng, label(kind, k), distractors);
+      const dirSpec = makeChoice(rng, cap(kind), [cap(other)]);
       return makeProblem({
         skillId: 'S4.15',
         tags: ['graph'],
@@ -694,9 +911,10 @@ export const genGraphFeatures: GeneratorDef = {
         steps: [
           {
             prompt: [p('Does the parabola have a maximum or a minimum?'), graph],
-            answer: makeChoice(rng, cap(kind), [cap(other)]),
+            answer: dirSpec,
             hints: ['Look at which way it opens.', 'Opening up means a lowest point.', 'Opening down means a highest point.', 'The vertex is that point.'],
             explanation: `It opens ${up ? 'up' : 'down'}, so it has a ${kind}.`,
+            misconceptions: [choiceMis(dirSpec, cap(other), 'graph-reading', `A parabola that opens ${up ? 'up has a lowest point, a minimum' : 'down has a highest point, a maximum'}. Which way do the arms point?`)].filter((m): m is Misconception => !!m),
           },
           {
             prompt: [p(`What is the ${kind} value?`), graph],
@@ -705,6 +923,17 @@ export const genGraphFeatures: GeneratorDef = {
             explanation: `The vertex is $(${h}, ${k})$, so the ${kind} value is $${k}$.`,
             misconceptions: h !== k ? [{ answer: String(h), tag: 'graph-reading', feedback: 'That is the $x$-coordinate of the vertex. The value of the function is the $y$-coordinate.' }] : [],
           },
+          gstep(
+            'Put your two answers together. Which statement is correct?',
+            answer,
+            ['The statement needs the right word and the right value.', `The word comes from the direction the parabola opens: it opens ${up ? 'up' : 'down'}.`, 'The value is the $y$-coordinate of the vertex, an output.', 'Choose the statement that matches both of your answers.'],
+            `It opens ${up ? 'up' : 'down'}, so the vertex $(${h}, ${k})$ is the ${up ? 'lowest' : 'highest'} point: a ${kind} value of $${k}$.`,
+            [
+              choiceMis(answer, label(other, k), 'graph-reading', `The parabola opens ${up ? 'up, so its vertex is its lowest point: a minimum' : 'down, so its vertex is its highest point: a maximum'}.`),
+              h !== k ? choiceMis(answer, label(kind, h), 'graph-reading', 'That value is the $x$-coordinate of the vertex. The value of the function is the $y$-coordinate.') : null,
+              h !== k ? choiceMis(answer, label(other, h), 'graph-reading', 'Check both parts: the value is the $y$-coordinate of the vertex, and the direction the parabola opens decides maximum or minimum.') : null,
+            ],
+          ),
         ],
       });
     }
@@ -737,6 +966,13 @@ export const genGraphFeatures: GeneratorDef = {
     if (rng.bool()) {
       const correct = up ? END.upUp : END.downDown;
       const answer = makeChoice(rng, correct, Object.values(END).filter((e) => e !== correct));
+      const mixed = 'That describes a graph that goes one way on the far left and the other way on the far right, like a line. The two arms of a parabola always point the same way.';
+      const misconceptions = choiceMisList(answer, [
+        [END.upUp, 'graph-reading', 'That describes a parabola that opens up, with both arms pointing up. Look again at which way this graph opens.'],
+        [END.downDown, 'graph-reading', 'That describes a parabola that opens down, with both arms pointing down. Look again at which way this graph opens.'],
+        [END.downUp, 'graph-reading', mixed],
+        [END.upDown, 'graph-reading', mixed],
+      ]);
       return makeProblem({
         skillId: 'S4.15',
         tags: ['graph'],
@@ -747,7 +983,7 @@ export const genGraphFeatures: GeneratorDef = {
           { text: `The parabola opens ${up ? 'up' : 'down'}.`, why: `Its leading coefficient is ${up ? 'positive' : 'negative'}.` },
           { text: `Both arms point ${up ? 'up' : 'down'}.`, why: correct },
         ],
-        misconceptions: [],
+        misconceptions,
       });
     }
     const askPos = !up; // opens down: positive between zeros; opens up: negative between zeros
@@ -778,7 +1014,9 @@ export const genGraphFeatures: GeneratorDef = {
     if (pr.answer.kind === 'choice') {
       const label = choiceLabel(pr.answer);
       if (/end behavior/.test(text)) return label === (up ? END.upUp : END.downDown) ? [] : ['wrong end behavior'];
-      return label === `A ${up ? 'minimum' : 'maximum'} value of $${k.toTex()}$` ? [] : ['wrong extreme'];
+      if (label !== `A ${up ? 'minimum' : 'maximum'} value of $${k.toTex()}$`) return ['wrong extreme'];
+      // steps (difficulty 1): direction from the sign of a, value from the vertex, then the same statement
+      return pr.steps ? checkSteps(pr, [pickLabel(pr.steps[0].answer, up ? 'Minimum' : 'Maximum'), k.toString(), pickLabel(pr.answer, label)]) : [];
     }
     if (pr.answer.kind !== 'interval') return ['unexpected kind'];
     const got = parseInterval(pr.answer.value);
@@ -818,6 +1056,41 @@ function discreteDomain(rng: Rng): Problem {
     ? `In a league, every team plays every other team twice. A coach made the table below of the number of games $G(n)$ for leagues with $n$ teams. The table lists all of the coach's data.`
     : `In a group of $n$ students, everyone shakes hands once with everyone else. A class made the table below of the number of handshakes $H(n)$. The table lists all of the class's data.`;
   const fn = games ? 'G' : 'H';
+  const answer = makeChoice(rng, correct, wrong);
+  const who = games ? 'teams' : 'students';
+  const inCol = `The $n$ column, the number of ${who}`;
+  const outCol = `The $${fn}(n)$ column, the number of ${games ? 'games' : 'handshakes'}`;
+  const colSpec = fixedChoice(inCol, [outCol]);
+  const NOT_BETWEEN = `No: the number of ${who} is a whole number, and the table lists all of the data`;
+  const BETWEEN = 'Yes: every number between the first and last rows works';
+  const betweenSpec = fixedChoice(NOT_BETWEEN, [BETWEEN]);
+  const steps: ProblemStep[] = [
+    gstep(
+      'The domain of a function is its set of **inputs**. Which column of the table lists the inputs?',
+      colSpec,
+      ['An input is the number you start with; the output is the number the function gives back.', `In $${fn}(n)$, the letter inside the parentheses is the input.`, 'In a function table, the input column usually comes first.', `Which column is $n$, the number of ${who}?`],
+      `The inputs are the values of $n$ in the first column; the $${fn}(n)$ values are the outputs.`,
+      [choiceMis(colSpec, outCol, 'graph-reading', `Those are the outputs, the values of $${fn}(n)$. The inputs are the values of $n$.`)],
+    ),
+    gstep(
+      `Does the function make sense for an input between the rows, like $n = ${ns[0]}.5$?`,
+      betweenSpec,
+      ['Think about what $n$ counts in the story.', `Can a ${games ? 'league' : 'group'} have half of one of its ${who}?`, 'The story says the table lists all of the data.', 'A domain can be a list of separate numbers, not always an interval.'],
+      `$n$ counts ${who}, so it is a whole number, and the table lists every input there is: the domain is just the listed numbers.`,
+      [choiceMis(betweenSpec, BETWEEN, 'other', `$n$ counts ${who}, so a value like $${ns[0]}.5$ makes no sense. The domain is only the listed inputs.`)],
+    ),
+    gstep(
+      'So what is the domain of the function shown in the table?',
+      answer,
+      ['Use the column you chose.', 'List only the inputs that are in the table.', 'Write them as a set with braces, $\\{\\ \\}$.', 'Do not include the outputs or the numbers between the rows.'],
+      `The domain is the set of listed inputs, ${correct}.`,
+      [
+        choiceMis(answer, wrong[0], 'graph-reading', 'Those are the outputs, which make up the range. The domain is the set of inputs.'),
+        choiceMis(answer, wrong[1], 'other', `$n$ counts ${who}, so numbers between the rows (like $${ns[0]}.5$) are not inputs.`),
+        choiceMis(answer, wrong[2], 'other', 'The table lists all of the data, so only the listed inputs are in the domain.'),
+      ],
+    ),
+  ];
   return makeProblem({
     skillId: 'S4.16',
     tags: ['real-world'],
@@ -826,7 +1099,7 @@ function discreteDomain(rng: Rng): Problem {
       { t: 'table', headers: ['$n$', `$${fn}(n)$`], rows: ns.map((n) => [`$${n}$`, `$${out(n)}$`]) },
       p(`What is the domain of the function shown in the table?`),
     ],
-    answer: makeChoice(rng, correct, wrong),
+    answer,
     hints: [
       'The domain is the set of **inputs**.',
       'In the table, the inputs are in the first column; the outputs are in the second.',
@@ -838,6 +1111,7 @@ function discreteDomain(rng: Rng): Problem {
       { text: 'Write them as a set.', tex: `\\{${ns.join(', ')}\\}`, why: `The function is only defined for these whole numbers of ${games ? 'teams' : 'students'}: it is a discrete domain, not an interval. The second column, ${set(ns.map(out))}, is the range.` },
     ],
     misconceptions: [],
+    steps,
   });
 }
 
@@ -998,6 +1272,9 @@ export const genDomainRange: GeneratorDef = {
     const askDomain = difficulty === 2 && rng.int(0, 2) === 0;
     const up = a > 0;
     const value = askDomain ? '(-inf, inf)' : up ? `[${k}, inf)` : `(-inf, ${k}]`;
+    const OPEN_UP = 'It opens up, so the vertex is the lowest point';
+    const OPEN_DOWN = 'It opens down, so the vertex is the highest point';
+    const openSpec = fixedChoice(up ? OPEN_UP : OPEN_DOWN, [up ? OPEN_DOWN : OPEN_UP]);
     const misconceptions: Misconception[] = askDomain
       ? [{ answer: value === '(-inf, inf)' ? (up ? `[${k}, inf)` : `(-inf, ${k}]`) : '', tag: 'interval-endpoint', feedback: 'That is the range (the outputs). The domain is the set of inputs you can use.' }]
       : [
@@ -1011,10 +1288,39 @@ export const genDomainRange: GeneratorDef = {
             { prompt: [p(`Find the vertex of $f(x) = ${ftex}$.`)], answer: pointSpec(Q(h), Q(k)), inputHint: 'Type a point like (2, -5).', hints: ['Use $x = -\\frac{b}{2a}$.', `$a = ${a}$, $b = ${f.coeff('x', 1).toTex()}$.`, 'Substitute that $x$-value into $f$.', 'Write the point.'], explanation: `The vertex is $(${h}, ${k})$.` },
             { prompt: [p('Now write the range.')], answer: { kind: 'interval', value }, inputHint: IV_HINT, hints: [`The parabola opens ${up ? 'up' : 'down'}.`, `The ${up ? 'least' : 'greatest'} output is the $y$-value of the vertex.`, 'Include that value.', 'Use brackets for included endpoints.'], explanation: `$y ${up ? '\\ge' : '\\le'} ${k}$.`, misconceptions },
           ]
-        : [];
+        : difficulty === 1
+          ? [
+              gstep(
+                `$f(x) = ${ftex}$ is in vertex form, $a(x - h)^{2} + k$. What is its vertex?`,
+                pointSpec(Q(h), Q(k)),
+                ['The vertex of $a(x - h)^{2} + k$ is the point $(h, k)$.', '$h$ is the number subtracted from $x$ inside the parentheses; $k$ is the number added at the end.', `Inside the parentheses, $x ${h < 0 ? '+' : '-'} ${Math.abs(h)} = 0$ when $x = ${h}$.`, 'Write the point with the $x$-coordinate first.'],
+                `The squared part is $0$ at $x = ${h}$, and then $f(${h}) = ${k}$, so the vertex is $(${h}, ${k})$.`,
+                [
+                  { answer: `(${-h}, ${k})`, tag: 'vertex-sign', feedback: 'Watch the sign inside the parentheses: $(x - 3)^{2}$ has $h = 3$ and $(x + 3)^{2}$ has $h = -3$.' },
+                  { answer: `(${k}, ${h})`, tag: 'graph-reading', feedback: 'A point is written $(x, y)$: the $x$-coordinate $h$ comes first.' },
+                ],
+                'Type a point like (2, -5).',
+              ),
+              gstep(
+                `$a = ${a}$. Which way does the parabola open, and what does that make the vertex?`,
+                openSpec,
+                ['The sign of $a$ decides which way a parabola opens.', 'Positive $a$: opens up. Negative $a$: opens down.', 'A parabola that opens up has a lowest point; one that opens down has a highest point.', `Is $${a}$ positive or negative?`],
+                `$a = ${a}$ is ${up ? 'positive' : 'negative'}, so the parabola opens ${up ? 'up' : 'down'} and the vertex is its ${up ? 'lowest' : 'highest'} point.`,
+                [choiceMis(openSpec, up ? OPEN_DOWN : OPEN_UP, 'sign-error', `$a = ${a}$ is ${up ? 'positive' : 'negative'}, so the parabola opens ${up ? 'up' : 'down'}.`)],
+              ),
+              {
+                prompt: [p('Now write the range: every output the function can give.')],
+                answer: { kind: 'interval', value },
+                inputHint: IV_HINT,
+                hints: ['The range is the set of outputs, the $y$-values.', `The ${up ? 'least' : 'greatest'} output is the $y$-value of the vertex.`, `Every other output is ${up ? 'greater' : 'less'} than that.`, 'The vertex is on the graph, so include its $y$-value with a bracket.'],
+                explanation: `Every output is ${up ? 'at least' : 'at most'} $${k}$, and $${k}$ itself happens at the vertex: $y ${up ? '\\ge' : '\\le'} ${k}$.`,
+                misconceptions,
+              },
+            ]
+          : [];
     return makeProblem({
       skillId: 'S4.16',
-      tags: steps.length ? ['multi-step'] : [],
+      tags: difficulty === 2 && steps.length ? ['multi-step'] : [],
       prompt: [p(`What is the ${askDomain ? 'domain' : 'range'} of this function?`), { t: 'math', tex: `f(x) = ${ftex}` }],
       answer: { kind: 'interval', value },
       inputHint: askDomain ? 'Like (-inf, inf) or all real numbers' : 'Like [3, inf) or y >= 3',
@@ -1044,7 +1350,10 @@ export const genDomainRange: GeneratorDef = {
       const m = /^\$\\\{(.+)\\\}\$$/.exec(choiceLabel(pr.answer));
       if (!m) return ['key is not a set'];
       const vals = m[1].split(',').map((x) => Number(x.trim()));
-      return vals.length === ins.length && vals.every((v, i) => v === ins[i]) ? [] : ['key is not the set of inputs'];
+      if (!(vals.length === ins.length && vals.every((v, i) => v === ins[i]))) return ['key is not the set of inputs'];
+      // steps: the input column (the one headed n), "no values between the rows", then the same set
+      const byPrefix = (i: number, pre: string) => (pr.steps?.[i]?.answer.kind === 'choice' ? (pr.steps[i].answer as { options: { id: string; label: string }[] }).options.find((o) => o.label.startsWith(pre))?.id ?? '#none' : '#none');
+      return pr.steps ? checkSteps(pr, [byPrefix(0, 'The $n$ column'), byPrefix(1, 'No:'), pr.answer.correct]) : ['missing steps'];
     }
     const spec0 = graphOf(pr);
     if (spec0) {
@@ -1086,7 +1395,11 @@ export const genDomainRange: GeneratorDef = {
       return intervalsEqual(got, { lo: Q(0), loClosed: true, hi: k, hiClosed: true }) ? [] : ['wrong range'];
     }
     const want = a.sign() > 0 ? { lo: k, loClosed: true, hi: null, hiClosed: false } : { lo: null, loClosed: false, hi: k, hiClosed: true };
-    return intervalsEqual(got, want) ? [] : ['wrong range'];
+    if (!intervalsEqual(got, want)) return ['wrong range'];
+    if (pr.difficulty !== 1) return [];
+    // steps (difficulty 1): the vertex by -b/(2a) from the expanded function, the direction from the sign of a, then the range
+    const { h } = vertexOf(f, v);
+    return checkSteps(pr, [`(${h.toString()}, ${ev(f, h).toString()})`, pickLabel(pr.steps?.[1]?.answer ?? pr.answer, a.sign() > 0 ? 'It opens up, so the vertex is the lowest point' : 'It opens down, so the vertex is the highest point'), pr.answer.value]);
   },
 };
 
@@ -1192,6 +1505,41 @@ function ruleToPoly(f: Poly, tex: string): Poly {
 
 const PARENT = X([0, 0, 1]);
 
+/** Feedback for describing g with the transformations `wrong` when the rule really applies `correct`. */
+function tfMis(correct: Tf[], wrong: Tf[]): [MisconceptionTag, string] {
+  const find = <T extends Tf['t']>(tfs: Tf[], t: T) => tfs.find((x): x is Extract<Tf, { t: T }> => x.t === t);
+  const parts: string[] = [];
+  let tag: MisconceptionTag | null = null;
+  const add = (tg: MisconceptionTag, text: string) => {
+    tag ??= tg;
+    parts.push(text);
+  };
+  const [cR, wR] = [find(correct, 'reflect'), find(wrong, 'reflect')];
+  const [cV, wV] = [find(correct, 'vscale'), find(wrong, 'vscale')];
+  const [cH, wH] = [find(correct, 'hscale'), find(wrong, 'hscale')];
+  const [cU, wU] = [find(correct, 'up'), find(wrong, 'up')];
+  const [cS, wS] = [find(correct, 'right'), find(wrong, 'right')];
+  // a shift offered for a rule that only multiplies f(x): the shift is the whole mistake
+  if (wU && !cU && !cS && !wS) return ['other', 'Multiplying $f(x)$ by a number stretches, compresses or flips the graph. It does not shift the graph up or down; that comes from adding a number to $f(x)$.'];
+  if (cR && !wR) add('sign-error', 'That choice leaves out the reflection: a negative sign in front of $f(x)$ flips the graph across the $x$-axis.');
+  if (!cR && wR) add('sign-error', 'There is no negative sign in front of $f(x)$, so the graph is not reflected across the $x$-axis.');
+  if (wV && !cV) {
+    if (cH) add('other', 'The number multiplies $x$ inside the parentheses, so it changes the graph horizontally, not vertically.');
+    else add('other', 'The rule multiplies $f(x)$ only by $-1$, so the graph keeps its shape: there is no stretch or compression.');
+  }
+  if (wV && cV && !wV.k.eq(cV.k)) {
+    const big = cV.k.gt(1);
+    add('other', `Multiplying $f(x)$ by a number whose size is ${big ? 'greater than $1$' : 'between $0$ and $1$'} moves every point ${big ? 'farther from' : 'closer to'} the $x$-axis, so the graph is ${big ? 'stretched, not compressed' : 'compressed, not stretched'}.`);
+  }
+  if (wH && cH && !wH.c.eq(cH.c)) add('other', 'A number multiplying $x$ inside the parentheses works the opposite way from how it looks: $f(2x)$ squeezes the graph toward the $y$-axis, and $f(\\frac{1}{2}x)$ stretches it away.');
+  if (wU && !cU) add('other', 'The change is inside the parentheses with $x$, so the graph moves left or right, not up or down.');
+  if (wS && !cS) add('other', 'The change is added outside $f$, so the graph moves up or down, not left or right.');
+  if (wS && cS && wS.n !== cS.n) add('vertex-sign', 'Check the horizontal shift: a change inside the parentheses works opposite to how it looks, so $f(x - 3)$ moves the graph right and $f(x + 3)$ moves it left.');
+  if (wU && cU && wU.n !== cU.n) add('sign-error', 'Check the vertical shift: adding a positive number to $f(x)$ moves the graph up, and subtracting moves it down.');
+  if (!parts.length) add('other', 'Test one point: pick a point on $f$, find where it goes on $g$, and compare with that description.');
+  return [tag ?? 'other', parts.join(' ')];
+}
+
 export const genTransformDescribe: GeneratorDef = {
   id: 'u4.transform-describe',
   skillId: 'S4.17',
@@ -1242,6 +1590,52 @@ export const genTransformDescribe: GeneratorDef = {
     const hasH = tfs.some((t) => t.t === 'right' || t.t === 'hscale');
     const hasScale = tfs.some((t) => t.t === 'hscale');
     const vOnly = tfs.every((t) => t.t === 'vscale' || t.t === 'reflect');
+    // guided steps (difficulty 1: one shift of the parent x^2): where is the change, how far, then the description
+    let steps: ProblemStep[] | undefined;
+    if (difficulty === 1) {
+      const tf = tfs[0] as { t: 'up' | 'right'; n: number };
+      const n = tf.n;
+      const inside = tf.t === 'right';
+      const INSIDE = 'Inside the parentheses, with $x$: it changes the inputs, so the graph moves left or right';
+      const OUTSIDE = 'Outside $f$, added to $f(x)$: it changes the outputs, so the graph moves up or down';
+      const where = fixedChoice(inside ? INSIDE : OUTSIDE, [inside ? OUTSIDE : INSIDE]);
+      const innerTex = n > 0 ? `x - ${n}` : `x + ${-n}`;
+      steps = [
+        gstep(
+          `Look at $${rule}$. Where is the change to $f$?`,
+          where,
+          ['Compare $g$ with $f(x)$: what was added, and where?', 'A number added to $f(x)$ after the function is outside.', 'A number added to $x$ inside $f(\\;)$ is inside.', 'Inside changes move the graph left or right; outside changes move it up or down.'],
+          inside ? 'The number is with $x$ inside the parentheses, so it changes which input gives each output: a horizontal shift.' : 'The number is added after $f$ is applied, so every output changes by the same amount: a vertical shift.',
+          [choiceMis(where, inside ? OUTSIDE : INSIDE, 'other', inside ? 'The number is inside the parentheses with $x$, so it changes the inputs, not the outputs.' : 'The number is added to $f(x)$, outside the parentheses, so it changes the outputs.')],
+        ),
+        inside
+          ? gstep(
+              `The vertex of $f(x) = x^{2}$ is at $x = 0$, where the inside is $0$. What value of $x$ makes the inside of $f(${innerTex})$ equal to $0$?`,
+              numSpec(Q(n)),
+              ['The vertex of $g$ is where its inside matches the inside of $f$ at the vertex.', `Set the inside equal to $0$: $${innerTex} = 0$.`, 'Undo the number added to or subtracted from $x$.', n > 0 ? `Add $${n}$ to both sides.` : `Subtract $${-n}$ from both sides.`],
+              `$${innerTex} = 0$ when $x = ${n}$, so the vertex moves from $x = 0$ to $x = ${n}$: ${n > 0 ? 'right' : 'left'} $${Math.abs(n)}$.`,
+              numMis(n, [{ value: -n, tag: 'vertex-sign', feedback: `Solve $${innerTex} = 0$. A change inside the parentheses works opposite to how it looks.` }]),
+            )
+          : gstep(
+              `The vertex of $f(x) = x^{2}$ is $(0, 0)$. What is the $y$-coordinate of the vertex of $g$, where $g(0) = f(0) ${n > 0 ? '+' : '-'} ${Math.abs(n)}$?`,
+              numSpec(Q(n)),
+              ['An outside change adds the same number to every output.', 'The vertex of $f$ has output $f(0) = 0$.', `Add $${n}$ to that output.`, 'A negative number moves the point down.'],
+              `$0 ${n > 0 ? '+' : '-'} ${Math.abs(n)} = ${n}$, so the vertex moves from $(0, 0)$ to $(0, ${n})$: ${n > 0 ? 'up' : 'down'} $${Math.abs(n)}$.`,
+              numMis(n, [{ value: -n, tag: 'sign-error', feedback: 'Adding a positive number moves a point up; adding a negative number moves it down.' }]),
+            ),
+        gstep(
+          'So how does the graph of $g$ compare with the graph of $f$?',
+          answer,
+          ['Use the direction from step 1 (up/down or left/right).', 'Use the move of the vertex from step 2.', inside ? 'A vertex that moves to a positive $x$ moved right; to a negative $x$, left.' : 'A vertex that moves to a positive $y$ moved up; to a negative $y$, down.', 'The number of units is the distance the vertex moved.'],
+          correct,
+          wrongs.map((w) => {
+            const lab = describe(w);
+            const sameKind = w[0].t === tf.t;
+            return choiceMis(answer, lab, sameKind ? (inside ? 'vertex-sign' : 'sign-error') : 'other', sameKind ? (inside ? 'Inside changes work opposite to how they look: $f(x - 3)$ moves the graph right, and $f(x + 3)$ moves it left.' : 'Check the sign: adding a positive number moves the graph up, and a negative number moves it down.') : inside ? 'The change is inside the parentheses, so the graph moves left or right, not up or down.' : 'The change is outside $f$, so the graph moves up or down, not left or right.');
+          }),
+        ),
+      ];
+    }
     return makeProblem({
       skillId: 'S4.17',
       tags: [],
@@ -1263,7 +1657,8 @@ export const genTransformDescribe: GeneratorDef = {
         { text: 'Look at where the change is.', tex: rule, why: hasScale ? 'A number multiplying $x$ inside changes the inputs: $f(kx)$ squeezes the graph toward the $y$-axis when $k > 1$ and stretches it away when $0 < k < 1$, the opposite of what the number suggests.' : hasH ? 'A change inside the parentheses changes the inputs, so it moves the graph horizontally, opposite to the sign you see.' : 'A change outside $f$ changes the outputs, so it moves or stretches the graph vertically.' },
         { text: correct, why: tfs.some((t) => t.t === 'hscale') ? `For example, $g$ reaches the vertex value when the inside equals ${vertexOf(f).h.toTex()}, which happens at $x = ${vertexOf(g).h.toTex()}$.` : tfs.every((t) => t.t === 'vscale' || t.t === 'reflect') ? `For example, the point $(1, ${ev(f, 1).toTex()})$ on $f$ moves to $(1, ${ev(g, 1).toTex()})$: every $y$-value is multiplied by the same number.` : `For example, the vertex of $f$ at $(${vertexOf(f).h.toTex()}, ${vertexOf(f).k.toTex()})$ moves to $(${vertexOf(g).h.toTex()}, ${vertexOf(g).k.toTex()})$.` },
       ],
-      misconceptions: [],
+      misconceptions: choiceMisList(answer, wrongs.map((w): [string, MisconceptionTag, string] => [describe(w), ...tfMis(tfs, w)])),
+      ...(steps ? { steps } : {}),
     });
   },
   verify(pr) {
@@ -1278,7 +1673,16 @@ export const genTransformDescribe: GeneratorDef = {
       if (o.id === pr.answer.correct && !matches) errs.push('key does not produce g');
       if (o.id !== pr.answer.correct && matches) errs.push(`distractor "${o.label}" also produces g`);
     }
-    return errs;
+    if (errs.length || pr.difficulty !== 1) return errs;
+    // steps (difficulty 1): where the change is, read from whether g(x) - f(x) is a constant; the move from the vertex of g
+    const diff = g.sub(f);
+    const vertical = diff.degreeIn('x') <= 0;
+    const vg = vertexOf(g);
+    return checkSteps(pr, [
+      pickLabel(pr.steps?.[0]?.answer ?? pr.answer, vertical ? 'Outside $f$, added to $f(x)$: it changes the outputs, so the graph moves up or down' : 'Inside the parentheses, with $x$: it changes the inputs, so the graph moves left or right'),
+      (vertical ? vg.k : vg.h).toString(),
+      pr.answer.correct,
+    ]);
   },
 };
 
@@ -1339,6 +1743,36 @@ export const genTransformFindK: GeneratorDef = {
       why = `$f(2) = 0$, so $g(x) = f(kx) = 0$ when $kx = 2$. The graph of $g$ crosses at $x = ${z.toTex()}$, so $k \\cdot ${z.toTex()} = 2$ and $k = ${k.toTex()}$.`;
       misconceptions.push({ answer: numStr(Q(1).div(k)), tag: 'other', feedback: 'With $f(kx)$ the $x$-values are divided by $k$, not multiplied. Check: does $k$ times the new zero give the old zero?' });
     }
+    // guided steps for g(x) = f(x) + k (difficulty 1): read the two vertex heights, then subtract
+    let steps: ProblemStep[] | undefined;
+    if (mode === 'add') {
+      const vf = vertexOf(f);
+      const vg = vertexOf(g);
+      const [fx, fy, gy] = [vf.h, vf.k, vg.k];
+      steps = [
+        gstep(
+          'Find the labeled vertex of $f$, the solid parabola. What is its $y$-coordinate?',
+          numSpec(fy),
+          ['A point is written $(x, y)$.', 'The vertex is the turning point of the parabola, and it is labeled on the graph.', 'The $y$-coordinate is the second number of the label.', 'Read the label next to the vertex of the solid graph.'],
+          `The vertex of $f$ is $(${fx.toTex()}, ${fy.toTex()})$, so its height is $${fy.toTex()}$.`,
+          numMis(fy, [{ value: fx, tag: 'graph-reading', feedback: 'That is the $x$-coordinate. The $y$-coordinate is the second number in the point.' }, { value: gy, tag: 'graph-reading', feedback: 'That is the vertex of $g$, the dashed graph. Use the solid graph, $f$.' }]),
+        ),
+        gstep(
+          'Now find the labeled vertex of $g$, the dashed parabola. What is its $y$-coordinate?',
+          numSpec(gy),
+          ['Adding $k$ to $f(x)$ moves every point straight up or down.', 'So the vertex of $g$ is right above or below the vertex of $f$.', 'The $y$-coordinate is the second number of the label.', 'Read the label next to the vertex of the dashed graph.'],
+          `The vertex of $g$ is $(${vg.h.toTex()}, ${gy.toTex()})$, so its height is $${gy.toTex()}$.`,
+          numMis(gy, [{ value: vg.h, tag: 'graph-reading', feedback: 'That is the $x$-coordinate. The $y$-coordinate is the second number in the point.' }, { value: fy, tag: 'graph-reading', feedback: 'That is the vertex of $f$, the solid graph. Use the dashed graph, $g$.' }]),
+        ),
+        gstep(
+          'Since $g(x) = f(x) + k$, every output of $g$ is $k$ more than the matching output of $f$. What is $k$?',
+          numSpec(k),
+          ['$k$ is how far each point moved up (positive) or down (negative).', 'Compare the two heights you found.', `Subtract: $k = ${gy.toTex()} - ${fy.isNegative() ? `(${fy.toTex()})` : fy.toTex()}$.`, 'A move down gives a negative $k$.'],
+          why,
+          misconceptions.filter((mm) => !Q(mm.answer).eq(k)),
+        ),
+      ];
+    }
     const all = [...fPts, ...gPts];
     const ys = [...all.map((q) => q.y), vertexOf(f).k.toNumber(), vertexOf(g).k.toNumber(), ev(f, -3).toNumber(), ev(g, -3).toNumber(), ev(f, 3).toNumber(), ev(g, 3).toNumber()];
     const opens = (q: Poly) => (q.coeff('x', 2).sign() > 0 ? 4 : -4);
@@ -1370,6 +1804,7 @@ export const genTransformFindK: GeneratorDef = {
         { text: 'Check.', why: 'Applying the rule with this $k$ to every point of $f$ gives the dashed graph.' },
       ],
       misconceptions: misconceptions.filter((mm) => !Q(mm.answer).eq(k)),
+      ...(steps ? { steps } : {}),
     });
   },
   verify(pr) {
@@ -1388,7 +1823,12 @@ export const genTransformFindK: GeneratorDef = {
     const errs = want.equals(g) ? [] : ['k does not map f onto g'];
     // labeled points must lie on their graphs
     for (const q of spec.points ?? []) if (!ev(f, Q(String(q.x))).eq(Q(String(q.y))) && !ev(g, Q(String(q.x))).eq(Q(String(q.y)))) errs.push(`point (${q.x}, ${q.y}) is on neither graph`);
-    return errs;
+    if (errs.length || rule !== 'g(x) = f(x) + k') return errs;
+    // steps: the vertex heights from -b/(2a) of each graphed function, then their difference (which must be k)
+    const kf = vertexOf(f).k;
+    const kg = vertexOf(g).k;
+    if (!kg.sub(kf).eq(k)) return ['vertex heights do not differ by k'];
+    return checkSteps(pr, [kf.toString(), kg.toString(), k.toString()]);
   },
 };
 
