@@ -487,6 +487,20 @@ describe('Unit 9: capstone projects, semester review and semester assessment', (
       const right = key(ctx, pid, 'U9L06', p.key);
       const wrong: Record<string, string> = { choice: '__none__', number: '987654', point: '(987654, 1)', 'region-point': '(-987654, -987654)', 'sequence-terms': '987654, 1, 2', interval: '(987654, 987655)', solutions: 'x = 987654', expression: `(${right}) + 987654` };
       v = D.daySubmit(ctx, pid, 'U9L06', p.key, wrong[p.answerKind] ?? right.replace(/(=|<=|>=|<|>)/, '$1 987654 +'), 30_000);
+      let pv = v.practice!.problems.find((x) => x.key === p.key)!;
+      if (pv.lastResponse === undefined) {
+        // not in the requested form (e.g. "y = 987654 + 3x + 2" for slope-intercept): not saved, the
+        // student is asked to rewrite it, and the assessment cannot be finished with it open
+        expect(pv.lastFeedback?.status, `${p.answerKind}: ${pv.lastFeedback?.message}`).toBe('wrong-form');
+        expect(pv.lastFeedback!.message).not.toMatch(/equivalent|correct|right value/i);
+        expect(pv.state).toBe('open');
+        expect(() => D.finishDay(ctx, pid, 'U9L06')).toThrow(/Answer every question/);
+        // a wrong answer written in the requested form is saved (change one number of the key)
+        for (let k = 1; k < 10 && pv.lastResponse === undefined; k++) {
+          v = D.daySubmit(ctx, pid, 'U9L06', p.key, right.replace(/\d+/, (n) => String(Number(n) + k)), 30_000);
+          pv = v.practice!.problems.find((x) => x.key === p.key)!;
+        }
+      }
     }
     expect(v.practice!.problems.every((p) => p.lastResponse !== undefined), v.practice!.problems.filter((p) => p.lastResponse === undefined).map((p) => p.answerKind).join()).toBe(true);
     v = D.finishDay(ctx, pid, 'U9L06');

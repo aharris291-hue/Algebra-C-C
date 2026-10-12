@@ -10,7 +10,7 @@ import { Rational } from '../../core/math/rational';
 import { linearPlain, linearTex } from '../../core/math/format';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
-import { Q, p, math, makeProblem, numberMisconceptions, numStr, sub, makeChoice, choiceLabel, texToExpr } from './util';
+import { Q, p, math, makeProblem, numberMisconceptions, stringMisconceptions, numStr, sub, makeChoice, choiceLabel, texToExpr } from './util';
 import { numStep, choiceStep, finalStep, stepErrors, choiceMisc, minusHint } from './u1-steps';
 
 /** Step: read the first term. */
@@ -161,10 +161,11 @@ function seqContextProblem(rng: Rng, difficulty: Difficulty): Problem {
     { text: 'Identify the first term and the common difference.', tex: `a_1 = ${a1.toTex()}, \\quad d = ${d.toTex()}`, why: `The story starts at ${a1.toTex()} ${ctx.unit} and adds ${d.toTex()} each time, so the values form an arithmetic sequence.` },
     { text: 'Write the explicit formula.', tex: `a_n = ${a1.toTex()} + (n - 1)(${d.toTex()}) = ${explicitTex(a1, d)}`, why: `To reach term $n$ from term 1 you add $d$ exactly $n - 1$ times.` },
   ];
-  const ctxFormulaMisc = [
+  // (when a1 = d both mistakes give the same formula: keep only the first, so each one's feedback can show)
+  const ctxFormulaMisc = stringMisconceptions(formula, [
     { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $n = 1$: your formula should give the first value. Use $(n - 1)d$, not $nd$.' },
     { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The amount added each time multiplies $(n - 1)$; the first value is added on.' },
-  ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula))));
+  ]);
   if (difficulty === 2) {
     return makeProblem({
       skillId: 'S1.12',
@@ -338,11 +339,12 @@ export const genSeqExplicit: GeneratorDef = {
     if (task === 'formula') {
       const formula = explicitPlain(a1, d);
       const wrong = (expr: string, tag: Misconception['tag'], feedback: string) => ({ answer: expr, tag, feedback });
-      const formulaMisc = [
+      // distinct from the key and from each other (when a1 = d two mistakes give the same formula)
+      const formulaMisc = stringMisconceptions(formula, [
         wrong(linearPlain(d, a1, 'n'), 'sequence-index', 'Check $n = 1$: your formula should give the first term. Use $(n - 1)d$, not $nd$.'),
         wrong(linearPlain(a1, d, 'n'), 'formula-error', 'The common difference multiplies $(n - 1)$; the first term is added on.'),
         wrong(linearPlain(d.neg(), a1.add(d), 'n'), 'sign-error', 'Check the sign of the common difference.'),
-      ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula))));
+      ]);
       return makeProblem({
         skillId: 'S1.12',
         tags: [],
@@ -810,10 +812,10 @@ export const genSeqAsFunction: GeneratorDef = {
           { text: 'Find the value at $n = 0$.', tex: `b = ${a1.toTex()} - ${sub(d)} = ${a1.sub(d).toTex()}`, why: 'Going back one step from the first term gives the "zeroth" term, which is the $y$-intercept of the line through the dots.' },
           { text: 'Write the function.', tex: `f(n) = ${explicitTex(a1, d)}`, why: 'Check: $f(1)$ gives the first term.' },
         ],
-        misconceptions: [
+        misconceptions: stringMisconceptions(formula, [
           { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $f(1)$: it should equal the first term. The constant is one step **before** the first term.' },
           { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The slope is the common difference, not the first term.' },
-        ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula)))),
+        ]),
         steps: [
           diffStep('What is the common difference? It is the slope $m$.', d, a1),
           numStep(
@@ -831,10 +833,10 @@ export const genSeqAsFunction: GeneratorDef = {
             { kind: 'expression', value: formula, variables: ['n'], form: 'expanded' },
             ['Use your slope $m$ and your $b$.', 'Put the slope in front of $n$.', 'Add $b$, keeping its sign.', 'Check: $f(1)$ should equal the first term.'],
             'A line with slope $d$ that passes through the value at $n = 0$ hits every term of the sequence.',
-            [
+            stringMisconceptions(formula, [
               { answer: linearPlain(d, a1, 'n'), tag: 'sequence-index' as const, feedback: 'Check $f(1)$: it should equal the first term. The constant is one step **before** the first term.' },
               { answer: linearPlain(a1, d, 'n'), tag: 'formula-error' as const, feedback: 'The slope is the common difference, not the first term.' },
-            ].filter((mc) => !toPoly(parseExpression(mc.answer)).equals(toPoly(parseExpression(formula)))),
+            ]),
             'Type the rule in n, like 4n - 1.',
           ),
         ],

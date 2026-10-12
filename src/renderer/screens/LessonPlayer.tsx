@@ -75,8 +75,8 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
   const done = view.status === 'completed' || view.status === 'tested_out';
 
   const actions = {
-    submit: async (key: string, response: string, elapsed: number) => {
-      await run(() => api.submitAnswer(profileId, lessonId, key, response, elapsed));
+    submit: async (key: string, response: string, elapsed: number, stepIndex?: number) => {
+      await run(() => api.submitAnswer(profileId, lessonId, key, response, elapsed, stepIndex));
     },
     hint: async (key: string) => {
       await run(() => api.requestHint(profileId, lessonId, key));

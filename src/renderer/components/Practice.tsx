@@ -12,8 +12,8 @@ export function PracticePanel(props: {
   const { practice, actions, busy } = props;
   const cur = practice.problems[practice.currentIndex];
   const deferred = practice.deferredFeedback;
-  const answered = practice.problems.filter((p) => p.lastResponse !== undefined && p.lastResponse !== '').length;
-  const allAnswered = deferred && practice.problems.every((p) => p.lastResponse !== undefined && p.lastResponse !== '');
+  const answered = practice.problems.filter((p) => p.saved).length;
+  const allAnswered = deferred && practice.problems.every((p) => p.saved);
   const curDone = cur && cur.state !== 'open';
   const isLast = practice.currentIndex >= practice.problems.length - 1;
 
@@ -22,7 +22,7 @@ export function PracticePanel(props: {
       {props.intro && <p className="practice-intro">{props.intro}</p>}
       <nav className="problem-dots" aria-label="Problems">
         {practice.problems.map((p, i) => {
-          const status = deferred ? (p.lastResponse ? 'answered' : 'open') : p.state;
+          const status = deferred ? (p.saved ? 'answered' : 'open') : p.state;
           const canGo = deferred || i <= practice.currentIndex;
           return (
             <button

@@ -28,6 +28,13 @@ export const XP_POLICY = {
   skillProficient: 20,
   skillMastered: 40,
   dailyGoalMet: 20,
+  /**
+   * Most XP that remediation and correction answers can earn per lesson or review/assessment day.
+   * Kept below the pass bonuses (quiz pass 25 + lesson complete 50; assessment pass 100), and
+   * retakes pay answer XP only for improving on the best earlier attempt, so deliberately failing
+   * and retaking can never earn more than passing.
+   */
+  supportPracticeXpCap: 60,
   weeklyGoalMet: 75,
 };
 

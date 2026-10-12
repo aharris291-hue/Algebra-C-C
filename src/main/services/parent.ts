@@ -1,6 +1,6 @@
 /** Parent PIN (spec §24, §26): PBKDF2-SHA256, lockout after repeated failures, recovery code reset. */
 import crypto from 'node:crypto';
-import { ServiceContext, UserFacingError } from './context';
+import { ServiceContext, UserFacingError, saveNow } from './context';
 
 const ITERATIONS = 150_000;
 const MAX_FAILS = 5;
@@ -60,7 +60,7 @@ export function setupParent(ctx: ServiceContext, pin: string): { recoveryCode: s
     ctx.now(),
     ctx.now(),
   ]);
-  ctx.db.flushNow();
+  saveNow(ctx);
   ctx.log.info('parent', 'parent PIN created');
   return { recoveryCode: code };
 }
@@ -90,12 +90,15 @@ export function requireParent(ctx: ServiceContext, pin: string): void {
 
 export function changePin(ctx: ServiceContext, current: string, next: string): { ok: boolean; message?: string } {
   const v = verifyPin(ctx, current);
-  if (!v.ok) return { ok: false, message: 'The current PIN is not correct.' };
+  if (!v.ok) {
+    if (v.lockedForSeconds) return { ok: false, message: `Parent Mode is locked for ${v.lockedForSeconds} seconds after too many tries. Please wait and try again.` };
+    return { ok: false, message: 'The current PIN is not correct.' };
+  }
   const err = validatePinFormat(next);
   if (err) return { ok: false, message: err };
   const salt = crypto.randomBytes(16).toString('hex');
   ctx.db.run('UPDATE parent SET pin_hash = ?, pin_salt = ?, pin_iterations = ?, updated_at = ? WHERE id = 1', [hash(next, salt), salt, ITERATIONS, ctx.now()]);
-  ctx.db.flushNow();
+  saveNow(ctx);
   return { ok: true };
 }
 
@@ -121,7 +124,7 @@ export function resetPin(ctx: ServiceContext, recoveryCode: string, next: string
     rsalt,
     ctx.now(),
   ]);
-  ctx.db.flushNow();
+  saveNow(ctx);
   ctx.log.info('parent', 'parent PIN reset with recovery code');
   return { ok: true, recoveryCode: code };
 }

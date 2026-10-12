@@ -11,6 +11,20 @@ describe('IPC argument validation', () => {
     expect(validateArgs('teachMeAgain', [1, 'U1L01', null])).toBeNull();
     expect(validateArgs('heartbeat', [1, null, 'quiz', 15])).toBeNull();
   });
+  it('submit calls accept an optional trailing guided-step index (bug A8)', () => {
+    for (const [m, head] of [
+      ['submitAnswer', [1, 'U1L01', 'k', '3', 1000]],
+      ['daySubmit', [1, 'U1D10', 'k', '3', 1000]],
+      ['diagnosticReviewSubmit', [1, 'k', '3', 1000]],
+    ] as Array<[string, unknown[]]>) {
+      expect(validateArgs(m, head), m).toBeNull();
+      expect(validateArgs(m, [...head, 2]), m).toBeNull();
+      expect(validateArgs(m, [...head, null]), m).toBeNull(); // undefined sent over JSON
+      expect(validateArgs(m, [...head, 1.5]), m).not.toBeNull();
+      expect(validateArgs(m, [...head, '2']), m).not.toBeNull();
+      expect(validateArgs(m, [...head, 2, 3]), m).not.toBeNull();
+    }
+  });
   it('rejects wrong types, extra arguments and unknown methods', () => {
     expect(validateArgs('getCourse', ['1'])).not.toBeNull();
     expect(validateArgs('getCourse', [1.5])).not.toBeNull();

@@ -1,5 +1,5 @@
 /** Student profiles, per-profile settings, onboarding state and parent goals (spec §23, §39). */
-import { ServiceContext, UserFacingError } from './context';
+import { ServiceContext, UserFacingError, saveNow } from './context';
 import { DEFAULT_SETTINGS, OnboardingState, ProfileSummary, Settings } from '../../shared/api';
 import { totalXp } from './records';
 import { levelForXp } from '../../core/engine/xp';
@@ -68,25 +68,42 @@ export function validateName(name: string): string {
   return n;
 }
 
+/** Active (not archived) students must have distinct names so nobody picks the wrong profile. */
+function assertNameFree(ctx: ServiceContext, name: string, exceptId: number | null, unarchiving = false): void {
+  const clash = ctx.db
+    .all<{ id: number; display_name: string }>('SELECT id, display_name FROM profiles WHERE archived = 0')
+    .some((r) => r.id !== exceptId && r.display_name.toLocaleLowerCase() === name.toLocaleLowerCase());
+  if (!clash) return;
+  if (unarchiving) throw new UserFacingError(`Another active student is already named "${name}". Rename one of them before restoring this profile.`);
+  throw new UserFacingError('A student with that name already exists. Choose a different name.');
+}
+
 export function createProfile(ctx: ServiceContext, name: string, avatar: string): ProfileSummary {
   const n = validateName(name);
-  if (ctx.db.get('SELECT id FROM profiles WHERE lower(display_name) = lower(?) AND archived = 0', [n])) throw new UserFacingError('A student with that name already exists.');
+  assertNameFree(ctx, n, null);
   const av = AVATARS.includes(avatar) ? avatar : AVATARS[0];
   const id = ctx.db.transaction(() => {
     const pid = ctx.db.insert('INSERT INTO profiles(display_name, avatar, created_at, settings_json, onboarding_json) VALUES (?,?,?,?,?)', [n, av, ctx.now(), JSON.stringify(DEFAULT_SETTINGS), JSON.stringify({ diagnostic: 'offered' })]);
     ctx.db.run('INSERT INTO goals(profile_id, weekly_lessons, daily_minutes, updated_at) VALUES (?, 5, 30, ?)', [pid, ctx.now()]);
     return pid;
   });
-  ctx.db.flushNow();
+  saveNow(ctx);
   ctx.log.info('profiles', `profile ${id} created`);
   return getProfile(ctx, id);
 }
 
 export function updateProfile(ctx: ServiceContext, id: number, changes: { displayName?: string; avatar?: string; archived?: boolean }): ProfileSummary {
-  requireProfile(ctx, id);
-  if (changes.displayName !== undefined) ctx.db.run('UPDATE profiles SET display_name = ? WHERE id = ?', [validateName(changes.displayName), id]);
-  if (changes.avatar !== undefined && AVATARS.includes(changes.avatar)) ctx.db.run('UPDATE profiles SET avatar = ? WHERE id = ?', [changes.avatar, id]);
-  if (changes.archived !== undefined) ctx.db.run('UPDATE profiles SET archived = ? WHERE id = ?', [changes.archived ? 1 : 0, id]);
+  const cur = requireProfile(ctx, id);
+  const name = changes.displayName !== undefined ? validateName(changes.displayName) : cur.display_name;
+  const archived = changes.archived !== undefined ? changes.archived : !!cur.archived;
+  // the profile will be active with this name: no other active student may already use it
+  // (covers renaming, and unarchiving after another student was created with the same name)
+  if (!archived && (name !== cur.display_name || !!cur.archived)) assertNameFree(ctx, name, id, !!cur.archived);
+  ctx.db.transaction(() => {
+    if (changes.displayName !== undefined) ctx.db.run('UPDATE profiles SET display_name = ? WHERE id = ?', [name, id]);
+    if (changes.avatar !== undefined && AVATARS.includes(changes.avatar)) ctx.db.run('UPDATE profiles SET avatar = ? WHERE id = ?', [changes.avatar, id]);
+    if (changes.archived !== undefined) ctx.db.run('UPDATE profiles SET archived = ? WHERE id = ?', [changes.archived ? 1 : 0, id]);
+  });
   return getProfile(ctx, id);
 }
 

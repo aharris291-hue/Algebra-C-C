@@ -3,7 +3,7 @@
  * Parent PIN here, in the main process, on every call.
  */
 import type { AcademyApi, AnswerKind, SectionId } from '../../shared/api';
-import { ServiceContext } from './context';
+import { ServiceContext, persistWarning, PERSIST_WARNING } from './context';
 import * as parent from './parent';
 import * as profiles from './profiles';
 import * as lessons from './lessons';
@@ -16,7 +16,7 @@ import { addStudyTime } from './records';
 
 export function createApi(ctx: ServiceContext): AcademyApi {
   const guard = (pin: string) => parent.requireParent(ctx, pin);
-  return {
+  const api: AcademyApi = {
     async getStatus() {
       return {
         firstRun: !parent.hasParent(ctx),
@@ -24,7 +24,7 @@ export function createApi(ctx: ServiceContext): AcademyApi {
         dataDir: ctx.dataDir,
         recoveredFrom: ctx.recoveredFrom,
         migratedFrom: ctx.migratedFrom,
-        persistError: ctx.db.lastPersistError?.message,
+        persistError: persistWarning(ctx),
       };
     },
     async setupParent(pin) {
@@ -80,8 +80,8 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async startDiagnosticReview(id) {
       return diagnostic.startDiagnosticReview(ctx, id);
     },
-    async diagnosticReviewSubmit(id, key, response, elapsed) {
-      return diagnostic.diagnosticReviewSubmit(ctx, id, key, response, elapsed);
+    async diagnosticReviewSubmit(id, key, response, elapsed, stepIndex) {
+      return diagnostic.diagnosticReviewSubmit(ctx, id, key, response, elapsed, stepIndex ?? undefined);
     },
     async diagnosticReviewHint(id, key) {
       return diagnostic.diagnosticReviewHint(ctx, id, key);
@@ -119,8 +119,8 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async selectProblem(id, lessonId, index) {
       return lessons.selectProblem(ctx, id, lessonId, index);
     },
-    async submitAnswer(id, lessonId, key, response, elapsedMs) {
-      return lessons.submitAnswer(ctx, id, lessonId, key, response, elapsedMs);
+    async submitAnswer(id, lessonId, key, response, elapsedMs, stepIndex) {
+      return lessons.submitAnswer(ctx, id, lessonId, key, response, elapsedMs, stepIndex ?? undefined);
     },
     async requestHint(id, lessonId, key) {
       return lessons.requestHint(ctx, id, lessonId, key);
@@ -152,8 +152,8 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async startDay(id, lessonId) {
       return days.startDay(ctx, id, lessonId);
     },
-    async daySubmit(id, lessonId, key, response, elapsed) {
-      return days.daySubmit(ctx, id, lessonId, key, response, elapsed);
+    async daySubmit(id, lessonId, key, response, elapsed, stepIndex) {
+      return days.daySubmit(ctx, id, lessonId, key, response, elapsed, stepIndex ?? undefined);
     },
     async dayHint(id, lessonId, key) {
       return days.dayHint(ctx, id, lessonId, key);
@@ -224,5 +224,19 @@ export function createApi(ctx: ServiceContext): AcademyApi {
       return backup.restoreBackup(ctx, data);
     },
   };
+  // The daily automatic backup is checked on every call (and after every save), not only at
+  // startup, so an app left open for days still gets one backup per day.
+  ctx.db.onSaved = () => backup.ensureDailyAutoBackup(ctx);
+  const wrapped = Object.fromEntries(
+    Object.entries(api).map(([name, fn]) => [
+      name,
+      (...args: unknown[]) => {
+        backup.ensureDailyAutoBackup(ctx);
+        return (fn as (...a: unknown[]) => Promise<unknown>)(...args);
+      },
+    ]),
+  ) as unknown as AcademyApi;
+  // lets dispatch() add a save warning to every call result (not an API method)
+  Object.defineProperty(wrapped, PERSIST_WARNING, { value: () => persistWarning(ctx), enumerable: false });
+  return wrapped;
 }
-

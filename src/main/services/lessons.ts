@@ -6,10 +6,11 @@ import crypto from 'node:crypto';
 import type { LessonContent, LessonMeta, ProblemRef } from '../../core/curriculum/types';
 import { LESSON_CONTENT, LESSON_BY_ID, LESSONS, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, generatorsForSkill, GENERATORS, CAPSTONE_CONTENT } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
+import { MAX_UNIT_ASSESSMENT_ATTEMPTS } from '../../core/engine/grading';
 import { isStruggling, STAGE_ORDER } from '../../core/engine/mastery';
 import type { LessonView, ResultsView, SectionId, TeachAgainView, CourseUnit, CourseLesson, LessonStatus, SkillChange, OnboardingState } from '../../shared/api';
 import { LESSON_SECTIONS } from '../../shared/api';
-import { ServiceContext, UserFacingError, today } from './context';
+import { ServiceContext, UserFacingError, today, saveNow } from './context';
 import { requireProfile } from './profiles';
 import {
   PracticeState,
@@ -52,6 +53,18 @@ export interface LessonState {
   teachAgainUsed: string[];
   xp: number;
   testOutResult: { passed: boolean; percent: number } | null;
+  /** when independent practice was completed (counts toward the practice-completion grade from then on) */
+  practiceCompletedAt?: number | null;
+  /** active time spent in the quiz in progress: gaps between actions, each capped (see ACTIVE_GAP_CAP_MS) */
+  quizActiveMs?: number;
+  quizLastActionAt?: number | null;
+  /**
+   * Quiz attempts that count toward unlocking the next lesson ("two honest attempts").
+   * Missing in states saved by older versions: then every attempt counts, so no one is stranded.
+   */
+  honestAttempts?: number;
+  /** set by retakeQuiz: whether the targeted practice before this retake had a problem the student solved */
+  retakeHonest?: boolean;
 }
 
 interface ProgressRow {
@@ -64,6 +77,69 @@ interface ProgressRow {
 }
 
 export const TEST_OUT_PASS = 0.85;
+/**
+ * Timed activities (quizzes, assessments) record active time, not wall-clock time: each gap
+ * between two actions counts up to this much, and a gap that runs backwards (the clock was
+ * changed) counts as zero. Closing the app overnight mid-quiz therefore adds at most a few minutes.
+ */
+export const ACTIVE_GAP_CAP_MS = 10 * 60_000;
+
+/** Add the time since the last action (capped, never negative) to an active-time counter. */
+export function tickActive(activeMs: number | undefined, lastAt: number | null | undefined, now: number): { activeMs: number; lastAt: number } {
+  const gap = lastAt === null || lastAt === undefined ? 0 : Math.min(ACTIVE_GAP_CAP_MS, Math.max(0, now - lastAt));
+  return { activeMs: Math.max(0, activeMs ?? 0) + gap, lastAt: now };
+}
+
+/**
+ * Write the database to disk right away (assessment results must survive a crash). saveNow never
+ * throws: on a disk error the result stays in memory, a retry is scheduled and the UI is warned.
+ */
+export function flushImmediately(ctx: ServiceContext): void {
+  saveNow(ctx);
+}
+
+/**
+ * Support-practice XP (remediation and corrections answers) is capped per lesson/day so repeating
+ * fail -> remediate -> retake cycles can never earn more than passing (see XP_POLICY.supportPracticeXpCap).
+ * Call after the answer was recorded; trims the XP just awarded beyond the cap. Returns the XP removed.
+ */
+export function capSupportXp(ctx: ServiceContext, profileId: number, ref: string, priorTotal: number, sinceXpId: number): number {
+  const reasons = ['answer:remediation', 'answer:corrections'];
+  const after = supportXp(ctx, profileId, ref);
+  const allowed = Math.max(0, XP_POLICY.supportPracticeXpCap - priorTotal);
+  let excess = after - priorTotal - allowed;
+  if (excess <= 0) return 0;
+  const removed = excess;
+  const rows = ctx.db.all<{ id: number; amount: number }>(
+    `SELECT id, amount FROM xp_events WHERE profile_id = ? AND ref = ? AND id > ? AND reason IN (${reasons.map(() => '?').join(',')}) ORDER BY id DESC`,
+    [profileId, ref, sinceXpId, ...reasons],
+  );
+  for (const r of rows) {
+    if (excess <= 0) break;
+    const cut = Math.min(excess, r.amount);
+    if (cut === r.amount) ctx.db.run('DELETE FROM xp_events WHERE id = ?', [r.id]);
+    else ctx.db.run('UPDATE xp_events SET amount = ? WHERE id = ?', [r.amount - cut, r.id]);
+    excess -= cut;
+  }
+  // keep the attempt row's XP in step with the ledger
+  const att = ctx.db.get<{ id: number; xp: number }>('SELECT id, xp FROM attempts WHERE profile_id = ? ORDER BY id DESC LIMIT 1', [profileId]);
+  if (att) ctx.db.run('UPDATE attempts SET xp = ? WHERE id = ?', [Math.max(0, Number(att.xp) - removed), att.id]);
+  return removed;
+}
+
+export function supportXp(ctx: ServiceContext, profileId: number, ref: string): number {
+  return Number(ctx.db.get<{ s: number }>("SELECT COALESCE(SUM(amount), 0) AS s FROM xp_events WHERE profile_id = ? AND ref = ? AND reason IN ('answer:remediation','answer:corrections')", [profileId, ref])!.s);
+}
+
+export function lastXpId(ctx: ServiceContext, profileId: number): number {
+  return Number(ctx.db.get<{ m: number | null }>('SELECT MAX(id) AS m FROM xp_events WHERE profile_id = ?', [profileId])!.m ?? 0);
+}
+
+/** XP for a graded attempt's answers: only the improvement over the best earlier attempt is paid. */
+export function answerXpImprovement(ctx: ServiceContext, profileId: number, reason: string, ref: string, attemptXp: number): number {
+  const already = Number(ctx.db.get<{ s: number }>('SELECT COALESCE(SUM(amount), 0) AS s FROM xp_events WHERE profile_id = ? AND reason = ? AND ref = ?', [profileId, reason, ref])!.s);
+  return Math.max(0, Math.round(attemptXp) - already);
+}
 
 export function lessonMeta(id: string): LessonMeta {
   const m = LESSON_BY_ID.get(id);
@@ -138,17 +214,33 @@ function save(ctx: ServiceContext, profileId: number, lessonId: string, st: Less
 // Availability / course map
 // ---------------------------------------------------------------------------
 
-export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<string, { status: LessonStatus; quizBest: number | null; quizAttempts: number }> {
+export interface LessonStatusInfo {
+  status: LessonStatus;
+  quizBest: number | null;
+  quizAttempts: number;
+  /** attempts that count toward unlocking the next day ("two honest attempts") */
+  unlockAttempts: number;
+  /** a Show What You Know was already finished for this lesson */
+  testOutTried: boolean;
+}
+
+export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<string, LessonStatusInfo> {
   const rows = ctx.db.all<{ lesson_id: string; status: string; quiz_best: number | null; state_json: string }>('SELECT lesson_id, status, quiz_best, state_json FROM lesson_progress WHERE profile_id = ?', [profileId]);
   const byId = new Map(rows.map((r) => [r.lesson_id, r]));
-  const out = new Map<string, { status: LessonStatus; quizBest: number | null; quizAttempts: number }>();
+  const out = new Map<string, LessonStatusInfo>();
   let prevUnlocks = true; // first lesson is available
   for (const l of LESSONS) {
     const r = byId.get(l.id);
     let attempts = 0;
+    let unlockAttempts = 0;
+    let testOutTried = false;
     if (r) {
       try {
-        attempts = (JSON.parse(r.state_json) as LessonState).quizAttempts ?? 0;
+        const js = JSON.parse(r.state_json) as Partial<LessonState>;
+        attempts = js.quizAttempts ?? 0;
+        // states from older versions (and review/assessment days) have no honest count: every attempt counts
+        unlockAttempts = typeof js.honestAttempts === 'number' ? js.honestAttempts : attempts;
+        testOutTried = !!js.testOutResult;
       } catch {
         attempts = 0;
       }
@@ -159,9 +251,9 @@ export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<stri
     else if (r) status = 'in_progress';
     else if (!prevUnlocks) status = 'locked';
     else status = hasContent ? 'available' : 'coming_soon';
-    out.set(l.id, { status, quizBest: r?.quiz_best ?? null, quizAttempts: attempts });
+    out.set(l.id, { status, quizBest: r?.quiz_best ?? null, quizAttempts: attempts, unlockAttempts, testOutTried });
     // the next lesson unlocks when this one is finished, or after two honest quiz attempts so a student is never stuck
-    prevUnlocks = status === 'completed' || status === 'tested_out' || attempts >= 2;
+    prevUnlocks = status === 'completed' || status === 'tested_out' || unlockAttempts >= 2;
   }
   return out;
 }
@@ -190,6 +282,7 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
   const suggested = diagnosticTestOuts(requireProfile(ctx, profileId).onboarding_json);
   const st = lessonStatuses(ctx, profileId);
   const states = skillStates(ctx, profileId);
+  const counted = countedAssessmentScores(ctx, profileId);
   const units = new Map<string, CourseUnit>();
   for (const l of LESSONS) {
     const u = UNIT_BY_ID.get(l.unitId)!;
@@ -204,9 +297,16 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
       day: l.day,
       status: s.status,
       hasContent: isLessonPlayable(l),
-      canTestOut: l.kind === 'lesson' && LESSON_CONTENT.has(l.id) && (s.status === 'available' || s.status === 'in_progress' || (s.status === 'locked' && prereqOk)),
+      // exactly the rule startTestOut enforces: before any quiz attempt and before a finished test-out
+      canTestOut:
+        l.kind === 'lesson' &&
+        LESSON_CONTENT.has(l.id) &&
+        s.quizAttempts === 0 &&
+        !s.testOutTried &&
+        (s.status === 'available' || s.status === 'in_progress' || (s.status === 'locked' && prereqOk)),
       suggestedTestOut: suggested.has(l.id) && s.status !== 'completed' && s.status !== 'tested_out' ? true : undefined,
-      quizBest: s.quizBest,
+      // unit/semester assessments show the score that counts toward the grade, not a later practice retake
+      quizBest: l.kind === 'unit-assessment' || l.kind === 'semester-assessment' ? (counted.get(l.id) ?? null) : s.quizBest,
       standards: l.standards,
     };
     const unit = units.get(u.id)!;
@@ -219,6 +319,27 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
     unit.masteryPercent = skills.length ? Math.round((100 * prof) / skills.length) : 0;
   }
   return [...units.values()];
+}
+
+/**
+ * The graded score of each unit/semester assessment, by the same rule as the course grade:
+ * best of the first two attempts for a unit assessment, best attempt for the semester assessment.
+ */
+function countedAssessmentScores(ctx: ServiceContext, profileId: number): Map<string, number> {
+  const rows = ctx.db.all<{ kind: string; ref_id: string; score: number; max_score: number }>(
+    "SELECT kind, ref_id, score, max_score FROM assessments WHERE profile_id = ? AND status = 'completed' AND kind IN ('unit-assessment','semester-assessment') AND max_score > 0 ORDER BY finished_at, id",
+    [profileId],
+  );
+  const seen = new Map<string, number>();
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const n = (seen.get(r.ref_id) ?? 0) + 1;
+    seen.set(r.ref_id, n);
+    if (r.kind === 'unit-assessment' && n > MAX_UNIT_ASSESSMENT_ATTEMPTS) continue;
+    const pct = Math.round((1000 * r.score) / r.max_score) / 10;
+    out.set(r.ref_id, Math.max(out.get(r.ref_id) ?? 0, pct));
+  }
+  return out;
 }
 
 function assertCanOpen(ctx: ServiceContext, profileId: number, lessonId: string): void {
@@ -236,6 +357,7 @@ export function openLesson(ctx: ServiceContext, profileId: number, lessonId: str
   requireProfile(ctx, profileId);
   const meta = lessonMeta(lessonId);
   if (meta.kind !== 'lesson') throw new UserFacingError('Open review and assessment days from the course map.');
+  assertNotDuringAssessment(ctx, profileId);
   const row = loadRow(ctx, profileId, lessonId);
   let st = row ? parseState(row, lessonId, ctx) : null;
   if (!row) assertCanOpen(ctx, profileId, lessonId);
@@ -256,11 +378,28 @@ function withState<T>(ctx: ServiceContext, profileId: number, lessonId: string, 
   if (!row) throw new UserFacingError('Open the lesson first.');
   const st = parseState(row, lessonId, ctx) ?? freshState();
   ctx.db.transaction(() => {
+    // active quiz time: every action while a quiz is open adds the (capped) time since the last one
+    if (st.quiz && !st.results && st.quizStartedAt !== null) {
+      const t = tickActive(st.quizActiveMs, st.quizLastActionAt ?? st.quizStartedAt, ctx.now());
+      st.quizActiveMs = t.activeMs;
+      st.quizLastActionAt = t.lastAt;
+    }
     fn(st, meta, content);
+    markPracticeComplete(ctx, profileId, lessonId, st);
     save(ctx, profileId, lessonId, st);
   });
   return buildView(ctx, profileId, lessonId, st);
 }
+
+/** Independent practice counts toward the practice-completion grade as soon as it is complete. */
+function markPracticeComplete(ctx: ServiceContext, profileId: number, lessonId: string, st: LessonState): void {
+  if (!st.independent?.complete || st.practiceCompletedAt) return;
+  st.practiceCompletedAt = ctx.now();
+  ctx.db.run('UPDATE lesson_progress SET practice_complete = 1 WHERE profile_id = ? AND lesson_id = ?', [profileId, lessonId]);
+}
+
+/** Sections whose completion is real practice work and so counts toward the daily streak (the quiz counts in finishQuiz). */
+const STREAK_SECTIONS: SectionId[] = ['guided', 'independent'];
 
 function ensurePractice(ctx: ServiceContext, profileId: number, st: LessonState, meta: LessonMeta, content: LessonContent, section: SectionId): void {
   if (section === 'guided' && !st.guided) {
@@ -291,8 +430,44 @@ function startQuiz(ctx: ServiceContext, st: LessonState, content: LessonContent,
   addItems(ctx, ps, items);
   st.quiz = ps;
   st.quizStartedAt = ctx.now();
+  st.quizActiveMs = 0;
+  st.quizLastActionAt = st.quizStartedAt;
   // results from an earlier attempt (e.g. a Show What You Know try) belong to that attempt
   st.results = null;
+}
+
+/**
+ * A quiz or Show What You Know is in progress from the moment its questions are shown until it is
+ * graded. Meanwhile the lesson is closed-book: its pages, worked examples and Teach Me Again are
+ * not served (the renderer hides them too), so a quiz never turns into an open-book quiz.
+ */
+export function quizInProgress(st: LessonState): boolean {
+  return st.section === 'quiz' && !!st.quiz && !st.results;
+}
+
+/**
+ * A unit or semester assessment whose questions have been shown and that is not graded yet (the
+ * same meaning of "in progress" as for a quiz). While one is, lessons are closed: they would make
+ * it open-book (worked examples, Teach Me Again). The assessment is saved where the student left it.
+ */
+export function assessmentInProgress(ctx: ServiceContext, profileId: number): LessonMeta | null {
+  const rows = ctx.db.all<{ lesson_id: string; state_json: string }>("SELECT lesson_id, state_json FROM lesson_progress WHERE profile_id = ? AND section = 'practice'", [profileId]);
+  for (const r of rows) {
+    const meta = LESSON_BY_ID.get(r.lesson_id);
+    if (!meta || (meta.kind !== 'unit-assessment' && meta.kind !== 'semester-assessment')) continue;
+    try {
+      const js = JSON.parse(r.state_json) as { phase?: string; practice?: unknown };
+      if (js.phase === 'practice' && js.practice) return meta;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function assertNotDuringAssessment(ctx: ServiceContext, profileId: number): void {
+  const a = assessmentInProgress(ctx, profileId);
+  if (a) throw new UserFacingError(`Finish the ${a.title} first. It is saved where you left off; lessons and Teach Me Again open again once it is graded.`);
 }
 
 function sectionComplete(st: LessonState, s: SectionId): boolean {
@@ -334,9 +509,7 @@ export function goToSection(ctx: ServiceContext, profileId: number, lessonId: st
     if (target > furthest) throw new UserFacingError('Finish the current section first.');
     if (st.mode === 'testout' && section !== 'quiz') throw new UserFacingError('Finish the Show What You Know quiz first.');
     // A quiz in progress can't be left to look at the lesson (it would turn into an open-book quiz).
-    if (st.section === 'quiz' && !st.results && section !== 'quiz' && st.quiz && st.quiz.items.some((i) => i.state === 'answered')) {
-      throw new UserFacingError('Finish the quiz before going back to the lesson.');
-    }
+    if (quizInProgress(st) && section !== 'quiz') throw new UserFacingError('Finish the quiz before going back to the lesson.');
     st.section = section;
     ensurePractice(ctx, profileId, st, meta, content, section);
   });
@@ -348,7 +521,8 @@ export function advanceSection(ctx: ServiceContext, profileId: number, lessonId:
     if (!sectionComplete(st, cur)) throw new UserFacingError(blockedReason(st, cur) ?? 'Finish this section first.');
     if (!st.sectionsDone.includes(cur)) {
       st.sectionsDone.push(cur);
-      bumpDay(ctx, profileId, { sections: 1 });
+      // reading pages (goal, instruction, examples...) does not make a streak day; practice does
+      if (STREAK_SECTIONS.includes(cur)) bumpDay(ctx, profileId, { sections: 1 });
     }
     const idx = LESSON_SECTIONS.indexOf(cur);
     if (cur === 'summary') {
@@ -383,7 +557,7 @@ function activePractice(st: LessonState, key: string): PracticeState {
   return ps;
 }
 
-export function submitAnswer(ctx: ServiceContext, profileId: number, lessonId: string, key: string, response: string, elapsedMs: number): LessonView {
+export function submitAnswer(ctx: ServiceContext, profileId: number, lessonId: string, key: string, response: string, elapsedMs: number, stepIndex?: number): LessonView {
   if (typeof response !== 'string' || response.length > 300) throw new UserFacingError('That answer is too long.');
   return withState(ctx, profileId, lessonId, (st) => {
     const ps = activePractice(st, key);
@@ -392,7 +566,18 @@ export function submitAnswer(ctx: ServiceContext, profileId: number, lessonId: s
       submitDeferred(ps, key, response);
       return;
     }
-    const out = submitImmediate(ctx, profileId, lessonId, ps, key, response, elapsedMs);
+    const support = ps.activity === 'remediation' || ps.activity === 'corrections';
+    const prior = support ? supportXp(ctx, profileId, lessonId) : 0;
+    const sinceId = support ? lastXpId(ctx, profileId) : 0;
+    const out = submitImmediate(ctx, profileId, lessonId, ps, key, response, elapsedMs, stepIndex);
+    if (support) {
+      const cut = capSupportXp(ctx, profileId, lessonId, prior, sinceId);
+      if (cut) {
+        out.xp = Math.max(0, out.xp - cut);
+        const item = findItem(ps, key);
+        if (item.lastFeedback && typeof item.lastFeedback.xp === 'number') item.lastFeedback.xp = Math.max(0, item.lastFeedback.xp - cut);
+      }
+    }
     st.xp += out.xp;
     if (out.resolved) afterResolved(ctx, profileId, st, ps);
   });
@@ -472,7 +657,7 @@ function currentPractice(st: LessonState): PracticeState | null {
 // ---------------------------------------------------------------------------
 
 export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: string): LessonView {
-  return withState(ctx, profileId, lessonId, (st, meta, content) => {
+  const view = withState(ctx, profileId, lessonId, (st, meta, content) => {
     const ps = st.quiz;
     if (!ps || st.results) throw new UserFacingError('There is no quiz in progress.');
     if (!allAnswered(ps)) {
@@ -489,9 +674,13 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       [profileId, testOut ? 'test-out' : 'quiz', lessonId, attemptNumber, 'in_progress', startedAt, '[]', JSON.stringify(skills), JSON.stringify(meta.standards), JSON.stringify(Object.fromEntries(before)), today(ctx)],
     );
     const graded = gradeDeferred(ctx, profileId, lessonId, ps, assessmentId);
-    let xp = 0;
-    for (const g of graded) xp += g.xp;
-    if (xp) awardXp(ctx, profileId, xp, testOut ? 'answer:testout' : 'answer:quiz', lessonId);
+    let attemptXp = 0;
+    for (const g of graded) attemptXp += g.xp;
+    // a retake pays answer XP only for improving on the best earlier attempt, so failing on purpose
+    // and retaking can never farm XP (the total paid for a lesson's quiz answers = its best attempt)
+    const answerReason = testOut ? 'answer:testout' : 'answer:quiz';
+    let xp = answerXpImprovement(ctx, profileId, answerReason, lessonId, attemptXp);
+    if (xp) awardXp(ctx, profileId, xp, answerReason, lessonId);
     const changes: SkillChange[] = [];
     for (const s of skills) {
       const rc = recomputeSkill(ctx, profileId, s);
@@ -504,6 +693,8 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
     const pass = testOut ? TEST_OUT_PASS : content.mastery.quizPassScore;
     const passed = score / max >= pass - 1e-9;
     const finishedAt = ctx.now();
+    // active time (never negative, overnight gaps excluded), not wall-clock time
+    const activeMs = st.quizActiveMs ?? 0;
     const items = graded.map((g, i) => {
       const p = getProblem(g.s.generatorId, g.s.seed, g.s.difficulty);
       return {
@@ -519,10 +710,11 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
         misconception: g.misconception,
       };
     });
-    ctx.db.run('UPDATE assessments SET status = ?, finished_at = ?, duration_ms = ?, score = ?, max_score = ?, items_json = ?, mastery_after_json = ? WHERE id = ?', [
+    ctx.db.run('UPDATE assessments SET status = ?, finished_at = ?, duration_ms = ?, active_ms = ?, score = ?, max_score = ?, items_json = ?, mastery_after_json = ? WHERE id = ?', [
       'completed',
       finishedAt,
-      finishedAt - startedAt,
+      activeMs,
+      activeMs,
       score,
       max,
       JSON.stringify(items.map((it) => ({ skillId: it.skillId, correct: it.correct, response: it.response, generatorId: graded[it.index].s.generatorId, seed: graded[it.index].s.seed, difficulty: graded[it.index].s.difficulty, misconception: it.misconception ?? null }))),
@@ -554,7 +746,16 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
     } else {
       st.quizAttempts = attemptNumber;
       st.passed = st.passed || passed;
-      ctx.db.run('UPDATE lesson_progress SET quiz_best = MAX(COALESCE(quiz_best, 0), ?), practice_complete = ? WHERE profile_id = ? AND lesson_id = ?', [percent, st.independent?.complete ? 1 : 0, profileId, lessonId]);
+      // "two honest attempts" unlock the next lesson. An attempt is honest when the student scored at
+      // least half, or solved (not just revealed) at least one problem in the practice before it:
+      // hints always lead to a solved problem, so an honest struggling student is never stuck.
+      const practiceBefore = attemptNumber === 1 ? solvedAny(st.guided) || solvedAny(st.independent) : !!st.retakeHonest;
+      const honest = practiceBefore || score / max >= HONEST_QUIZ_SCORE - 1e-9;
+      // a lesson saved by an older version has no honest count: every earlier attempt counted there
+      // (as lessonStatuses reads it), so start from those attempts instead of from zero
+      st.honestAttempts = (typeof st.honestAttempts === 'number' ? st.honestAttempts : attemptNumber - 1) + (honest ? 1 : 0);
+      st.retakeHonest = undefined;
+      ctx.db.run('UPDATE lesson_progress SET quiz_best = MAX(COALESCE(quiz_best, 0), ?) WHERE profile_id = ? AND lesson_id = ?', [percent, profileId, lessonId]);
       if (passed) {
         xp += awardXpOnce(ctx, profileId, XP_POLICY.quizPass, 'quiz-pass', lessonId);
         if (percent >= 90) xp += awardXpOnce(ctx, profileId, XP_POLICY.quizExcellentBonus, 'quiz-excellent', lessonId);
@@ -591,7 +792,7 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       percent,
       passed,
       passPercent: Math.round(pass * 100),
-      durationMs: finishedAt - startedAt,
+      durationMs: activeMs,
       attemptNumber,
       items,
       didWell,
@@ -601,8 +802,19 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       xpEarned: xp,
       canRetake: !testOut && !passed,
     };
+    st.quizLastActionAt = null;
     checkAchievements(ctx, profileId);
   });
+  // ARCHITECTURE.md: assessment results are written to disk immediately, not batched
+  flushImmediately(ctx);
+  return view;
+}
+
+/** Score at which a quiz attempt counts as honest on its own (see finishQuiz). */
+export const HONEST_QUIZ_SCORE = 0.5;
+
+function solvedAny(ps: PracticeState | null | undefined): boolean {
+  return !!ps && ps.items.some((i) => i.state === 'correct');
 }
 
 /** Adaptive remediation (spec §17): targeted easier practice on missed skills, then reassess. */
@@ -638,6 +850,7 @@ export function retakeQuiz(ctx: ServiceContext, profileId: number, lessonId: str
   return withState(ctx, profileId, lessonId, (st, _meta, content) => {
     if (!st.results || st.results.passed) throw new UserFacingError('There is no quiz to retake.');
     if (!st.remediation || !st.remediation.done) throw new UserFacingError('Finish the targeted practice first. It is what makes the retake go better.');
+    st.retakeHonest = solvedAny(st.remediation.practice);
     st.results = null;
     st.corrections = null;
     st.remediation = null;
@@ -650,12 +863,14 @@ export function startTestOut(ctx: ServiceContext, profileId: number, lessonId: s
   requireProfile(ctx, profileId);
   const meta = lessonMeta(lessonId);
   const content = lessonContent(lessonId);
-  const course = getCourse(ctx, profileId).flatMap((u) => u.lessons);
-  const cl = course.find((l) => l.id === lessonId);
-  if (!cl || !cl.canTestOut) throw new UserFacingError('Show What You Know is available once the lesson before this one is finished.');
   const row = loadRow(ctx, profileId, lessonId);
   const existing = row ? parseState(row, lessonId, ctx) : null;
   if (existing && (existing.quizAttempts > 0 || existing.testOutResult)) throw new UserFacingError('You have already started this lesson\'s quiz, so finish the lesson instead.');
+  const course = getCourse(ctx, profileId).flatMap((u) => u.lessons);
+  const cl = course.find((l) => l.id === lessonId);
+  if (!cl || !cl.canTestOut) throw new UserFacingError('Show What You Know is available once the lesson before this one is finished.');
+  // a Show What You Know already under way is resumed, never re-rolled with new questions
+  if (existing && existing.mode === 'testout' && existing.quiz && !existing.results) return buildView(ctx, profileId, lessonId, existing);
   const st = existing ?? freshState();
   st.mode = 'testout';
   st.section = 'quiz';
@@ -677,6 +892,8 @@ export function teachMeAgain(ctx: ServiceContext, profileId: number, lessonId: s
   const content = lessonContent(lessonId);
   const row = loadRow(ctx, profileId, lessonId);
   const st = row ? parseState(row, lessonId, ctx) ?? freshState() : freshState();
+  assertNotDuringAssessment(ctx, profileId);
+  if (quizInProgress(st)) throw new UserFacingError(st.mode === 'testout' ? 'Teach Me Again comes back after Show What You Know. Finish it first.' : 'Teach Me Again comes back after the quiz. Finish the quiz first.');
   let variant = approach ? content.teachMeAgain.find((t) => t.approach === approach) : undefined;
   if (!variant) {
     variant = content.teachMeAgain.find((t) => !st.teachAgainUsed.includes(t.approach)) ?? content.teachMeAgain[st.teachAgainUsed.length % content.teachMeAgain.length];
@@ -699,6 +916,7 @@ export function buildView(ctx: ServiceContext, profileId: number, lessonId: stri
   const row = loadRow(ctx, profileId, lessonId);
   const unit = UNIT_BY_ID.get(meta.unitId)!;
   const ps = currentPractice(st);
+  const closedBook = quizInProgress(st);
   const suggestion = (s: { skillId: string; state: string; attempts: number; hintLevel: number }) =>
     s.state === 'open' && s.attempts >= 2 && !(st.teachAgainUsed.length > 0) ? 'Stuck? Teach Me Again explains this a different way.' : undefined;
   const view: LessonView = {
@@ -716,15 +934,18 @@ export function buildView(ctx: ServiceContext, profileId: number, lessonId: stri
     section: st.section,
     sections: LESSON_SECTIONS,
     sectionsDone: st.sectionsDone,
-    content: {
-      goal: content.goal,
-      needToKnow: content.needToKnow,
-      instruction: content.instruction,
-      examples: content.examples,
-      vocabulary: content.vocabulary ?? [],
-      summary: content.summary,
-    },
-    teachAgainOptions: content.teachMeAgain.map((t) => ({ approach: t.approach, title: t.title, used: st.teachAgainUsed.includes(t.approach) })),
+    // closed-book while a quiz is in progress: only the goal is sent
+    content: closedBook
+      ? { goal: content.goal, needToKnow: [], instruction: [], examples: [], vocabulary: [], summary: [] }
+      : {
+          goal: content.goal,
+          needToKnow: content.needToKnow,
+          instruction: content.instruction,
+          examples: content.examples,
+          vocabulary: content.vocabulary ?? [],
+          summary: content.summary,
+        },
+    teachAgainOptions: closedBook ? [] : content.teachMeAgain.map((t) => ({ approach: t.approach, title: t.title, used: st.teachAgainUsed.includes(t.approach) })),
     practice: ps && ps !== st.corrections && ps !== st.remediation?.practice ? practiceView(ps, suggestion) : null,
     results: st.results,
     corrections: st.corrections ? practiceView(st.corrections) : null,

@@ -92,12 +92,20 @@ export interface DiagnosticView {
   canReview: boolean;
 }
 
+/**
+ * Every call result carries `saveError` (a friendly message) while the latest changes could not
+ * be written to disk. The renderer's API client re-announces it as this window event with
+ * detail `{ saveError?: string }` (undefined once saving works again); App shows the banner.
+ */
+export const SAVE_STATUS_EVENT = 'academy:save-status';
+
 export interface AppStatus {
   firstRun: boolean; // no parent PIN yet
   version: string;
   dataDir: string;
   recoveredFrom?: string;
   migratedFrom?: number;
+  /** friendly warning while the latest changes are not on disk; absent when everything is saved */
   persistError?: string;
 }
 
@@ -135,7 +143,16 @@ export interface ProblemView {
   attempts: number;
   state: 'open' | 'correct' | 'revealed' | 'incorrect-final';
   lastFeedback?: FeedbackView;
+  /** the answer that was saved (deferred sets) or last checked (immediate feedback) */
   lastResponse?: string;
+  /**
+   * deferred sets (quiz, assessment, test-out, diagnostic): an answer is saved (or scored). An
+   * unreadable or wrong-form answer is never saved, so its message must show even when its text
+   * matches nothing saved.
+   */
+  saved?: boolean;
+  /** deferred sets: the text of the last refused answer, put back in the answer box with its message */
+  draft?: string;
   /** only once the problem is finished (correct, revealed or graded) */
   solution?: SolutionStep[];
   correctAnswer?: string;
@@ -419,7 +436,7 @@ export interface AcademyApi {
   /** "I haven't learned this yet": no answer is recorded, the skill is marked not learned */
   diagnosticNotLearned(profileId: number, problemKey: string): Promise<DiagnosticView>;
   startDiagnosticReview(profileId: number): Promise<DiagnosticView>;
-  diagnosticReviewSubmit(profileId: number, problemKey: string, response: string, elapsedMs: number): Promise<DiagnosticView>;
+  diagnosticReviewSubmit(profileId: number, problemKey: string, response: string, elapsedMs: number, stepIndex?: number): Promise<DiagnosticView>;
   diagnosticReviewHint(profileId: number, problemKey: string): Promise<DiagnosticView>;
   diagnosticReviewReveal(profileId: number, problemKey: string): Promise<DiagnosticView>;
   diagnosticReviewNext(profileId: number): Promise<DiagnosticView>;
@@ -433,7 +450,7 @@ export interface AcademyApi {
   goToSection(profileId: number, lessonId: string, section: SectionId): Promise<LessonView>;
   advanceSection(profileId: number, lessonId: string): Promise<LessonView>;
   selectProblem(profileId: number, lessonId: string, index: number): Promise<LessonView>;
-  submitAnswer(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number): Promise<LessonView>;
+  submitAnswer(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number, stepIndex?: number): Promise<LessonView>;
   requestHint(profileId: number, lessonId: string, problemKey: string): Promise<LessonView>;
   revealSolution(profileId: number, lessonId: string, problemKey: string): Promise<LessonView>;
   nextProblem(profileId: number, lessonId: string): Promise<LessonView>;
@@ -444,7 +461,7 @@ export interface AcademyApi {
   teachMeAgain(profileId: number, lessonId: string, approach?: string): Promise<TeachAgainView>;
   openDay(profileId: number, lessonId: string): Promise<DayView>;
   startDay(profileId: number, lessonId: string): Promise<DayView>;
-  daySubmit(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number): Promise<DayView>;
+  daySubmit(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number, stepIndex?: number): Promise<DayView>;
   dayHint(profileId: number, lessonId: string, problemKey: string): Promise<DayView>;
   dayReveal(profileId: number, lessonId: string, problemKey: string): Promise<DayView>;
   dayNext(profileId: number, lessonId: string): Promise<DayView>;

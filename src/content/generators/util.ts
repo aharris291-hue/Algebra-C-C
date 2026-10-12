@@ -1,9 +1,9 @@
 /** Shared helpers for problem generators. */
 import { Rational } from '../../core/math/rational';
 import type { Misconception, MisconceptionTag } from '../../core/math/answers';
-import { exactValue } from '../../core/math/answers';
+import { exactValue, parseRelation, equationsEquivalent, inequalitiesEquivalent } from '../../core/math/answers';
 import type { Block, Problem, SolutionStep, Rng } from '../../core/curriculum/types';
-import { toPoly } from '../../core/math/poly';
+import { toPoly, tryPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 
 export const Q = (n: number | bigint | string | Rational, d?: number): Rational => {
@@ -49,6 +49,25 @@ export function stringMisconceptions(correct: string, list: Misconception[]): Mi
     try {
       const x = exactValue(a);
       const y = exactValue(b);
+      if (x && y) return x.equals(y);
+    } catch {
+      /* not a constant */
+    }
+    if (/[=<>]/.test(a) && /[=<>]/.test(b)) {
+      // equations and inequalities: the same relation written two ways is one answer
+      try {
+        const x = parseRelation(a);
+        const y = parseRelation(b);
+        if ((x.op === '=') !== (y.op === '=')) return false;
+        return x.op === '=' ? equationsEquivalent(x, y) : inequalitiesEquivalent(x, y);
+      } catch {
+        return false;
+      }
+    }
+    try {
+      // polynomial expressions: 9n + 9 and 9 + 9n are the same answer
+      const x = tryPoly(parseExpression(a));
+      const y = tryPoly(parseExpression(b));
       return !!x && !!y && x.equals(y);
     } catch {
       return false;

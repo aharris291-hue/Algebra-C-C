@@ -42,15 +42,37 @@ type Tok =
 const FUNC_NAMES = new Set(['sqrt', 'cbrt', 'abs']);
 
 /** Normalise unicode and common typing variants before tokenising. */
-export function normalizeInput(s: string): string {
+const VULGAR: Record<string, string> = { '½': '1/2', '⅓': '1/3', '⅔': '2/3', '¼': '1/4', '¾': '3/4', '⅕': '1/5', '⅖': '2/5', '⅗': '3/5', '⅘': '4/5', '⅙': '1/6', '⅚': '5/6', '⅛': '1/8', '⅜': '3/8', '⅝': '5/8', '⅞': '7/8' };
+const VULGAR_RE = /[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/;
+const SUPER: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
+const SUB: Record<string, string> = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9', 'ₙ': 'n' };
+
+/**
+ * Unicode fraction characters: "½x" -> "(1/2)x", and a whole number right before one is a mixed
+ * number, "2½" -> "(2+1/2)" (never 2·½). Number answers read "2½" as the mixed number 2 1/2 first.
+ */
+export function replaceVulgarFractions(s: string, mixed: (whole: string, frac: string) => string = (w, f) => `(${w}+${f})`): string {
+  if (!VULGAR_RE.test(s)) return s;
   return s
+    .replace(new RegExp(`(\\d+)\\s*(${VULGAR_RE.source})`, 'g'), (_m, w: string, f: string) => mixed(w, VULGAR[f]))
+    .replace(new RegExp(VULGAR_RE.source, 'g'), (f) => `(${VULGAR[f]})`);
+}
+
+export function normalizeInput(s: string): string {
+  return replaceVulgarFractions(s)
     .replace(/[−‒–—﹣－]/g, '-')
     .replace(/[×·∙⋅]/g, '*')
     .replace(/÷/g, '/')
-    .replace(/²/g, '^2')
-    .replace(/³/g, '^3')
-    .replace(/≤/g, '<=')
-    .replace(/≥/g, '>=')
+    // superscript exponents: x² -> x^2, x⁴ -> x^4, x¹⁰ -> x^(10), x⁻² -> x^(-2)
+    .replace(/(⁻?)([⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g, (_m, neg: string, d: string) => {
+      const digits = [...d].map((c) => SUPER[c]).join('');
+      return neg || digits.length > 1 ? `^(${neg ? '-' : ''}${digits})` : `^${digits}`;
+    })
+    // subscripts only appear in labels such as aₙ or x₁
+    .replace(/[₀₁₂₃₄₅₆₇₈₉ₙ]+/g, (d) => '_' + [...d].map((c) => SUB[c]).join(''))
+    .replace(/(^|[^a-zA-Z])pi(?![a-zA-Z])/gi, '$1π')
+    .replace(/[≤⩽≦]/g, '<=')
+    .replace(/[≥⩾≧]/g, '>=')
     .replace(/≠/g, '!=')
     .replace(/[\[{]/g, (c) => c) // brackets kept for interval/sets; expression parser rejects them
     .replace(/\s+/g, ' ')
@@ -97,6 +119,12 @@ function tokenize(src: string): Tok[] {
         }
       }
       i = j;
+      continue;
+    }
+    if (c === 'π') {
+      // π is read as a named constant; answer checking decides what to do with it
+      out.push({ k: 'id', v: 'π' });
+      i++;
       continue;
     }
     if (c === '√') {

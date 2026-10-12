@@ -7,7 +7,8 @@ import { MathInput } from './MathInput';
 import { playSound } from '../sound';
 
 export interface ProblemActions {
-  submit(key: string, response: string, elapsedMs: number): Promise<void>;
+  /** `stepIndex`: the guided step on screen, so a repeated click is not graded against the next step */
+  submit(key: string, response: string, elapsedMs: number, stepIndex?: number): Promise<void>;
   hint?(key: string): Promise<void>;
   reveal?(key: string): Promise<void>;
 }
@@ -15,12 +16,14 @@ export interface ProblemActions {
 const DIFF = ['', 'Level 1', 'Level 2', 'Level 3'];
 
 export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: ProblemView; actions: ProblemActions; deferred: boolean; busy: boolean; submitLabel?: string }) {
-  const [value, setValue] = useState(deferred ? p.lastResponse ?? '' : '');
+  // deferred sets: show the refused text with its message (so "save it again" matches the box), else the saved answer
+  const initial = () => (deferred ? p.draft ?? p.lastResponse ?? '' : '');
+  const [value, setValue] = useState(initial);
   const shownAt = useRef(Date.now());
   const stepKey = `${p.key}:${p.step?.index ?? 0}`;
   useEffect(() => {
     shownAt.current = Date.now();
-    setValue(deferred ? p.lastResponse ?? '' : '');
+    setValue(initial());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepKey]);
 
@@ -29,6 +32,8 @@ export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: Pr
   const lastSig = useRef(fbSig);
   useEffect(() => {
     if (fbSig !== lastSig.current && !deferred && p.lastFeedback?.status === 'correct') playSound('correct');
+    // each try is timed from the feedback on the previous one (the main process measures it too)
+    if (fbSig !== lastSig.current) shownAt.current = Date.now();
     lastSig.current = fbSig;
   }, [fbSig, deferred, p.lastFeedback]);
 
@@ -37,9 +42,10 @@ export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: Pr
   const choices = p.step ? p.step.choices : p.choices;
   const submit = (v = value) => {
     if (!v.trim() || busy || finished) return;
-    actions.submit(p.key, v, Date.now() - shownAt.current);
+    actions.submit(p.key, v, Date.now() - shownAt.current, p.step?.index);
   };
-  const saved = deferred && p.lastResponse !== undefined;
+  // deferred sets: the main process says whether an answer is saved; an unreadable or wrong-form answer never is
+  const saved = deferred && !!p.saved && p.lastResponse !== undefined;
   const fb = p.lastFeedback;
 
   return (
@@ -142,8 +148,8 @@ export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: Pr
           {fb.xp ? <span className="xp-pop">+{fb.xp} XP</span> : null}
         </div>
       )}
-      {fb && deferred && fb.status === 'invalid' && (
-        <div className="feedback feedback-invalid" role="status">
+      {fb && deferred && (fb.status === 'invalid' || fb.status === 'wrong-form') && !(saved && value === p.lastResponse) && (
+        <div className={`feedback feedback-${fb.status}`} role="status" aria-live="polite">
           <Inline text={fb.message} />
         </div>
       )}

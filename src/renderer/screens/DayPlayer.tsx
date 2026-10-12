@@ -68,8 +68,8 @@ export function DayPlayer(props: { profileId: number; lessonId: string; onExit: 
   const project = view.project;
   const inTest = assessment && view.phase === 'practice';
   const actions = {
-    submit: async (key: string, response: string, elapsed: number) => {
-      await run(() => api.daySubmit(profileId, lessonId, key, response, elapsed));
+    submit: async (key: string, response: string, elapsed: number, stepIndex?: number) => {
+      await run(() => api.daySubmit(profileId, lessonId, key, response, elapsed, stepIndex));
     },
     hint: async (key: string) => {
       await run(() => api.dayHint(profileId, lessonId, key));

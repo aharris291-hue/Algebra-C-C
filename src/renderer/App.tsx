@@ -1,7 +1,7 @@
 /** Top-level navigation, settings/theme, and the active-time heartbeat. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppStatus, Settings } from '../shared/api';
-import { DEFAULT_SETTINGS } from '../shared/api';
+import { DEFAULT_SETTINGS, SAVE_STATUS_EVENT } from '../shared/api';
 import { api, errorMessage } from './api';
 import { setSoundEnabled } from './sound';
 import { FirstRun } from './screens/FirstRun';
@@ -30,6 +30,10 @@ type Screen =
 
 const HEARTBEAT_SECONDS = 15;
 const IDLE_AFTER_MS = 90_000;
+/** while saving is failing, how often the status is re-checked (a retry may have succeeded) */
+const SAVE_FAILING_RECHECK_MS = 2_000;
+/** Monotonic time for idle detection: unlike Date.now() it does not jump when the system clock is changed. */
+const mono = () => performance.now();
 
 export function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -39,7 +43,12 @@ export function App() {
   const [fatal, setFatal] = useState<string | null>(null);
   const [toolOpen, setToolOpen] = useState(false);
   const activity = useRef<{ lessonId: string | null; activity: string }>({ lessonId: null, activity: 'dashboard' });
-  const lastInput = useRef(Date.now());
+  const lastInput = useRef(mono());
+  // read by the single heartbeat interval, so screen changes do not restart it
+  const profileRef = useRef<number | null>(null);
+  const screenRef = useRef<Screen['name']>('loading');
+  profileRef.current = profileId;
+  screenRef.current = screen.name;
 
   const start = useCallback(async () => {
     try {
@@ -74,21 +83,55 @@ export function App() {
   }, [settings]);
 
   // Active study time: counted only while the window is visible and the student has
-  // interacted recently (spec §21 time tracking).
+  // interacted recently (spec §21 time tracking). One interval for the whole session: it reads
+  // the current profile and screen from refs, so moving between screens never drops the
+  // partly elapsed interval. Idle time uses a monotonic clock, so moving the system clock
+  // back cannot make an idle student look active.
   useEffect(() => {
-    const mark = () => (lastInput.current = Date.now());
+    const mark = () => (lastInput.current = mono());
     const evs = ['keydown', 'pointerdown', 'wheel', 'pointermove'];
     evs.forEach((e) => window.addEventListener(e, mark, { passive: true }));
     const t = setInterval(() => {
-      if (profileId === null || document.hidden || Date.now() - lastInput.current > IDLE_AFTER_MS) return;
-      if (screen.name === 'parent' || screen.name === 'profiles' || screen.name === 'first-run') return;
-      api.heartbeat(profileId, activity.current.lessonId, activity.current.activity, HEARTBEAT_SECONDS).catch(() => undefined);
+      const pid = profileRef.current;
+      const idleMs = mono() - lastInput.current;
+      if (pid === null || document.hidden || !(idleMs >= 0 && idleMs <= IDLE_AFTER_MS)) return;
+      const name = screenRef.current;
+      if (name === 'parent' || name === 'profiles' || name === 'first-run' || name === 'loading') return;
+      api.heartbeat(pid, activity.current.lessonId, activity.current.activity, HEARTBEAT_SECONDS).catch(() => undefined);
     }, HEARTBEAT_SECONDS * 1000);
     return () => {
       clearInterval(t);
       evs.forEach((e) => window.removeEventListener(e, mark));
     };
-  }, [profileId, screen.name]);
+  }, []);
+
+  // Save status: a background save can fail at any time (disk full, file locked). Every call
+  // result carries `saveError` while saving is failing; the API client re-announces it as a
+  // window event so the warning appears at once. As a fallback the status is re-checked with
+  // each heartbeat tick. The warning disappears as soon as a save succeeds.
+  const showSaveError = useCallback((persistError: string | undefined) => {
+    setStatus((prev) => (prev === null || prev.persistError === persistError ? prev : { ...prev, persistError }));
+  }, []);
+  useEffect(() => {
+    const onSave = (e: Event) => showSaveError((e as CustomEvent<{ saveError?: string }>).detail?.saveError);
+    window.addEventListener(SAVE_STATUS_EVENT, onSave);
+    const t = setInterval(() => {
+      api.getStatus().then((s) => showSaveError(s.persistError), () => undefined);
+    }, HEARTBEAT_SECONDS * 1000);
+    return () => {
+      window.removeEventListener(SAVE_STATUS_EVENT, onSave);
+      clearInterval(t);
+    };
+  }, [showSaveError]);
+  // while saving is failing, check every few seconds so the warning goes away soon after a retry succeeds
+  const saveFailing = !!status?.persistError;
+  useEffect(() => {
+    if (!saveFailing) return;
+    const t = setInterval(() => {
+      api.getStatus().then((s) => showSaveError(s.persistError), () => undefined);
+    }, SAVE_FAILING_RECHECK_MS);
+    return () => clearInterval(t);
+  }, [saveFailing, showSaveError]);
 
   useEffect(() => {
     if (screen.name !== 'lesson' && screen.name !== 'day' && screen.name !== 'diagnostic') activity.current = { lessonId: null, activity: screen.name === 'home' ? 'dashboard' : screen.name };
@@ -107,15 +150,20 @@ export function App() {
       </div>
     );
 
-  const banner = status?.recoveredFrom ? (
-    <div className="banner" role="status">
-      The app found a problem with its newest save and restored your progress from its {status.recoveredFrom === 'prev' ? 'previous save' : status.recoveredFrom === 'tmp' ? 'last save in progress' : 'automatic backup'}. Your recent work may be a few steps behind.
-    </div>
-  ) : status?.persistError ? (
-    <div className="banner banner-error" role="alert">
-      Progress could not be saved to disk: {status.persistError}
-    </div>
-  ) : null;
+  const banner = (
+    <>
+      {status?.persistError && (
+        <div className="banner banner-error" role="alert">
+          {status.persistError}
+        </div>
+      )}
+      {status?.recoveredFrom && (
+        <div className="banner" role="status">
+          The app found a problem with its newest save and restored your progress from its {status.recoveredFrom === 'prev' ? 'previous save' : status.recoveredFrom === 'tmp' ? 'last save in progress' : 'automatic backup'}. Your recent work may be a few steps behind.
+        </div>
+      )}
+    </>
+  );
 
   const go = (s: Screen) => setScreen(s);
   const openLesson = (id: string, testOut?: boolean, kind?: string) => go(kind && kind !== 'lesson' ? { name: 'day', lessonId: id } : { name: 'lesson', lessonId: id, testOut });

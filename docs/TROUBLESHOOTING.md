@@ -8,7 +8,7 @@ For the family. Every fix below keeps the student's progress unless it says othe
 |---|---|
 | Student data | `%APPDATA%\Algebra C&C Learning Academy\data\academy.sqlite` |
 | Previous save | `...\data\academy.sqlite.prev` |
-| Daily automatic backups (last 14 days) | `...\data\backups\auto\` |
+| Daily automatic backups (the 14 most recently written, one per day, also while the app stays open) | `...\data\backups\auto\` |
 | Safety backups (made before a restore or an upgrade) | `...\data\backups\safety\` |
 | Log file (no names, answers or PINs) | `%APPDATA%\Algebra C&C Learning Academy\logs\app.log` |
 
@@ -43,13 +43,18 @@ On every start the app tries, in order: the current save, an interrupted save, t
 **A yellow banner says the app "restored your progress" from an earlier save.**
 The newest save was damaged, probably by a power cut or a crash while saving, and the app recovered automatically. At most the last few answers are lost. The damaged file is kept as `academy.sqlite.corrupt-<number>`, for diagnosis. You can delete it once everything looks right.
 
-**A red banner says "Progress could not be saved to disk".**
-The disk is full, the data folder is read-only, or another program has locked the file (often a cloud-sync or antivirus tool).
+**A red banner says "Your latest progress could not be saved to disk".**
+The disk is full, the data folder is read-only, or another program has locked the file (often a cloud-sync or antivirus tool). The banner appears within seconds of a failed save.
 1. Free some disk space.
 2. Exclude the data folder from real-time sync or scanning.
-3. Restart the app.
 
-Work stays in memory until a save succeeds, so do not close the app while the banner is showing if you can avoid it.
+The app keeps the work in memory and retries the save automatically (after 1, 2, 5, 10, then every 30 seconds). The banner disappears by itself once a save succeeds. If it does not, save a backup file in Parent Mode, then restart the app. Avoid closing the app while the banner is showing.
+
+**"Another active student is already named ..."**
+Two active students cannot share a name, so nobody opens the wrong profile. Rename one of them (Parent Mode → Students & goals) before restoring an archived profile with the same name.
+
+**"This is not a valid Algebra C&C Academy backup".**
+The file has the right shape but its data does not match this app (for example a damaged or hand-edited file). Nothing was changed. Try another backup file, such as a daily automatic backup.
 
 ## Parent PIN
 

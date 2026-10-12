@@ -42,7 +42,9 @@ export function recordAttempt(ctx: ServiceContext, a: AttemptRecord): number {
       Math.max(0, Math.round(a.elapsedMs)), a.counted ? 1 : 0, a.xp, a.guessing ? 1 : 0, d, at,
     ],
   );
-  bumpDay(ctx, a.profileId, { problems: 1 });
+  // Streak days count resolved problems only (one per problem, the counted attempt), never
+  // wrong tries or wrong-form submissions on their own, and never answers flagged as guessing.
+  if (a.counted && !a.guessing) bumpDay(ctx, a.profileId, { problems: 1 });
   ctx.db.run('UPDATE profiles SET last_active_at = ? WHERE id = ?', [at, a.profileId]);
   return id;
 }
@@ -145,7 +147,11 @@ export function storedStage(ctx: ServiceContext, profileId: number, skillId: str
 /** Recompute a skill from its evidence, store it, and award one-time mastery milestone XP. */
 export function recomputeSkill(ctx: ServiceContext, profileId: number, skillId: string): { before: MasteryStage; after: SkillState; xp: number } {
   const before = storedStage(ctx, profileId, skillId);
-  const after = computeSkillState(evidenceFor(ctx, profileId, skillId));
+  const evidence = evidenceFor(ctx, profileId, skillId);
+  const after = computeSkillState(evidence);
+  // A stage set by the placement check alone is a starting point, not an achievement:
+  // milestone XP and the "reached Proficient" feed entry wait for lesson work.
+  const placementOnly = evidence.every((e) => e.activity === 'diagnostic');
   ctx.db.run(
     `INSERT INTO skill_state(profile_id, skill_id, stage, score, evidence_count, last_practiced_at, next_review_at, mastered_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT(profile_id, skill_id) DO UPDATE SET stage=excluded.stage, score=excluded.score, evidence_count=excluded.evidence_count,
@@ -153,6 +159,7 @@ export function recomputeSkill(ctx: ServiceContext, profileId: number, skillId: 
     [profileId, skillId, after.stage, after.score, after.evidenceCount, after.lastPracticedAt, after.nextReviewAt, after.masteredAt, ctx.now()],
   );
   let xp = 0;
+  if (placementOnly) return { before, after, xp };
   const idx = STAGE_ORDER.indexOf(after.stage);
   if (idx >= STAGE_ORDER.indexOf('PROFICIENT')) xp += awardXpOnce(ctx, profileId, XP_POLICY.skillProficient, 'skill-proficient', skillId);
   if (after.stage === 'MASTERED') xp += awardXpOnce(ctx, profileId, XP_POLICY.skillMastered, 'skill-mastered', skillId);
@@ -170,9 +177,19 @@ export function skillStates(ctx: ServiceContext, profileId: number): Map<string,
   return new Map(rows.map((r) => [r.skill_id, { stage: r.stage, score: r.score, evidence: r.evidence_count, nextReviewAt: r.next_review_at }]));
 }
 
-/** Recent answers (for anti-guessing). */
+/** Activities whose answers are graded all at once at the end (their misses share one timestamp). */
+const DEFERRED_ACTIVITIES = ['quiz', 'assessment', 'testout'];
+
+/**
+ * Recent answers for the anti-guessing rule ("3 wrong in 30 s"). Deferred quiz, assessment and
+ * test-out answers are left out: they are all recorded at the same instant when the set is graded,
+ * so they say nothing about how fast the student is answering now.
+ */
 export function recentAnswers(ctx: ServiceContext, profileId: number, sinceMs: number): Array<{ at: number; correct: boolean }> {
   return ctx.db
-    .all<{ created_at: number; correct: number }>("SELECT created_at, correct FROM attempts WHERE profile_id = ? AND created_at >= ? AND status IN ('correct','incorrect') ORDER BY created_at", [profileId, sinceMs])
+    .all<{ created_at: number; correct: number }>(
+      `SELECT created_at, correct FROM attempts WHERE profile_id = ? AND created_at >= ? AND status IN ('correct','incorrect') AND activity NOT IN (${DEFERRED_ACTIVITIES.map(() => '?').join(',')}) ORDER BY created_at`,
+      [profileId, sinceMs, ...DEFERRED_ACTIVITIES],
+    )
     .map((r) => ({ at: r.created_at, correct: !!r.correct }));
 }

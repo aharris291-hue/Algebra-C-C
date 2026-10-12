@@ -7,7 +7,7 @@ import type { Logger } from './logger';
 import type { ServiceContext } from './services/context';
 import { createApi } from './services/api';
 import type { AcademyApi } from '../shared/api';
-import { localDate } from '../core/engine/dates';
+import { ensureDailyAutoBackup } from './services/backup';
 
 export interface Booted {
   ctx: ServiceContext;
@@ -26,11 +26,6 @@ export async function boot(dataDir: string, log: Logger, appVersion: string, now
     recoveredFrom: opened.recoveredFrom,
     migratedFrom: opened.migratedFrom,
   };
-  try {
-    const made = opened.db.dailyAutoBackup(localDate(now()));
-    if (made) log.info('backup', 'daily automatic backup written');
-  } catch (e) {
-    log.error('backup', 'daily automatic backup failed', e);
-  }
+  ensureDailyAutoBackup(ctx);
   return { ctx, api: createApi(ctx) };
 }

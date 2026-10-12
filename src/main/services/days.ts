@@ -18,7 +18,8 @@ import { ServiceContext, UserFacingError, today } from './context';
 import { requireProfile } from './profiles';
 import { PracticeState, newPractice, realize, submitImmediate, submitDeferred, gradeDeferred, hint, reveal, practiceView, allResolved, allAnswered, advance, getProblem } from './practice';
 import { awardXp, awardXpOnce, bumpDay, logActivity, skillStates, storedStage, recomputeSkill } from './records';
-import { lessonStatuses } from './lessons';
+import { lessonStatuses, tickActive, flushImmediately, capSupportXp, supportXp, lastXpId, answerXpImprovement } from './lessons';
+import { MAX_UNIT_ASSESSMENT_ATTEMPTS } from '../../core/engine/grading';
 import { checkAchievements } from './achievements';
 
 export const REVIEW_KINDS: LessonKind[] = ['unit-review', 'checkpoint', 'cumulative-review', 'semester-review'];
@@ -41,6 +42,9 @@ export interface DayState {
   quizAttempts: number;
   passed: boolean;
   xp: number;
+  /** active time in the set in progress (capped gaps between actions; see ACTIVE_GAP_CAP_MS) */
+  activeMs?: number;
+  lastActionAt?: number | null;
 }
 
 export function isReviewKind(k: LessonKind): boolean {
@@ -182,8 +186,14 @@ function withDay(ctx: ServiceContext, profileId: number, id: string, fn: (st: Da
   const loaded = load(ctx, profileId, id);
   if (!loaded) throw new UserFacingError('Open this day from the course map first.');
   ctx.db.transaction(() => {
-    fn(loaded.st, meta, loaded.status);
-    save(ctx, profileId, id, loaded.st);
+    const st = loaded.st;
+    if (st.phase === 'practice' && st.startedAt !== null) {
+      const t = tickActive(st.activeMs, st.lastActionAt ?? st.startedAt, ctx.now());
+      st.activeMs = t.activeMs;
+      st.lastActionAt = t.lastAt;
+    }
+    fn(st, meta, loaded.status);
+    save(ctx, profileId, id, st);
   });
   return buildDayView(ctx, profileId, id, loaded.st);
 }
@@ -210,6 +220,8 @@ export function startDay(ctx: ServiceContext, profileId: number, id: string): Da
     if (coveredSkills(meta).length === 0) throw new UserFacingError('This day has no problems available yet.');
     st.practice = isAssessmentKind(meta.kind) ? buildAssessment(ctx, meta, st) : isCapstoneKind(meta.kind) ? buildCapstone(ctx, meta, st) : buildReview(ctx, profileId, meta, st);
     st.startedAt = ctx.now();
+    st.activeMs = 0;
+    st.lastActionAt = st.startedAt;
     st.phase = 'practice';
   });
 }
@@ -228,7 +240,7 @@ function currentSet(st: DayState): PracticeState | null {
   return null;
 }
 
-export function daySubmit(ctx: ServiceContext, profileId: number, id: string, key: string, response: string, elapsedMs: number): DayView {
+export function daySubmit(ctx: ServiceContext, profileId: number, id: string, key: string, response: string, elapsedMs: number, stepIndex?: number): DayView {
   if (typeof response !== 'string' || response.length > 300) throw new UserFacingError('That answer is too long.');
   return withDay(ctx, profileId, id, (st) => {
     const ps = activeSet(st, key);
@@ -237,7 +249,19 @@ export function daySubmit(ctx: ServiceContext, profileId: number, id: string, ke
       submitDeferred(ps, key, response);
       return;
     }
-    const out = submitImmediate(ctx, profileId, id, ps, key, response, elapsedMs);
+    const support = ps === st.corrections;
+    const prior = support ? supportXp(ctx, profileId, id) : 0;
+    const sinceId = support ? lastXpId(ctx, profileId) : 0;
+    const out = submitImmediate(ctx, profileId, id, ps, key, response, elapsedMs, stepIndex);
+    if (support) {
+      // correction XP is capped per day so failing and retaking an assessment cannot farm XP
+      const cut = capSupportXp(ctx, profileId, id, prior, sinceId);
+      if (cut) {
+        out.xp = Math.max(0, out.xp - cut);
+        const item = ps.items.find((i) => i.key === key);
+        if (item?.lastFeedback && typeof item.lastFeedback.xp === 'number') item.lastFeedback.xp = Math.max(0, item.lastFeedback.xp - cut);
+      }
+    }
     st.xp += out.xp;
     if (out.resolved && ps === st.corrections && allResolved(ps)) ps.complete = true;
     if (out.resolved) checkAchievements(ctx, profileId);
@@ -280,7 +304,7 @@ function skillName(s: string): string {
 
 /** Finish the day: grade an assessment, or close out a finished review set. */
 export function finishDay(ctx: ServiceContext, profileId: number, id: string): DayView {
-  return withDay(ctx, profileId, id, (st, meta) => {
+  const view = withDay(ctx, profileId, id, (st, meta) => {
     const ps = st.practice;
     if (st.phase !== 'practice' || !ps) throw new UserFacingError('There is nothing to finish right now.');
     const assessment = isAssessmentKind(meta.kind);
@@ -296,9 +320,14 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     );
     let xp = 0;
     let rows: Array<{ s: (typeof ps.items)[number]; correct: boolean; message?: string; misconception?: string }>;
+    const wasPassed = st.passed;
     if (assessment) {
       const graded = gradeDeferred(ctx, profileId, id, ps, assessmentId);
-      for (const g of graded) xp += g.xp;
+      let attemptXp = 0;
+      for (const g of graded) attemptXp += g.xp;
+      // no answer XP once the assessment is passed; before that, a retake pays only for improving
+      // on the best earlier attempt (so repeated retakes cannot farm XP)
+      xp = wasPassed ? 0 : answerXpImprovement(ctx, profileId, 'answer:assessment', id, attemptXp);
       if (xp) awardXp(ctx, profileId, xp, 'answer:assessment', id);
       rows = graded;
     } else {
@@ -316,14 +345,17 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     const percent = Math.round((1000 * score) / max) / 10;
     const passed = assessment ? score / max >= ASSESSMENT_PASS - 1e-9 : true;
     const finishedAt = ctx.now();
+    // active time (never negative, overnight gaps excluded), not wall-clock time
+    const activeMs = st.activeMs ?? 0;
     const items = rows.map((r, i) => {
       const p = getProblem(r.s.generatorId, r.s.seed, r.s.difficulty);
       return { index: i, skillId: r.s.skillId, skillName: skillName(r.s.skillId), correct: r.correct, response: r.s.lastResponse ?? '', correctAnswer: answerToText(p.answer), prompt: p.prompt, solution: p.solution, feedback: r.message, misconception: r.misconception };
     });
-    ctx.db.run('UPDATE assessments SET status = ?, finished_at = ?, duration_ms = ?, score = ?, max_score = ?, items_json = ?, mastery_after_json = ? WHERE id = ?', [
+    ctx.db.run('UPDATE assessments SET status = ?, finished_at = ?, duration_ms = ?, active_ms = ?, score = ?, max_score = ?, items_json = ?, mastery_after_json = ? WHERE id = ?', [
       'completed',
       finishedAt,
-      finishedAt - startedAt,
+      activeMs,
+      activeMs,
       score,
       max,
       JSON.stringify(rows.map((r) => ({ skillId: r.s.skillId, correct: r.correct, response: r.s.lastResponse ?? '', generatorId: r.s.generatorId, seed: r.s.seed, difficulty: r.s.difficulty, misconception: r.misconception ?? null }))),
@@ -337,7 +369,8 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     if (assessment) {
       st.quizAttempts = attemptNumber;
       st.passed = st.passed || passed;
-      ctx.db.run('UPDATE lesson_progress SET quiz_best = MAX(COALESCE(quiz_best, 0), ?) WHERE profile_id = ? AND lesson_id = ?', [percent, profileId, id]);
+      // quiz_best holds the score that counts toward the grade: a unit assessment's later practice retakes don't
+      if (countsTowardGrade(meta.kind, attemptNumber)) ctx.db.run('UPDATE lesson_progress SET quiz_best = MAX(COALESCE(quiz_best, 0), ?) WHERE profile_id = ? AND lesson_id = ?', [percent, profileId, id]);
       st.corrections = null;
       const misses = rows.filter((r) => !r.correct);
       if (misses.length) {
@@ -357,26 +390,35 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     }
     bumpDay(ctx, profileId, { sections: 1 });
     st.xp += xp;
-    const retakeHelp = attemptNumber < 2 ? 'Work through the corrections, then retake it. Your best of the first two attempts counts toward your grade.' : 'Work through the corrections. You can retake it for practice, but only the first two attempts count toward your grade.';
+    const semester = meta.kind === 'semester-assessment';
+    const retakeHelp = semester
+      ? 'Work through the corrections, then retake it. Your best attempt counts toward your grade.'
+      : attemptNumber < MAX_UNIT_ASSESSMENT_ATTEMPTS
+        ? 'Work through the corrections, then retake it. Your best of the first two attempts counts toward your grade.'
+        : 'Work through the corrections. You can retake it for practice, but only the first two attempts count toward your grade.';
+    const practiceRetake = assessment && !countsTowardGrade(meta.kind, attemptNumber);
+    const passedNote = assessment && wasPassed ? ' You had already passed, so this retake earns no answer XP.' : '';
     st.results = {
       kind: assessment ? (meta.kind === 'semester-assessment' ? 'semester-assessment' : 'unit-assessment') : 'review',
-      title: meta.title,
+      title: practiceRetake ? `${meta.title} (practice retake, not graded)` : meta.title,
       score,
       maxScore: max,
       percent,
       passed,
       passPercent: assessment ? Math.round(ASSESSMENT_PASS * 100) : 0,
-      durationMs: finishedAt - startedAt,
+      durationMs: activeMs,
       attemptNumber,
       items,
       didWell,
       needsPractice,
       nextStep: assessment
-        ? passed
-          ? missed.length
-            ? `Nice work. Fix the questions you missed in the corrections below, then move on.`
-            : 'Outstanding. Move on to the next unit.'
-          : `Not yet. Focus on ${needsPractice.join(', ')}. ${retakeHelp}`
+        ? (practiceRetake ? 'This was a practice retake: only the first two attempts count toward your grade. ' : '') +
+          (passed
+            ? missed.length
+              ? `Nice work. Fix the questions you missed in the corrections below, then move on.`
+              : 'Outstanding. Move on to the next unit.'
+            : `Not yet. Focus on ${needsPractice.join(', ')}. ${retakeHelp}`) +
+          passedNote
         : isCapstoneKind(meta.kind)
           ? missed.length
             ? `Project complete. Before the semester review, go back over ${needsPractice.join(', ')}. The lesson for each skill has Teach Me Again and more practice.`
@@ -389,8 +431,17 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
       canRetake: assessment,
     };
     st.phase = 'results';
+    st.lastActionAt = null;
     checkAchievements(ctx, profileId);
   });
+  // ARCHITECTURE.md: assessment results are written to disk immediately, not batched
+  flushImmediately(ctx);
+  return view;
+}
+
+/** Whether this attempt can count toward the course grade (grading.ts: unit = first two, semester = all). */
+function countsTowardGrade(kind: LessonKind, attemptNumber: number): boolean {
+  return kind !== 'unit-assessment' || attemptNumber <= MAX_UNIT_ASSESSMENT_ATTEMPTS;
 }
 
 export function retakeDay(ctx: ServiceContext, profileId: number, id: string): DayView {
@@ -402,6 +453,8 @@ export function retakeDay(ctx: ServiceContext, profileId: number, id: string): D
     st.corrections = null;
     st.practice = buildAssessment(ctx, meta, st);
     st.startedAt = ctx.now();
+    st.activeMs = 0;
+    st.lastActionAt = st.startedAt;
     st.phase = 'practice';
   });
 }

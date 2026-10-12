@@ -56,7 +56,7 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                   </span>
                   <span className="lesson-status">
                     {STATUS_LABEL[l.status]}
-                    {l.quizBest !== null && ` · best quiz ${l.quizBest}%`}
+                    {l.quizBest !== null && (l.kind === 'unit-assessment' ? ` · graded score ${l.quizBest}% (best of first two attempts)` : l.kind === 'semester-assessment' ? ` · graded score ${l.quizBest}%` : ` · best quiz ${l.quizBest}%`)}
                   </span>
                   <span className="lesson-actions">
                     {(l.status === 'available' || l.status === 'in_progress') && l.kind === 'lesson' && (
@@ -75,7 +75,8 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                       </button>
                     )}
                     {l.suggestedTestOut && l.status !== 'in_progress' && <span className="tag tag-ok" title="Your diagnostic showed you may already know this. Try Show What You Know when you get here.">Suggested: Show What You Know</span>}
-                    {l.canTestOut && l.status !== 'in_progress' && (
+                    {/* shown whenever the service allows it (no quiz attempt, no finished test-out), even after peeking at the lesson */}
+                    {l.canTestOut && (
                       <button className={`btn btn-small ${l.suggestedTestOut ? 'btn-primary' : ''}`} onClick={() => props.onOpenLesson(l.id, true)} title="Take a short quiz. Score 85% or more to skip this lesson.">
                         Show What You Know
                       </button>

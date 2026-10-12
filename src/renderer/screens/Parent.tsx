@@ -522,7 +522,10 @@ function Assessments({ d, pin }: { d: ParentDashboard; pin: string }) {
               <tr key={a.id}>
                 <td>{fmtDate(a.date)}</td>
                 <td>{a.title}</td>
-                <td>{a.attemptNumber}</td>
+                <td>
+                  {a.attemptNumber}
+                  {a.kind === 'unit-assessment' && a.attemptNumber > 2 && <span className="sub"> (practice retake, not graded)</span>}
+                </td>
                 <td>{a.percent}%</td>
                 <td>{Math.max(1, Math.round(a.durationMs / 60000))} min</td>
                 <td>
