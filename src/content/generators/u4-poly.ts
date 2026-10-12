@@ -908,6 +908,11 @@ export const genFactorGcf: GeneratorDef = {
       misconceptions.push({ answer: `${gcfPlain}(${pPlain(wrongInner)})`, tag: 'sign-error', feedback: 'Dividing every term by a negative number flips the sign of **every** term inside, not just the first one. Multiply back out to check.' });
     }
     let steps: ProblemStep[] | undefined;
+    if (difficulty !== 1) {
+      // the same slip on a longer expression: the last term is left undivided
+      const c0 = inner.coeff('x', 0).toInt();
+      if (c0 !== 0) misconceptions.push({ answer: `${gcfPlain}(${pPlain(inner.add(X([c0 * (g - 1)])))})`, tag: 'distribution', feedback: 'Divide **every** term by the GCF, including the last one. Multiply your answer back out to check.' });
+    }
     if (difficulty === 1) {
       // a common slip: the last term is not divided by the GCF
       const undivided = lin(inner.coeff('x', 1).toNumber(), g * inner.coeff('x', 0).toNumber());
@@ -1179,7 +1184,11 @@ export const genFactorAx2: GeneratorDef = {
         { text: 'Split the middle term and factor by grouping.', tex: `${termsTex([{ deg: 2, coef: A }, { deg: 1, coef: m }, { deg: 1, coef: n }, { deg: 0, coef: C }])} = ${a1 === 1 ? '' : a1}x\\left(${linTex(a2, q1)}\\right) ${p1 < 0 ? '-' : '+'} ${Math.abs(p1)}\\left(${linTex(a2, q1)}\\right)`, why: 'Grouping two terms at a time reveals a common binomial factor.' },
         { text: 'Write the factors.', tex: `${tex} = ${k > 1 ? k : ''}${factorsTex}` },
       ],
-      misconceptions: polyMisconceptions(full, [{ poly: swapPoly, answer: k === 1 ? `(${linPlain(a1, q1)})(${linPlain(a2, p1)})` : `${k}(${linPlain(a1, q1)})(${linPlain(a2, p1)})`, tag: 'factoring', feedback: 'Multiply your binomials back out: the middle term does not match. Try the constants the other way around.' }]),
+      misconceptions: polyMisconceptions(full, [
+        { poly: swapPoly, answer: k === 1 ? `(${linPlain(a1, q1)})(${linPlain(a2, p1)})` : `${k}(${linPlain(a1, q1)})(${linPlain(a2, p1)})`, tag: 'factoring', feedback: 'Multiply your binomials back out: the middle term does not match. Try the constants the other way around.' },
+        { poly: lin(a1, -p1).mul(lin(a2, -q1)).scale(Q(k)), answer: `${k === 1 ? '' : k}(${linPlain(a1, -p1)})(${linPlain(a2, -q1)})`, tag: 'sign-error', feedback: 'Check the signs: multiply your binomials back out and compare the middle term and the constant with the original.' },
+        ...(k > 1 ? [{ poly: inner, answer: factorsPlain, tag: 'factoring' as const, feedback: `Your binomials are right, but the greatest common factor $${k}$ is missing. Factoring completely keeps it in front.` }] : []),
+      ]),
       steps,
     });
   },

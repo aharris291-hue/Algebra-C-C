@@ -13,7 +13,7 @@ import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
 import { texToParser, exactRational, expPlain, expTex, dTex, commas, pct, textOf } from './u5-common';
 import { mathBlocks, graphOf } from './u4-common';
-import { numStep, choiceStep, finalStep, withSteps, stepErrors } from './u5-steps';
+import { numStep, specStep, choiceStep, finalStep, withSteps, stepErrors } from './u5-steps';
 
 type Hints = [string, string, string, string];
 
@@ -324,7 +324,7 @@ function graphChoiceExp(rng: Rng) {
   const slot = cands.indexOf(correct);
   const blocks: Block[] = cands.map((spec, i) => ({ t: 'graph', spec, caption: `Graph ${letters[i]}` }));
   const fx = `y = ${numStr(a)}\\left(${dTex(b)}\\right)^{x}`;
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S5.03',
     tags: ['real-world', 'graph'],
     prompt: [
@@ -346,7 +346,12 @@ function graphChoiceExp(rng: Rng) {
       { text: `The correct graph is Graph ${letters[slot]}.`, why: `It starts at $(0, ${numStr(a)})$, passes through $(1, ${numStr(a.mul(b))})$ and $(2, ${numStr(a.mul(b).mul(b))})$, is drawn for $0 \\le x \\le ${N}$, and has time on the horizontal axis and ${ctx.unit} on the vertical axis.` },
     ],
     misconceptions: [],
-  });
+  }), (pr) => [
+    choiceStep('Start with the axes. Where should time, the input $x$, go?', ['On the horizontal axis', 'On the vertical axis'], 0, ['The input is the variable you choose; the output depends on it.', 'Inputs are read left to right along one axis.', 'Outputs are read up and down along the other axis.', `Time is the input and ${ctx.unit} are the output.`], `Time is the input, so it goes on the horizontal axis and ${ctx.unit} go on the vertical axis. A graph with the labels swapped is wrong.`, [{ index: 1, tag: 'graph-reading', feedback: 'The output goes on the vertical axis. Time is the input.' }]),
+    numStep('Use the model. What is $y$ when $x = 1$?', a.mul(b), ['Substitute $x = 1$.', `A power with exponent 1 is just its base, so the power is $${dTex(b)}$.`, `Multiply $${numStr(a)}$ by $${dTex(b)}$.`, 'This is the starting value after one multiplication by the factor.'], `$y = ${numStr(a)} \\cdot ${dTex(b)} = ${numStr(a.mul(b))}$. A curve with the wrong factor misses this point.`, [{ value: a.add(b), tag: 'growth-decay', feedback: 'The factor is multiplied, not added.' }, { value: a, tag: 'exponent-rule', feedback: 'That is the value at $x = 0$. Use $x = 1$.' }, { value: a.div(b), tag: 'growth-decay', feedback: 'Multiply by the factor; do not divide by it.' }]),
+    numStep('What is $y$ when $x = 2$?', a.mul(b).mul(b), ['Each step of 1 in $x$ multiplies $y$ by the same factor.', 'Start from the value at $x = 1$.', `Multiply that value by $${dTex(b)}$ again.`, `Or compute $${numStr(a)}\\left(${dTex(b)}\\right)^{2}$: the power first, then multiply.`], `$y = ${numStr(a.mul(b))} \\cdot ${dTex(b)} = ${numStr(a.mul(b).mul(b))}$. A straight line through the first two points would give $${numStr(a.mul(b).mul(2).sub(a))}$ here instead.`, [{ value: a.mul(b).mul(2).sub(a), tag: 'growth-decay', feedback: 'That adds the same amount again, which is linear. Multiply by the factor again.' }, { value: a.mul(b).mul(2), tag: 'exponent-rule', feedback: 'The exponent 2 means multiply by the factor twice, not multiply by 2.' }]),
+    finalStep(pr, 'Which graph has time on the horizontal axis and passes through all three of these points?', ['Check the axis labels first.', 'Every graph starts at the same point, so check the points at $x = 1$ and $x = 2$.', 'A straight line adds the same amount each step, so it cannot match an exponential model.', 'Only one graph passes all three checks.'], `Graph ${letters[slot]} has the right axes and is the curve through the values from the model.`),
+  ]);
 }
 
 function verifyGraphChoiceExp(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
@@ -366,7 +371,9 @@ function verifyGraphChoiceExp(pr: Parameters<GeneratorDef['verify']>[0]): string
     return same && dom && labels;
   });
   if (ok.filter(Boolean).length !== 1) return [`${ok.filter(Boolean).length} graphs are correct`];
-  return graphs[ok.indexOf(true)].caption === choiceLabel(pr.answer) ? [] : ['wrong key'];
+  // steps: recompute y(1) and y(2) by repeated multiplication from the printed model
+  const steps = stepErrors(pr, ['On the horizontal axis', md.a.mul(md.b), md.a.mul(md.b).mul(md.b), null]);
+  return [...(graphs[ok.indexOf(true)].caption === choiceLabel(pr.answer) ? [] : ['wrong key']), ...steps];
 }
 
 export const genWriteExponential: GeneratorDef = {
@@ -530,6 +537,21 @@ export const genWriteExponential: GeneratorDef = {
     for (const [x, y] of pts) if (!yOf(x).eq(y)) errs.push(`(${x}, ${y.toString()}) not on the key`);
     if (graph) for (const q of graph.points ?? []) if (Math.abs(q.y - yOf(q.x).toNumber()) > 1e-9) errs.push('graph point off the curve');
     if (pts.length < 2) errs.push('not enough data');
+    // guided steps: a and b re-read from the data (the point at x = 0 and the ratio y(1)/y(0)), or,
+    // for two points without x = 0, checked against the points: b^(x2 - x1) = y2/y1 and a b^x1 = y1
+    if (pr.steps && pts.length >= 2) {
+      const at = new Map(pts.map(([x, y]) => [x, y] as const));
+      if (at.has(0) && at.has(1)) errs.push(...stepErrors(pr, [at.get(0)!, at.get(1)!.div(at.get(0)!), null]));
+      else {
+        const [[x1, y1], [x2, y2]] = pts;
+        const sv = (i: number) => (pr.steps![i].answer.kind === 'number' ? Q((pr.steps![i].answer as { value: string }).value) : null);
+        const sb = sv(0);
+        const sa = sv(1);
+        if (!sb || !sb.gt(0) || !sb.pow(x2 - x1).eq(y2.div(y1))) errs.push('step 1 (b) wrong');
+        if (!sa || !sb || !sa.mul(sb.pow(x1)).eq(y1)) errs.push('step 2 (a) wrong');
+        errs.push(...stepErrors(pr, [null, null, null]));
+      }
+    }
     return errs;
   },
 };
@@ -577,7 +599,7 @@ export const genExponentialConstraints: GeneratorDef = {
       const third = V.le(0) ? 'No. It can never reach 0, but it can be negative.' : growth ? NEVER_BELOW(String(c.a)) : NEVER_ABOVE(String(c.a));
       const others = [YES, NEVER_NONPOS, third, 'Yes, because an exponential model can take any value.'];
       const story = c.what.replace(/\$t\$/, '$t$');
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S5.05',
         tags: ['real-world'],
         prompt: [p(`The function below models ${story} (with $${c.v} \\ge 0$).`), { t: 'math', tex: fx }, p(`Could the ${c.unitNoun} ever be $${commas(V)}$ according to this model?`)],
@@ -589,7 +611,11 @@ export const genExponentialConstraints: GeneratorDef = {
           { text: correct.replace(/^No\. |^Yes, /, (m) => (m.startsWith('No') ? 'Not viable: ' : 'Viable: ')) },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        numStep(`Find the starting value: what is $${c.fn}(0)$?`, a, [`Substitute $${c.v} = 0$.`, 'Any nonzero number to the zero power is 1.', 'So the power part equals 1.', 'Multiply the number in front by 1.'], `$${c.fn}(0) = ${c.a}(1) = ${c.a}$, the ${c.unitNoun} at the start.`, [{ value: Q(0), tag: 'exponent-rule', feedback: 'The zero power is 1, not 0.' }, { value: a.mul(b), tag: 'exponent-rule', feedback: `That is the value after 1 ${c.per}. Use $${c.v} = 0$.` }, { value: b, tag: 'growth-decay', feedback: 'That is the factor. Substitute 0 for the input.' }]),
+        choiceStep(`The factor is $${dTex(b)}$. What happens to the ${c.unitNoun} after the start?`, [`It grows: every value after the start is greater than ${c.a}.`, `It decays: every value is less than ${c.a}, but it stays above 0.`], growth ? 0 : 1, [`Compare $${dTex(b)}$ with 1.`, 'Multiplying a positive number by more than 1 makes it bigger.', 'Multiplying a positive number by a number between 0 and 1 makes it smaller, but still positive.', `Is $${dTex(b)}$ greater than 1?`], growth ? `$${dTex(b)} > 1$, so each ${c.per} the ${c.unitNoun} is multiplied by more than 1 and only goes up.` : `$0 < ${dTex(b)} < 1$, so each ${c.per} the ${c.unitNoun} gets smaller, but a positive number times a positive factor is never 0 or negative.`, [{ index: growth ? 1 : 0, tag: 'growth-decay', feedback: `Compare the factor $${dTex(b)}$ with 1.` }]),
+        finalStep(pr, `Compare $${commas(V)}$ with the starting value and with 0. Could the ${c.unitNoun} ever be $${commas(V)}$?`, ['Outputs of this model are always positive.', growth ? 'A growth model never goes below its starting value after it starts.' : 'A decay model never goes above its starting value after it starts.', 'Every value on the allowed side is reached at some time.', `Is $${commas(V)}$ on the allowed side?`], correct),
+      ]);
     }
     // difficulty 3: whole-number outputs, or does a table fit an exponential model
     if (rng.bool()) {
@@ -681,7 +707,7 @@ export const genExponentialConstraints: GeneratorDef = {
     if (V.le(0)) want = NEVER_NONPOS;
     else if (b.gt(1) ? V.lt(a) : V.gt(a)) want = b.gt(1) ? NEVER_BELOW(numStr(a)) : NEVER_ABOVE(numStr(a));
     else want = YES;
-    return label === want ? [] : [`expected ${want}`];
+    return [...(label === want ? [] : [`expected ${want}`]), ...stepErrors(pr, [md.a.mul(md.b.pow(0)), md.b.gt(1) ? `It grows: every value after the start is greater than ${numStr(md.a)}.` : `It decays: every value is less than ${numStr(md.a)}, but it stays above 0.`, null])];
   },
 };
 
@@ -758,7 +784,7 @@ export const genPercentChange: GeneratorDef = {
       add(`y = ${numStr(a)}(${numStr(s.grow ? Q(1).sub(r) : Q(1).add(r))})^x`, 'growth-decay', s.grow ? 'An increase needs a factor greater than 1.' : 'A decrease needs a factor less than 1.');
       const slip = s.grow ? Q(1).add(r.mul(10)) : Q(1).sub(r.mul(10));
       if (slip.gt(0)) add(`y = ${numStr(a)}(${numStr(slip)})^x`, 'percent-rate', `Check the decimal: ${pct(r)}% is $${dTex(r)}$.`);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S5.06',
         tags: ['real-world', 'word'],
         prompt: [p(`${s.who} ${aShow}${unitText}. ${s.subj} ${s.grow ? 'increases' : 'decreases'} by ${pct(r)}% each ${s.per}. Write an equation for $y$, the ${s.unit === 'dollars' ? 'value in dollars' : `number of ${s.unit.split(' ')[0]}`}, after $x$ ${s.per}s.`)],
@@ -771,13 +797,17 @@ export const genPercentChange: GeneratorDef = {
           { text: 'Write the model.', tex: expTex(a, b) },
         ],
         misconceptions: mis,
-      });
+      }), (pr) => [
+        numStep(`Write the rate ${pct(r)}% as a decimal.`, r, ['Percent means "out of 100".', 'Divide the percent by 100.', 'Move the decimal point two places to the left.', `${pct(r)}% is ${pct(r)} hundredths.`], `${pct(r)}% $= ${dTex(r)}$.`, [{ value: r.mul(100), tag: 'percent-rate', feedback: 'Divide by 100 to change a percent to a decimal.' }, { value: r.mul(10), tag: 'percent-rate', feedback: 'Check the decimal point: divide by 100, not by 10.' }]),
+        numStep(s.grow ? `For growth, the factor is $b = 1 + r$. What is $b$?` : `For a decrease, the factor is $b = 1 - r$. What is $b$?`, b, [s.grow ? 'Each year you keep all of the amount (1) and add the increase.' : 'Each year you keep what is left after the decrease.', s.grow ? 'Add the decimal rate to 1.' : 'Subtract the decimal rate from 1.', s.grow ? 'The factor should be greater than 1.' : 'The factor should be between 0 and 1.', 'Type the factor as a decimal.'], `$b = ${s.grow ? `1 + ${dTex(r)}` : `1 - ${dTex(r)}`} = ${dTex(b)}$.`, [{ value: r, tag: 'percent-rate', feedback: 'That is the rate. The factor is what you multiply by, $1 \\pm r$.' }, { value: s.grow ? Q(1).sub(r) : Q(1).add(r), tag: 'growth-decay', feedback: s.grow ? 'An increase needs a factor greater than 1.' : 'A decrease needs a factor less than 1.' }]),
+        finalStep(pr, `The starting amount is $a = ${commas(a)}$. Write the equation $y = a(b)^{x}$.`, ['Use the form $y = a(b)^{x}$.', 'Put the starting amount in front.', 'Put the factor from the last step in parentheses as the base.', 'Keep $x$ as the exponent.'], `$${expTex(a, b)}$: start at $${commas(a)}$ and multiply by $${dTex(b)}$ each ${s.per}.`),
+      ]);
     }
     const t = rng.int(3, 10);
     const value = a.mul(b.pow(t));
     const places = s.round;
     const linear = a.mul(s.grow ? Q(1).add(r.mul(t)) : Q(1).sub(r.mul(t)));
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S5.06',
       tags: ['real-world'],
       prompt: [p(`${s.who} ${aShow}${unitText}. ${s.subj} ${s.grow ? 'increases' : 'decreases'} by ${pct(r)}% each ${s.per}. ${s.ask} after ${t} ${s.per}s? ${places === 2 ? 'Round to the nearest cent.' : 'Round to the nearest whole number.'}`)],
@@ -789,7 +819,11 @@ export const genPercentChange: GeneratorDef = {
         { text: `Substitute $x = ${t}$.`, tex: `y = ${numStr(a)}\\left(${dTex(b)}\\right)^{${t}} \\approx ${places === 2 ? fixedPlaces(value, 2) : commas(value.round(0))}`, why: 'Exponents come before multiplication in the order of operations.' },
       ],
       misconceptions: numberMisconceptions(value.round(places), [{ value: linear.round(places), tag: 'percent-rate', feedback: `Taking ${pct(r)}% of the starting amount each ${s.per} is linear. The percent applies to the new amount each ${s.per}.` }, { value: a.mul(b).mul(t).round(places), tag: 'order-of-operations', feedback: 'Raise the factor to the power; do not multiply by the number of years.' }]),
-    });
+    }), (pr) => [
+      numStep(s.grow ? `Each ${s.per} the amount grows by ${pct(r)}%. What is the growth factor $b = 1 + r$?` : `Each ${s.per} the amount drops by ${pct(r)}%. What is the decay factor $b = 1 - r$?`, b, [`Write ${pct(r)}% as a decimal first.`, s.grow ? 'Add that decimal to 1.' : 'Subtract that decimal from 1.', s.grow ? 'The factor should be greater than 1.' : 'The factor should be between 0 and 1.', 'Type the factor as a decimal.'], `$b = ${s.grow ? `1 + ${dTex(r)}` : `1 - ${dTex(r)}`} = ${dTex(b)}$.`, [{ value: r, tag: 'percent-rate', feedback: 'That is the rate. The factor is $1 \\pm r$.' }, { value: s.grow ? Q(1).add(r.mul(100)) : null, tag: 'percent-rate', feedback: 'Change the percent to a decimal before adding it to 1.' }, { value: s.grow ? Q(1).sub(r) : Q(1).add(r), tag: 'growth-decay', feedback: s.grow ? 'An increase needs a factor greater than 1.' : 'A decrease needs a factor less than 1.' }]),
+      specStep(`Write the model $y = a(b)^{x}$ for this situation.`, { kind: 'equation', value: expPlain(a, b), form: 'exponential' }, ['$a$ is the starting amount.', '$b$ is the factor from the last step.', `Here $a = ${commas(a)}$.`, 'Keep $x$ as the exponent.'], `$${expTex(a, b)}$.`, [], 'Type an equation like y = 500(1.04)^x.'),
+      finalStep(pr, `Substitute $x = ${t}$ into the model. ${s.ask} after ${t} ${s.per}s? ${places === 2 ? 'Round to the nearest cent.' : 'Round to the nearest whole number.'}`, ['Exponents come before multiplication.', `Find $\\left(${dTex(b)}\\right)^{${t}}$ with a calculator first.`, `Then multiply by $${commas(a)}$.`, 'Round only at the very end.'], `$y = ${commas(a)}\\left(${dTex(b)}\\right)^{${t}} \\approx ${places === 2 ? fixedPlaces(value, 2) : commas(value.round(0))}$.`),
+    ]);
   },
   verify(pr) {
     const text = textOf(pr);
@@ -809,10 +843,16 @@ export const genPercentChange: GeneratorDef = {
     const a = Q(m[1].replace(/\{,\}|,/g, ''));
     const r = Q(m[3]).div(100);
     const b = m[2] === 'increases' ? Q(1).add(r) : Q(1).sub(r);
-    if (pr.answer.kind === 'equation') return checkAnswer(pr.answer, expPlain(a, b)).status === 'correct' ? [] : ['equation wrong'];
+    if (pr.answer.kind === 'equation') return [...(checkAnswer(pr.answer, expPlain(a, b)).status === 'correct' ? [] : ['equation wrong']), ...stepErrors(pr, [r, b, null])];
     if (pr.answer.kind !== 'number') return ['unexpected kind'];
     const t = Number(/after (\d+) /.exec(text)![1]);
-    return Q(pr.answer.value).eq(a.mul(b.pow(t))) ? [] : ['value wrong'];
+    // the value by repeated multiplication, one period at a time
+    let val = a;
+    for (let i = 0; i < t; i++) val = val.add(val.mul(m[2] === 'increases' ? r : r.neg()));
+    const errs = [...(Q(pr.answer.value).eq(val) ? [] : ['value wrong']), ...stepErrors(pr, [b, null, null])];
+    const mdl = pr.steps?.[1];
+    if (mdl && (mdl.answer.kind !== 'equation' || checkAnswer(mdl.answer, `y = ${numStr(a)}(${numStr(b)})^x`).status !== 'correct')) errs.push('step 2 model wrong');
+    return errs;
   },
 };
 
@@ -856,7 +896,7 @@ function interpretCompound(rng: Rng, P: Rational, r: Rational, name: string) {
     factor: `Each period the balance keeps all of itself ($1$) and gains $\\frac{${rTex}}{${o.n}}$ more, so it is multiplied by $1 + \\frac{${rTex}}{${o.n}}$.`,
     principal: `At $t = 0$ the exponent is $0$, so $A = ${numStr(P)} \\cdot 1 = ${numStr(P)}$: the starting deposit.`,
   };
-  return makeProblem({
+  return withSteps(makeProblem({
     skillId: 'S5.06',
     tags: ['real-world'],
     prompt: [
@@ -876,7 +916,11 @@ function interpretCompound(rng: Rng, P: Rational, r: Rational, name: string) {
       { text: `So $${shown[part]}$ is: ${CPART_LABEL[part].charAt(0).toLowerCase() + CPART_LABEL[part].slice(1)}.`, why: why[part] },
     ],
     misconceptions: [],
-  });
+  }), (pr) => [
+    numStep(`Interest is compounded ${o.word}. How many times a year is interest added? That is $n$.`, Q(o.n), ['Compounding means adding interest to the balance.', 'Annually is once a year, semiannually twice, quarterly 4 times, monthly 12 times.', `Think about what "${o.word}" means.`, 'Count the interest payments in one year.'], `${o.word.charAt(0).toUpperCase() + o.word.slice(1)} means $n = ${o.n}$ times a year.`, [{ value: Q(1), tag: 'formula-error', feedback: 'That would be annually, once a year.' }, { value: o.n === 2 ? Q(6) : o.n === 4 ? Q(3) : null, tag: 'formula-error', feedback: 'That is the number of months in each period. $n$ counts the periods in one year.' }]),
+    numStep(`Write the yearly rate ${pct(r)}% as a decimal. That is $r$.`, r, ['Percent means "out of 100".', 'Divide the percent by 100.', 'Move the decimal point two places to the left.', 'Check that it matches the number on top of the fraction in the formula.'], `${pct(r)}% $= ${rTex}$, so $r = ${rTex}$.`, [{ value: r.mul(100), tag: 'percent-rate', feedback: 'Divide by 100 to change a percent to a decimal.' }, { value: r.div(o.n), tag: 'formula-error', feedback: 'That is the rate for one period. The yearly rate is $r$.' }]),
+    finalStep(pr, `Now match the formula to $A = P\\left(1 + \\frac{r}{n}\\right)^{nt}$ with $P = ${numStr(P)}$, $r = ${rTex}$ and $n = ${o.n}$. What does the **$${shown[part]}$** represent?`, ['$P$ is the deposit.', '$\\frac{r}{n}$ is the rate for one period.', '$1 + \\frac{r}{n}$ is what the balance is multiplied by each period.', 'The exponent $nt$ counts the periods in $t$ years.'], why[part]),
+  ]);
 }
 
 export const genCompoundInterest: GeneratorDef = {
@@ -930,7 +974,7 @@ export const genCompoundInterest: GeneratorDef = {
       { value: o.n === 1 ? null : (earned ? P.mul(Q(1).add(r.div(o.n)).pow(t)).sub(P) : P.mul(Q(1).add(r.div(o.n)).pow(t))).round(2), tag: 'formula-error', feedback: 'The exponent is $nt$, the total number of times interest is added.' },
       { value: earned ? A.round(2) : A.sub(P).round(2), tag: 'other', feedback: earned ? 'That is the total in the account. The interest earned is the amount minus the deposit.' : 'That is only the interest. The question asks for the total in the account.' },
     ];
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S5.06',
       tags: ['real-world'],
       prompt: [p(`${name} deposits ${moneyText(P)} in an account that pays ${pct(r)}% interest compounded ${o.word}. No other money is added or taken out. ${earned ? `How much interest will the account earn in ${t} years?` : `How much will be in the account after ${t} years?`} Round to the nearest cent.`), { t: 'math', tex: formula }],
@@ -943,7 +987,11 @@ export const genCompoundInterest: GeneratorDef = {
         ...(earned ? [{ text: 'Subtract the deposit.', tex: `${fixedPlaces(A, 2)} - ${numStr(P)} \\approx ${fixedPlaces(value, 2)}`, why: 'Interest earned is the amount in the account minus the money you put in.' }] : []),
       ],
       misconceptions: numberMisconceptions(value.round(2), mis),
-    });
+    }), (pr) => [
+      numStep(`Write the yearly rate ${pct(r)}% as a decimal. That is $r$.`, r, ['Percent means "out of 100".', 'Divide the percent by 100.', 'Move the decimal point two places to the left.', `${pct(r)}% is ${pct(r)} hundredths.`], `${pct(r)}% $= ${dTex(r)}$.`, [{ value: r.mul(100), tag: 'percent-rate', feedback: 'Divide by 100 to change a percent to a decimal.' }, { value: r.mul(10), tag: 'percent-rate', feedback: 'Check the decimal point: divide by 100, not by 10.' }]),
+      numStep(`Interest is compounded ${o.word} for ${t} years. What is the exponent $nt$, the number of times interest is added?`, Q(o.n * t), ['Compounding means adding interest to the balance.', 'Annually is once a year, semiannually twice, quarterly 4 times, monthly 12 times.', `Find $n$ for "${o.word}", then multiply by the number of years.`, `Multiply $n$ by $t = ${t}$.`], `$n = ${o.n}$ and $t = ${t}$, so interest is added $nt = ${o.n} \\cdot ${t} = ${o.n * t}$ times.`, [{ value: o.n === 1 ? null : Q(t), tag: 'formula-error', feedback: `That is the number of years. Interest is added ${o.n} times each year.` }, { value: o.n === 1 ? Q(t + 1) : Q(o.n), tag: 'formula-error', feedback: o.n === 1 ? 'Interest is added once at the end of each year.' : 'That is the number of times per year. Multiply by the number of years.' }]),
+      finalStep(pr, earned ? `Find $A = ${numStr(P)}\\left(1 + \\frac{${dTex(r)}}{${o.n}}\\right)^{${o.n * t}}$, then subtract the deposit. How much interest is earned? Round to the nearest cent.` : `Find $A = ${numStr(P)}\\left(1 + \\frac{${dTex(r)}}{${o.n}}\\right)^{${o.n * t}}$. How much is in the account? Round to the nearest cent.`, [`Start inside the parentheses: $1 + \\frac{${dTex(r)}}{${o.n}}$.`, `Raise that to the power ${o.n * t}.`, `Multiply by ${numStr(P)}.`, earned ? 'Subtract the deposit, and round only at the very end.' : 'Round only at the very end.'], earned ? `$A \\approx ${fixedPlaces(A, 2)}$, and the interest is $A - ${numStr(P)} \\approx ${fixedPlaces(value, 2)}$.` : `$A \\approx ${fixedPlaces(A, 2)}$.`),
+    ]);
   },
   verify(pr) {
     const text = textOf(pr);
@@ -958,7 +1006,7 @@ export const genCompoundInterest: GeneratorDef = {
       const shown = sm[1];
       const want: CPart | null = shown === `${n}t` ? 'periods' : shown === `\\frac{${fm[2]}}{${n}}` ? 'periodRate' : shown === `1 + \\frac{${fm[2]}}{${n}}` ? 'factor' : shown === fm[1] ? 'principal' : null;
       if (!want) return ['asked part not in formula'];
-      return choiceLabel(pr.answer) === CPART_LABEL[want] ? [] : [`expected ${want}`];
+      return [...(choiceLabel(pr.answer) === CPART_LABEL[want] ? [] : [`expected ${want}`]), ...stepErrors(pr, [Q(n), Q(am[1]).div(100), null])];
     }
     const accts = [...text.matchAll(/pays ([\d.]+)% interest compounded (\w+)/g)];
     const P = Q(/\\\$([\d,]+)/.exec(text)![1].replace(/,/g, ''));
@@ -978,7 +1026,7 @@ export const genCompoundInterest: GeneratorDef = {
     if (pr.answer.kind !== 'number') return ['unexpected kind'];
     const A = grow(Q(accts[0][1]).div(100), nOf(accts[0][2]));
     const want = /interest will the account earn/.test(text) ? A.sub(P) : A;
-    return Q(pr.answer.value).eq(want) ? [] : [`expected ${want.toNumber()}`];
+    return [...(Q(pr.answer.value).eq(want) ? [] : [`expected ${want.toNumber()}`]), ...stepErrors(pr, [Q(accts[0][1]).div(100), Q(nOf(accts[0][2]) * t), null])];
   },
 };
 

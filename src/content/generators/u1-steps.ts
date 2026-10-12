@@ -113,3 +113,16 @@ export function stepErrors(pr: Problem, expected: Array<Rational | string | null
   if (checkAnswer(pr.answer, keyText(last.answer)).status !== 'correct') errs.push('last step is not the final answer');
   return errs;
 }
+
+/**
+ * Error-specific feedback for the wrong options of a choice answer, looked up by label. Labels that
+ * are not among the options (makeChoice drops duplicates) or that are the key are skipped.
+ */
+export function choiceMisc(answer: { options: { id: string; label: string }[]; correct: string }, list: Array<{ label: string; tag: MisconceptionTag; feedback: string }>): Misconception[] {
+  const out: Misconception[] = [];
+  for (const m of list) {
+    const o = answer.options.find((x) => x.label === m.label);
+    if (o && o.id !== answer.correct && !out.some((x) => x.answer === o.id)) out.push({ answer: o.id, tag: m.tag, feedback: m.feedback });
+  }
+  return out;
+}

@@ -3,8 +3,9 @@ import { stressGenerator } from './harness';
 import { U7_GENERATORS_UNDER_TEST } from './u7-list';
 import { createRng } from '../../src/core/engine/rng';
 import { Rational } from '../../src/core/math/rational';
-import { produceProblem } from '../../src/core/engine/problems';
-import { ALL_GENERATORS } from '../../src/content';
+import { produceProblem, validateStep, canonicalInput } from '../../src/core/engine/problems';
+import { ALL_GENERATORS, GENERATORS, LESSON_CONTENT } from '../../src/content';
+import { checkAnswer } from '../../src/core/math/answers';
 import type { Difficulty, Problem } from '../../src/core/curriculum/types';
 
 describe('Unit 7 generators', () => {
@@ -111,7 +112,13 @@ describe('Unit 7 audit variants', () => {
     const pr = JSON.parse(JSON.stringify(base)) as Problem;
     const table = pr.prompt.find((b) => b.t === 'table')!;
     if (table.t === 'table') table.rows = [[1, 3], [2, 5], [3, 6], [4, 9], [5, 10], [6, 12]].map((r) => r.map(String));
-    const set = (v: string) => { if (pr.answer.kind === 'number') pr.answer.value = v; };
+    // the guided steps follow the key: step 2 is the unrounded value and step 3 is the answer itself
+    const set = (v: string) => {
+      if (pr.answer.kind === 'number') pr.answer.value = v;
+      const [, s2, s3] = pr.steps!;
+      if (s2.answer.kind === 'number') s2.answer.value = v;
+      s3.answer = pr.answer;
+    };
     set('1.8');
     expect(gen.verify(pr)).toEqual([]);
     set('1.77');
@@ -124,5 +131,53 @@ describe('Unit 7 audit variants', () => {
     set(String(31.5 / Math.sqrt(17.5 * 57.5)));
     expect(gen.verify(pr)).toEqual([]);
     expect(31.5 / Math.sqrt(17.5 * 57.5)).toBeCloseTo(0.993, 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guided practice is step by step (Lesson Quality Audit, C4): every guided generator/difficulty in the
+// Unit 7 lessons produces 2-4 steps on every seed, each step's key is accepted by its own checker, and
+// finishing the last step answers the problem. verify() recomputes the step answers from the prompt, so
+// a corrupted number step must be caught.
+// ---------------------------------------------------------------------------
+describe('Unit 7 guided practice is step by step', () => {
+  const pairs = new Set<string>();
+  for (const [id, l] of LESSON_CONTENT) if (id.startsWith('U7')) for (const r of l.guided) pairs.add(`${r.generator}|${r.difficulty}`);
+  it('the Unit 7 lessons have guided activities', () => expect(pairs.size).toBeGreaterThan(5));
+  for (const pair of [...pairs].sort()) {
+    it(`${pair} gives checked steps on 60 seeds`, () => {
+      const [gid, d] = pair.split('|');
+      const gen = GENERATORS.get(gid)!;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 17 * Number(d), Number(d) as Difficulty);
+        const steps = problem.steps ?? [];
+        expect(steps.length, `${problem.id} has steps`).toBeGreaterThanOrEqual(2);
+        expect(steps.length).toBeLessThanOrEqual(4);
+        steps.forEach((st, i) => expect(validateStep(st, `${problem.id} step ${i + 1}`)).toEqual([]));
+        expect(checkAnswer(problem.answer, canonicalInput(steps[steps.length - 1].answer)).status, `${problem.id} last step`).toBe('correct');
+        expect(gen.verify(problem), problem.id).toEqual([]);
+      }
+    });
+  }
+  it('verify() rejects a corrupted number step', () => {
+    let tried = 0;
+    let caught = 0;
+    for (const gid of [...new Set([...pairs].map((p) => p.split('|')[0]))])
+      for (const d of [1, 2, 3] as const)
+        for (let s = 1; s <= 20; s++) {
+          const gen = GENERATORS.get(gid)!;
+          const { problem } = produceProblem(gen, s * 104729 + d, d);
+          // only intermediate steps: the last step is the problem's own answer, checked elsewhere
+          problem.steps!.slice(0, -1).forEach((st, i) => {
+            if (st.answer.kind !== 'number') return;
+            const m = JSON.parse(JSON.stringify(problem)) as Problem;
+            const a = m.steps![i].answer as { value: string; roundTo?: number };
+            a.value = Rational.parse(a.value).add(Rational.from(1)).toString();
+            tried++;
+            if (gen.verify(m).length > 0) caught++;
+          });
+        }
+    expect(tried).toBeGreaterThan(100);
+    expect(caught).toBe(tried);
   });
 });

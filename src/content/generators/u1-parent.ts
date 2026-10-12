@@ -7,6 +7,7 @@ import { evalNumeric } from '../../core/math/evaluate';
 import { parseExpression } from '../../core/math/parser';
 import { toPoly } from '../../core/math/poly';
 import { Q, p, math, makeProblem, makeChoice, choiceLabel, pickDistinct } from './util';
+import { numStep, choiceStep, finalStep, stepErrors } from './u1-steps';
 
 interface Parent {
   name: string;
@@ -115,11 +116,12 @@ function featureProblem(rng: Rng) {
   if (fits.length !== 1) throw new Error('feature does not single out one parent');
   const fam = fits[0];
   const others = rng.shuffle(PARENTS.filter((q) => q !== fam).map((q) => q.name)).slice(0, 3);
+  const featAnswer = makeChoice(rng, fam.name, others);
   return makeProblem({
     skillId: 'S1.17',
     tags: [],
     prompt: [p(FEATURE_ASK), p(feat.text)],
-    answer: makeChoice(rng, fam.name, others),
+    answer: featAnswer,
     hints: [
       'Picture each parent graph: line, V, U, half arch, S lying on its side, and the curve that hugs the $x$-axis on the left.',
       'For each choice, ask: where does it go up or down, where does it cross the axes, and what happens far to the left and right?',
@@ -130,7 +132,9 @@ function featureProblem(rng: Rng) {
       { text: 'Compare the description with each parent graph.', why: feat.why },
       { text: `Only the ${fam.name.toLowerCase()} parent fits.`, tex: fam.tex, why: `Its graph is ${fam.shape}.` },
     ],
-    misconceptions: [],
+    misconceptions: featAnswer.options
+      .filter((o) => o.id !== featAnswer.correct)
+      .map((o) => ({ answer: o.id, tag: 'graph-reading' as const, feedback: `Picture the ${o.label.toLowerCase()} graph and test it against every part of the description. One part does not fit.` })),
   });
 }
 
@@ -157,6 +161,31 @@ function verifyFeature(description: string, a: { kind: 'choice'; options: { id: 
   return passes[0].id === a.correct ? [] : ['the keyed option does not fit the description'];
 }
 
+/** What each parent does to x, in the order the guided step lists them. */
+const OPERATION: Record<string, string> = {
+  Linear: '$x$ is used as it is (power 1)',
+  Quadratic: '$x$ is squared',
+  'Absolute value': '$x$ is inside absolute value bars',
+  'Cube root': '$x$ is inside a cube root',
+  'Square root': '$x$ is inside a square root',
+  Exponential: '$x$ is an exponent',
+};
+const OPERATION_ORDER = ['Linear', 'Quadratic', 'Absolute value', 'Square root', 'Cube root', 'Exponential'];
+
+/** Feedback for picking the wrong family by name: the usual mix-ups. */
+function familyFeedback(right: string, wrong: string): string {
+  const pair = [right, wrong].sort().join('|');
+  if (pair === 'Exponential|Quadratic') return 'In $x^2$ the base is $x$ and the power is 2; in $2^x$ the base is 2 and $x$ is the exponent. They are different families.';
+  if (pair === 'Cube root|Square root') return 'Look for a small 3 on the root sign. With it, the root is a cube root; without it, a square root.';
+  if (pair === 'Absolute value|Quadratic') return 'Both make a shape that goes down and then up, but $|x|$ makes a sharp V and $x^2$ makes a smooth U.';
+  if (pair === 'Cube root|Linear') return 'Both go up from left to right through the origin, but the cube root curve flattens out; the linear one is straight.';
+  return `The ${wrong.toLowerCase()} parent does something different to $x$. Look again at what is done to $x$ here.`;
+}
+
+function familyMisc(answer: { options: { id: string; label: string }[]; correct: string }, right: string) {
+  return answer.options.filter((o) => o.id !== answer.correct).map((o) => ({ answer: o.id, tag: 'formula-error' as const, feedback: familyFeedback(right, o.label) }));
+}
+
 export const genParentFunctions: GeneratorDef = {
   id: 'u1.parent-functions',
   skillId: 'S1.17',
@@ -166,11 +195,13 @@ export const genParentFunctions: GeneratorDef = {
     const names = PARENTS.map((q) => q.name);
     const others = rng.shuffle(names.filter((n) => n !== fam.name)).slice(0, 3);
     if (difficulty === 1) {
+      const answer = makeChoice(rng, fam.name, others);
+      const misc = familyMisc(answer, fam.name);
       return makeProblem({
         skillId: 'S1.17',
         tags: [],
         prompt: [p('Which parent function is this?'), math(fam.tex)],
-        answer: makeChoice(rng, fam.name, others),
+        answer,
         hints: [
           'Look at what happens to $x$: is it raised to a power, inside a square root, inside absolute value bars, or used as an exponent?',
           'A power of 2 makes a quadratic, and $x$ with no power makes a linear function.',
@@ -181,10 +212,28 @@ export const genParentFunctions: GeneratorDef = {
           { text: 'Identify what is done to $x$.', tex: fam.tex, why: 'The operation applied to $x$ names the family.' },
           { text: `This is the ${fam.name.toLowerCase()} parent function.`, why: `Its graph is ${fam.shape}.` },
         ],
-        misconceptions: [],
+        misconceptions: misc,
+        steps: [
+          choiceStep(
+            `Look at $${fam.tex}$. What is done to $x$?`,
+            OPERATION_ORDER.map((n) => OPERATION[n]),
+            OPERATION_ORDER.indexOf(fam.name),
+            ['Look only at the right side of the equation.', 'Is there a small number written up high (a power or an exponent)? Which is the base?', 'Is $x$ under a root sign? Check for a small 3 on the sign.', 'Vertical bars $|\\ |$ around $x$ mean absolute value.'],
+            `In $${fam.tex}$, ${OPERATION[fam.name]}, and that operation names the family.`,
+            OPERATION_ORDER.filter((n) => n !== fam.name).map((n) => ({ index: OPERATION_ORDER.indexOf(n), tag: 'formula-error' as const, feedback: `Not quite: in $${fam.tex}$, look again at where $x$ is and what surrounds it.` })),
+          ),
+          finalStep(
+            'So which parent function is this?',
+            answer,
+            ['Use the operation you just found.', 'Squaring $x$ gives the quadratic family; $x$ as an exponent gives the exponential family.', 'A root sign gives a square root or a cube root family.', 'Bars give absolute value, and plain $x$ gives linear.'],
+            `The operation on $x$ names the family: this is the ${fam.name.toLowerCase()} parent, whose graph is ${fam.shape}.`,
+            misc,
+          ),
+        ],
       });
     }
     if (difficulty === 2) {
+      const graphAnswer = makeChoice(rng, fam.name, others);
       return makeProblem({
         skillId: 'S1.17',
         tags: ['graph'],
@@ -192,7 +241,7 @@ export const genParentFunctions: GeneratorDef = {
           p('Which parent function is graphed?'),
           { t: 'graph', spec: { xMin: -9, xMax: 9, yMin: -4, yMax: 10, functions: [{ expr: fam.expr }], ariaLabel: `The graph is ${fam.shape}.` } },
         ],
-        answer: makeChoice(rng, fam.name, others),
+        answer: graphAnswer,
         hints: [
           'Is the graph a straight line, or does it curve or bend?',
           'A sharp V point means absolute value; a smooth U means quadratic.',
@@ -203,7 +252,7 @@ export const genParentFunctions: GeneratorDef = {
           { text: 'Describe the shape.', why: `The graph is ${fam.shape}.` },
           { text: `That is the ${fam.name.toLowerCase()} parent function.`, tex: fam.tex },
         ],
-        misconceptions: [],
+        misconceptions: familyMisc(graphAnswer, fam.name),
       });
     }
     if (rng.bool()) return featureProblem(rng);
@@ -212,11 +261,21 @@ export const genParentFunctions: GeneratorDef = {
     const correct = askRange ? fam.range : fam.domain;
     const pool = ['All real numbers', '$y \\ge 0$', '$y > 0$', '$x \\ge 0$', '$y \\le 0$'].filter((o) => o !== correct);
     const distractors = rng.shuffle(pool).slice(0, 3);
+    const drAnswer = makeChoice(rng, correct, distractors);
+    const word = askRange ? 'output' : 'input';
+    const drFeedback = (label: string): string => {
+      if (label === 'All real numbers') return `Can the ${word} really be any number? Try a negative ${word} and see what happens.`;
+      if (askRange && label.includes('x')) return 'The range is about outputs ($y$-values), not inputs.';
+      if (!askRange && label.includes('y')) return 'The domain is about inputs ($x$-values), not outputs.';
+      if ((label === '$y \\ge 0$' && correct === '$y > 0$') || (label === '$y > 0$' && correct === '$y \\ge 0$')) return 'Check whether the output 0 itself is reached.';
+      if (label === '$y \\le 0$') return 'Look at the graph: is it below the $x$-axis or above it?';
+      return `Picture the graph: ${fam.shape}. Which ${word}s does it use?`;
+    };
     return makeProblem({
       skillId: 'S1.17',
       tags: [],
       prompt: [p(`What is the ${askRange ? 'range' : 'domain'} of the parent function $${fam.tex}$?`)],
-      answer: makeChoice(rng, correct, distractors),
+      answer: drAnswer,
       hints: [
         askRange ? 'The range is the set of all outputs ($y$-values) the function can produce.' : 'The domain is the set of all inputs ($x$-values) you are allowed to use.',
         `Picture the graph: ${fam.shape}.`,
@@ -227,7 +286,7 @@ export const genParentFunctions: GeneratorDef = {
         { text: 'Think about the graph.', why: `The graph is ${fam.shape}.` },
         { text: `The ${askRange ? 'range' : 'domain'} is: ${correct}.`, why: fam.name === 'Exponential' ? '$2^x$ is always positive, but it never reaches 0.' : fam.name === 'Square root' ? 'Square roots of negative numbers are not real, and a square root is never negative.' : fam.name === 'Cube root' ? 'Every real number has exactly one real cube root: $\\sqrt[3]{-8} = -2$ because $(-2)^3 = -8$. So any real number can go in, and any real number can come out.' : fam.name === 'Quadratic' || fam.name === 'Absolute value' ? 'Squares and absolute values are never negative, and both equal 0 when $x = 0$.' : 'The graph keeps going up and down forever.' },
       ],
-      misconceptions: [],
+      misconceptions: drAnswer.options.filter((o) => o.id !== drAnswer.correct).map((o) => ({ answer: o.id, tag: 'interval-endpoint' as const, feedback: drFeedback(o.label) })),
     });
   },
   verify(pr) {
@@ -240,7 +299,9 @@ export const genParentFunctions: GeneratorDef = {
     if (g) return fingerprint(g.spec.functions[0].expr) === label ? [] : ['graph is not the chosen family'];
     if (mb) {
       const expr = mb.tex.replace('f(x) = ', '').replace('\\sqrt[3]{x}', 'cbrt(x)').replace('\\sqrt{x}', 'sqrt(x)').replace('|x|', 'abs(x)');
-      return fingerprint(expr) === label ? [] : ['equation is not the chosen family'];
+      const famName = fingerprint(expr);
+      if (famName !== label) return ['equation is not the chosen family'];
+      return stepErrors(pr, [OPERATION[famName] ?? '?', null]);
     }
     // domain/range: sample the function numerically
     const text = (pr.prompt[0] as { text: string }).text;
@@ -303,6 +364,13 @@ const EQ_BANK: Array<{ tex: string; plain: string; linear: boolean; why: string 
 
 const YES = 'Linear';
 const NO = 'Not linear';
+const X_FIRST_POWER = 'Only to the first power, like $3x$ or $\\frac{x}{4}$ (or not at all)';
+const X_OTHER = 'Squared, as an exponent, in a denominator, or inside absolute value bars or a root';
+
+/** Feedback for the wrong choice in a linear / not linear question. */
+function linearFeedback(answer: { options: { id: string; label: string }[]; correct: string }, isLinear: boolean, text: string) {
+  return answer.options.filter((o) => o.id !== answer.correct).map((o) => ({ answer: o.id, tag: (isLinear ? 'formula-error' : 'slope-calc') as 'formula-error' | 'slope-calc', feedback: text }));
+}
 
 export const genLinearVsNonlinear: GeneratorDef = {
   id: 'u1.linear-vs-nonlinear',
@@ -311,11 +379,13 @@ export const genLinearVsNonlinear: GeneratorDef = {
   generate(rng, difficulty) {
     if (difficulty === 2) {
       const e = rng.pick(EQ_BANK);
+      const answer = makeChoice(rng, e.linear ? YES : NO, [e.linear ? NO : YES]);
+      const misc = linearFeedback(answer, e.linear, e.linear ? 'Look at how $x$ and $y$ appear: only to the first power. Forms like $Ax + By = C$ or point-slope form are still lines.' : `Look again at how $x$ appears. ${e.why}`);
       return makeProblem({
         skillId: 'S1.17',
         tags: [],
         prompt: [p('Is this equation a linear function?'), math(e.tex)],
-        answer: makeChoice(rng, e.linear ? YES : NO, [e.linear ? NO : YES]),
+        answer,
         hints: [
           'A linear equation can be written as $y = mx + b$.',
           'Look for $x$ raised to a power other than 1, $x$ in an exponent, $x$ in a denominator, or $x$ inside absolute value bars or a square root.',
@@ -326,7 +396,24 @@ export const genLinearVsNonlinear: GeneratorDef = {
           { text: 'Check how $x$ and $y$ appear.', tex: e.tex, why: e.why },
           { text: e.linear ? 'So the equation is linear.' : 'So the equation is not linear.' },
         ],
-        misconceptions: [],
+        misconceptions: misc,
+        steps: [
+          choiceStep(
+            [p('How does $x$ appear in this equation? Multiply out or rearrange first if you need to.'), math(e.tex)],
+            [X_FIRST_POWER, X_OTHER],
+            e.linear ? 0 : 1,
+            ['Look at every place where $x$ appears.', 'Check for a small raised number on $x$, or $x$ used as a raised number.', 'Check whether $x$ is in a denominator, inside bars $|\\ |$, or under a root sign.', 'If there are parentheses, multiply them out first.'],
+            e.why,
+            [{ index: e.linear ? 1 : 0, tag: 'formula-error', feedback: e.linear ? 'Look again: dividing $x$ by a number, or moving terms around, still leaves $x$ to the first power.' : 'Look again at what is done to $x$, and multiply out any parentheses.' }],
+          ),
+          finalStep(
+            'So is the equation a linear function?',
+            answer,
+            ['Use what you found about how $x$ appears.', 'A linear function can be written as $y = mx + b$.', 'With $x$ only to the first power, the graph is a straight line.', 'Any other operation on $x$ bends the graph.'],
+            e.linear ? 'The variables appear only to the first power, so the equation can be written as $y = mx + b$: a line.' : 'The operation on $x$ makes the rate of change vary, so the graph is not a straight line.',
+            misc,
+          ),
+        ],
       });
     }
     // table, equal steps (d1) or uneven steps (d3)
@@ -343,11 +430,38 @@ export const genLinearVsNonlinear: GeneratorDef = {
     }
     const ys = xs.map((x) => rule.f(Q(x)));
     const diffs = ys.slice(1).map((y, i) => y.sub(ys[i]));
+    const answer = makeChoice(rng, linear ? YES : NO, [linear ? NO : YES]);
+    const what = difficulty === 1 ? 'change in $y$' : 'rate of change';
+    const misc = linearFeedback(answer, linear, linear ? `Work out every ${what} again. If they are all the same, the rate of change is constant and the function is linear.` : `Compare the ${what}s between rows: they are not all the same, so the rate of change is not constant.`);
+    const diffStep = (i: number) =>
+      numStep(
+        `What is the change in $y$ from $x = ${xs[i]}$ to $x = ${xs[i + 1]}$?`,
+        diffs[i],
+        ['The change in $y$ is the later $y$-value minus the earlier one.', `Find the rows for $x = ${xs[i]}$ and $x = ${xs[i + 1]}$.`, `Subtract: (the $y$ for $x = ${xs[i + 1]}$) minus (the $y$ for $x = ${xs[i]}$).`, 'If $y$ goes down, the change is negative.'],
+        `Since $x$ goes up by 1 here, the change in $y$ is the rate of change between these rows: $${diffs[i].toTex()}$.`,
+        [{ value: diffs[i].neg(), tag: 'sign-error', feedback: 'Subtract in order: the later $y$-value minus the earlier one.' }],
+      );
     return makeProblem({
       skillId: 'S1.17',
       tags: [],
       prompt: [p('Does this table show a linear function?'), { t: 'table', headers: ['x', 'y'], rows: xs.map((x, i) => [String(x), ys[i].toString()]) }],
-      answer: makeChoice(rng, linear ? YES : NO, [linear ? NO : YES]),
+      answer,
+      ...(difficulty === 1
+        ? {
+            steps: [
+              diffStep(0),
+              diffStep(1),
+              diffStep(2),
+              finalStep(
+                'Check the last pair of rows too. Is the change in $y$ always the same? So is the function linear?',
+                answer,
+                ['Compare the changes you found.', 'Also find the change between the last two rows.', 'A linear function has the same change in $y$ for every step of 1 in $x$.', 'One different change is enough to show it is not linear.'],
+                linear ? 'Every step of 1 in $x$ changes $y$ by the same amount, so the rate of change is constant and the graph is a line.' : 'The changes in $y$ are not all equal, so the rate of change is not constant and the graph bends.',
+                misc,
+              ),
+            ],
+          }
+        : {}),
       hints: [
         'A function is linear when its rate of change is constant.',
         difficulty === 1 ? 'The $x$-values go up by 1 each time. Find the change in $y$ between each pair of rows.' : 'The $x$-values do not go up by the same amount, so compare rates: change in $y$ divided by change in $x$.',
@@ -362,7 +476,7 @@ export const genLinearVsNonlinear: GeneratorDef = {
         },
         { text: linear ? 'The rate is the same every time, so the function is linear.' : 'The rate changes, so the function is not linear.' },
       ],
-      misconceptions: [],
+      misconceptions: misc,
     });
   },
   verify(pr) {
@@ -373,7 +487,9 @@ export const genLinearVsNonlinear: GeneratorDef = {
       const pts = table.rows.map((r) => [Rational.parse(r[0]), Rational.parse(r[1])] as const);
       const rates = pts.slice(1).map((q, i) => q[1].sub(pts[i][1]).div(q[0].sub(pts[i][0])));
       const isLinear = rates.every((r) => r.eq(rates[0]));
-      return isLinear === says ? [] : ['classification mismatch'];
+      if (isLinear !== says) return ['classification mismatch'];
+      // steps (equal x-steps): the first three changes in y, read from the table
+      return stepErrors(pr, [pts[1][1].sub(pts[0][1]), pts[2][1].sub(pts[1][1]), pts[3][1].sub(pts[2][1]), null]);
     }
     const mb = pr.prompt.find((b) => b.t === 'math') as { tex: string };
     const e = EQ_BANK.find((q) => q.tex === mb.tex);
@@ -387,7 +503,8 @@ export const genLinearVsNonlinear: GeneratorDef = {
     } catch {
       isLinear = false; // not a polynomial (exponent, division by x, absolute value)
     }
-    return isLinear === says ? [] : ['classification mismatch'];
+    if (isLinear !== says) return ['classification mismatch'];
+    return stepErrors(pr, [isLinear ? X_FIRST_POWER : X_OTHER, null]);
   },
 };
 

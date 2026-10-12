@@ -1145,7 +1145,9 @@ export const genSolveExponential: GeneratorDef = {
       let n = 0;
       for (let pw = Q(1); !pw.eq(Q(d1[5])) && n < 40; n++) pw = pw.mul(Number(d1[1]));
       const q = d1[3] ? Number(d1[4]) * (d1[3] === '-' ? -1 : 1) : 0;
-      want.push(Q(n), Q(n - q));
+      const pc = d1[2] ? Number(d1[2]) : 1;
+      // three steps: exponent, then pc*x = n - q, then x; two steps: exponent, then x
+      want.push(Q(n), ...(pr.steps!.length === 3 ? [Q(n - q)] : []), Q(n - q).div(pc));
     }
     errs.push(...stepErrors(pr, want));
     return errs;

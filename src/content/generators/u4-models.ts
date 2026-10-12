@@ -10,7 +10,7 @@ import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, money, texToExpr, numberMisconceptions } from './util';
-import { tailTex } from './u4-common';
+import { tailTex, fixedChoice, choiceMis, numMis, exprMis, gstep, checkSteps, pickLabel } from './u4-common';
 import { X, pTex, pPlain, plainPoly, ev, vertexOf, vtxTex, vtxPlain, vtxPoly, factTex, factPlain, factPoly, rhsPoly, mathBlocks, promptText, graphOf, subTex, coefTex } from './u4-common';
 
 const nz = (rng: Rng, lo: number, hi: number) => rng.nonzeroInt(lo, hi);
@@ -156,6 +156,49 @@ export const genRewriteForms: GeneratorDef = {
         { text: 'Expand the square.', tex: `${coefTex(a)}\\left(${pTex(X([h * h, -2 * h, 1]))}\\right)${k === 0 ? '' : k < 0 ? ` - ${-k}` : ` + ${k}`}`, why: '$(x - h)^{2} = x^{2} - 2hx + h^{2}$.' },
         { text: a === 1 ? 'Combine the constants.' : `Distribute $${a}$ and combine the constants.`, tex: pTex(f) },
       ];
+      // guided steps: expand the square, distribute a (when a is not 1), then add k
+      const sqP = X([h * h, -2 * h, 1]);
+      const sqTex = `\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)^{2}`;
+      steps.push(
+        gstep(
+          `Start with the square. Write $${sqTex}$ in standard form.`,
+          { kind: 'expression', value: pPlain(sqP), form: 'expanded' },
+          ['Squaring means multiplying the binomial by itself.', `Write it as $\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)$ and multiply every term by every term.`, `The two middle products are equal, so the $x$ term is twice one of them: $2(${-h}x)$.`, `The last term is $${-h < 0 ? `(${-h})` : -h}^{2}$, which is positive.`],
+          `$${sqTex} = ${pTex(sqP)}$: $x \\cdot x$, two middle products of $${-h}x$, and $${-h} \\cdot ${subTex(-h)} = ${h * h}$.`,
+          exprMis(pPlain(sqP), [
+            { answer: pPlain(X([h * h, 0, 1])), tag: 'distribution', feedback: '$(x - h)^{2}$ is $(x - h)(x - h)$. Squaring each term misses the two middle products.' },
+            { answer: pPlain(X([h * h, -h, 1])), tag: 'distribution', feedback: 'There are **two** middle products, so the $x$ term is doubled.' },
+            { answer: pPlain(X([h * h, 2 * h, 1])), tag: 'sign-error', feedback: `Check the sign of the $x$ term: $x \\cdot (${-h}) = ${-h}x$.` },
+          ]),
+          'Type an expression like x^2 - 6x + 9.',
+        ),
+      );
+      if (a !== 1) {
+        const aP = sqP.scale(Q(a));
+        steps.push(
+          gstep(
+            `Now multiply: what is $${a}\\left(${pTex(sqP)}\\right)$?`,
+            { kind: 'expression', value: pPlain(aP), form: 'expanded' },
+            ['The distributive property: the number outside multiplies **every** term inside.', `Multiply $${a}$ by $x^{2}$, by the $x$ term and by the constant.`, a < 0 ? 'A negative times a negative is positive; a negative times a positive is negative.' : 'Keep the sign of each term.', `The constant becomes $${a} \\cdot ${h * h}$.`],
+            `$${a}$ multiplies each term: $${pTex(aP)}$. The order of operations squares first, then multiplies.`,
+            exprMis(pPlain(aP), [
+              { answer: pPlain(X([h * h, -2 * h, a])), tag: 'distribution', feedback: `Multiply **every** term by $${a}$, not just the first one.` },
+              { answer: pPlain(X([h * h * a, 2 * h * a, a])), tag: 'sign-error', feedback: 'Check the sign of the $x$ term after multiplying.' },
+            ]),
+            'Type an expression like 2x^2 - 12x + 18.',
+          ),
+        );
+      }
+      steps.push(
+        gstep(
+          k === 0 ? 'Nothing is added at the end. Write $f$ in standard form.' : `Last, ${k > 0 ? 'add' : 'subtract'} $${Math.abs(k)}$. Write $f$ in standard form.`,
+          { kind: 'expression', value: target, form },
+          [`$k = ${k}$ is added at the end, after the squared part.`, 'Only the constant term changes.', 'Combine the constant terms.', 'Write the $x^{2}$ term first, then the $x$ term, then the constant.'],
+          `$${pTex(sqP.scale(Q(a)))} ${k === 0 ? '' : k < 0 ? `- ${-k}` : `+ ${k}`} = ${pTex(f)}$.`,
+          [...misconceptions, ...exprMis(target, [{ answer: pPlain(sqP.scale(Q(a)).add(X([-k]))), tag: 'sign-error', feedback: `Check the sign of $k$: the function ${k > 0 ? 'adds' : 'subtracts'} $${Math.abs(k)}$.` }])],
+          'Type an answer like 2x^2 - 4x + 1.',
+        ),
+      );
     } else if (mode === 'f2s') {
       pickZeros(false);
       f = factPoly(a, r, s);
@@ -227,7 +270,11 @@ export const genRewriteForms: GeneratorDef = {
     if (form === 'vertex' && !isVertexForm(n)) errs.push('not vertex form');
     if (form === 'factored' && !isCompletelyFactored(n)) errs.push('not factored');
     if (form === 'expanded' && !isExpandedForm(n)) errs.push('not expanded');
-    return errs;
+    if (errs.length || pr.difficulty !== 1) return errs;
+    // steps (difficulty 1): (x - h)^2 with h = -b/(2a) of the printed function, times a, then the answer
+    const { a, h } = vertexOf(f);
+    const sq = Poly.fromCoeffs('x', [h.mul(h), h.mul(-2), Q(1)]);
+    return checkSteps(pr, [pPlain(sq), ...(a.eq(1) ? [] : [pPlain(sq.scale(a))]), pr.answer.value]);
   },
 };
 
@@ -364,6 +411,25 @@ export const genMaxMin: GeneratorDef = {
     const misconceptions: Misconception[] = [{ answer: String(h), tag: 'graph-reading', feedback: `That is where the ${kind} happens ($x$-value). The ${kind} value is the output, $f(x)$.` }];
     if (difficulty === 1 && -h !== k) misconceptions.push({ answer: String(-h), tag: 'vertex-sign', feedback: 'The minimum or maximum value is the $k$ in $a(x - h)^{2} + k$, the number added at the end.' });
     const { b } = vertexOf(f);
+    const MIN_L = 'A minimum: $a > 0$, so the parabola opens up';
+    const MAX_L = 'A maximum: $a < 0$, so the parabola opens down';
+    const dir = fixedChoice(a > 0 ? MIN_L : MAX_L, [a > 0 ? MAX_L : MIN_L]);
+    const d1Steps: ProblemStep[] = [
+      gstep(
+        `In $f(x) = ${ftex}$, $a = ${a}$. Does $f$ have a maximum or a minimum?`,
+        dir,
+        ['The sign of $a$ tells you which way the parabola opens.', 'Positive $a$: it opens up. Negative $a$: it opens down.', 'A parabola that opens up has a lowest point; one that opens down has a highest point.', `Is $${a}$ positive or negative?`],
+        `$a = ${a}$ is ${a > 0 ? 'positive, so the parabola opens up and its vertex is the lowest point: a minimum' : 'negative, so the parabola opens down and its vertex is the highest point: a maximum'}.`,
+        [choiceMis(dir, a > 0 ? MAX_L : MIN_L, 'sign-error', `$a = ${a}$ is ${a > 0 ? 'positive' : 'negative'}. Which way does that make the parabola open?`)],
+      ),
+      gstep(
+        `What is that ${kind} value?`,
+        numSpec(Q(k)),
+        ['The maximum or minimum value is the output at the vertex, the $y$-coordinate.', 'In vertex form $a(x - h)^{2} + k$, the vertex is $(h, k)$.', `At $x = ${h}$ the squared part is $0$, so only the number added at the end is left.`, 'Read the number added at the end, with its sign.'],
+        `The squared part is never ${a > 0 ? 'negative' : 'positive'} after multiplying by $a$, and it is $0$ at $x = ${h}$, so the ${kind} value is $f(${h}) = ${k}$.`,
+        misconceptions,
+      ),
+    ];
     return makeProblem({
       skillId: 'S4.18',
       tags: difficulty === 2 ? ['multi-step'] : [],
@@ -389,7 +455,7 @@ export const genMaxMin: GeneratorDef = {
               { prompt: [p(`What is the ${kind} value, $f(${h})$?`)], answer: numSpec(Q(k)), hints: [`Substitute $${h}$.`, 'Square first.', 'Then multiply and add.', 'This is the output at the vertex.'], explanation: `$f(${h}) = ${k}$.`, misconceptions },
             ] as ProblemStep[],
           }
-        : {}),
+        : { steps: d1Steps }),
     });
   },
   verify(pr) {
@@ -417,7 +483,9 @@ export const genMaxMin: GeneratorDef = {
     const best = c.sub(b.mul(b).div(a.mul(4)));
     const h = b.neg().div(a.mul(2));
     for (const d of [Q(1, 7), Q(1), Q(3), Q(-1, 7), Q(-1), Q(-3)]) if (ev(f, h.add(d), v).sub(best).sign() !== a.sign()) return ['not an extreme value'];
-    return Q(pr.answer.value).eq(best) ? [] : [`expected ${best.toString()}`];
+    if (!Q(pr.answer.value).eq(best)) return [`expected ${best.toString()}`];
+    // steps (difficulty 1): maximum or minimum from the sign of a, then the completed-square value
+    return pr.difficulty === 1 ? checkSteps(pr, [pickLabel(pr.steps?.[0]?.answer ?? pr.answer, a.sign() > 0 ? 'A minimum: $a > 0$, so the parabola opens up' : 'A maximum: $a < 0$, so the parabola opens down'), best.toString()]) : [];
   },
 };
 
@@ -761,6 +829,7 @@ export const genWriteVertexForm: GeneratorDef = {
     const misconceptions: Misconception[] = [{ answer: yEq(vtxPlain(A, -h, k)), tag: 'vertex-sign', feedback: 'A vertex at $x = h$ gives $(x - h)^{2}$. For $h = 2$ that is $(x - 2)^{2}$; for $h = -2$ it is $(x + 2)^{2}$.' }];
     const wrongA = y1.sub(k);
     if (!wrongA.eq(A) && !h.toString().startsWith('0') && dd * dd !== 1) misconceptions.push({ answer: yEq(vtxPlain(wrongA, h, k)), tag: 'arithmetic-error', feedback: `After subtracting $k$, divide by $(x - h)^{2}$, which is $${dd * dd}$ here.` });
+    misconceptions.push({ answer: yEq(vtxPlain(A.neg(), h, k)), tag: 'sign-error', feedback: `Check the sign of $a$: the point $(${x1}, ${y1.toTex()})$ is ${A.isNegative() ? 'below' : 'above'} the vertex, so the parabola opens ${A.isNegative() ? 'down' : 'up'}.` });
     return makeProblem({
       skillId: 'S4.20',
       tags: difficulty === 2 ? ['graph'] : [],
@@ -847,7 +916,29 @@ export const genWriteFactoredForm: GeneratorDef = {
     }
     const misconceptions: Misconception[] = [{ answer: yEq(factPlain(A, -r, -s)), tag: 'sign-error', feedback: 'An $x$-intercept at $x = r$ comes from the factor $(x - r)$. For $x = 3$ use $(x - 3)$; for $x = -3$ use $(x + 3)$.' }];
     if (!A.eq(1)) misconceptions.push({ answer: yEq(factPlain(1, r, s)), tag: 'other', feedback: 'Those intercepts are right, but the parabola must also pass through the other point. Solve for $a$.' });
-    const steps: ProblemStep[] = difficulty === 1 ? [] : [
+    const factorStep = (z: number, which: string) => {
+      const fac = X([-z, 1]);
+      return gstep(
+        `The ${which} $x$-intercept is $x = ${z}$. Which factor $(x - r)$ does it give? Write the factor.`,
+        { kind: 'expression' as const, value: pPlain(fac) },
+        ['At an $x$-intercept, $y = 0$, and a product is $0$ only when one of its factors is $0$.', `So the factor must be $0$ when $x = ${z}$.`, 'Use $(x - r)$ with $r$ equal to the intercept.', z < 0 ? 'Subtracting a negative number is adding: $x - (-3) = x + 3$.' : z === 0 ? 'Subtracting $0$ leaves just $x$.' : 'Subtract the intercept from $x$.'],
+        `$${pTex(fac)}$ is $0$ exactly when $x = ${z}$, so it is the factor for that intercept.`,
+        z === 0 ? [] : exprMis(pPlain(fac), [{ answer: pPlain(X([z, 1])), tag: 'sign-error', feedback: `Check: is your factor $0$ when $x = ${z}$? The factor is $x - r$, so the sign flips.` }]),
+        'Type a factor like x - 3 or x + 2.',
+      );
+    };
+    const steps: ProblemStep[] = difficulty === 1 ? [
+      factorStep(r, 'first'),
+      factorStep(s, 'second'),
+      gstep(
+        'Now write the equation in factored form, $y = a(x - r)(x - s)$, with a leading coefficient of $1$.',
+        { kind: 'equation', value, form: 'factored' },
+        ['Multiply the two factors you found.', 'A leading coefficient of $1$ means $a = 1$, so nothing is written in front.', 'Start with $y = $.', 'Check: both intercepts should make $y = 0$.'],
+        `$y = ${factTex(A, r, s)}$ is $0$ at $x = ${r}$ and at $x = ${s}$, and multiplies out with $x^{2}$ first.`,
+        misconceptions,
+        'Type an equation like y = (x - 1)(x + 3).',
+      ),
+    ] : [
       { prompt: [p(`Substitute $(${x1}, ${y1.toTex()})$ into $y = a(x - ${subTex(r)})(x - ${subTex(s)})$. What is $a$?`)], answer: numSpec(A), hints: [`$${y1.toTex()} = a(${x1} - ${subTex(r)})(${x1} - ${subTex(s)})$.`, `$(${x1} - ${subTex(r)})(${x1} - ${subTex(s)}) = ${(x1 - r) * (x1 - s)}$.`, `Divide $${y1.toTex()}$ by that number.`, 'Keep the sign.'], explanation: `$a = ${A.toTex()}$.` },
       { prompt: [p('Write the equation in factored form.')], answer: { kind: 'equation', value, form: 'factored' }, inputHint: 'Type an equation like y = 2(x - 1)(x + 3).', hints: ['Use $y = a(x - r)(x - s)$.', `$a = ${A.toTex()}$.`, 'Each intercept $r$ gives a factor $(x - r)$.', 'Watch the signs.'], explanation: `$y = ${factTex(A, r, s)}$.`, misconceptions },
     ];
@@ -884,7 +975,9 @@ export const genWriteFactoredForm: GeneratorDef = {
     const pt = /passes through \$\((-?\d+), (-?\d+)\)\$/.exec(text);
     if (pt && !ev(g, Number(pt[1])).eq(Number(pt[2]))) errs.push('misses the point');
     if (/leading coefficient of \$1\$/.test(text) && !g.coeff('x', 2).eq(1)) errs.push('leading coefficient');
-    return errs;
+    if (errs.length || pr.difficulty !== 1) return errs;
+    // steps (difficulty 1): each intercept z gives the factor x - z, then the equation
+    return checkSteps(pr, [`x - (${z[1]})`, `x - (${z[2]})`, pr.answer.value]);
   },
 };
 
@@ -1000,6 +1093,7 @@ export const genModelSituation: GeneratorDef = {
     let hints: Hints;
     let solution;
     let inputHint: string;
+    let launchSteps: ProblemStep[] | undefined;
     if (kind === 'launch') {
       const v0 = rng.pick([24, 32, 40, 48, 56, 64, 80]);
       const h0 = rng.int(2, 60);
@@ -1014,6 +1108,30 @@ export const genModelSituation: GeneratorDef = {
       solution = [
         { text: 'Identify the values.', why: `$v_0 = ${v0}$ ft/s and $h_0 = ${h0}$ ft.` },
         { text: 'Substitute.', tex: `h(t) = ${pTex(Poly.fromCoeffs('t', [Q(h0), Q(v0), Q(-16)]), 't')}`, why: 'The $-16t^{2}$ comes from gravity, in feet and seconds.' },
+      ];
+      launchSteps = [
+        gstep(
+          'In $h(t) = -16t^{2} + v_0 t + h_0$, $v_0$ is the initial (starting) velocity, in feet per second. What is $v_0$ here?',
+          numSpec(Q(v0)),
+          ['A velocity is a speed with a direction, measured here in feet per second.', 'Read the story for the number with "feet per second".', 'The starting height is a different number: it is in feet, not feet per second.', 'Use the initial velocity from the story.'],
+          `The ${thing} starts moving up at $${v0}$ feet per second, so $v_0 = ${v0}$; it multiplies $t$ because it adds $${v0}$ feet of rise for each second.`,
+          numMis(v0, [{ value: h0, tag: 'equation-setup', feedback: 'That is the starting height, in feet. $v_0$ is the velocity, in feet per second.' }]),
+        ),
+        gstep(
+          'And $h_0$ is the starting height, in feet. What is $h_0$?',
+          numSpec(Q(h0)),
+          ['The starting height is the height at $t = 0$, when the throw begins.', 'Read the story for the number with "feet" (not "feet per second").', `Substituting $t = 0$ leaves only $h_0$: $h(0) = h_0$.`, 'Use the height the object is thrown from.'],
+          `The ${thing} is thrown from $${h0}$ feet, so $h_0 = ${h0}$: at $t = 0$ both $t$ terms are $0$ and only $h_0$ is left.`,
+          numMis(h0, [{ value: v0, tag: 'equation-setup', feedback: 'That is the velocity, in feet per second. $h_0$ is the starting height, in feet.' }]),
+        ),
+        gstep(
+          'Substitute both values into $h(t) = -16t^{2} + v_0 t + h_0$. Write $h(t)$.',
+          { kind: 'expression', value, variables: [v] },
+          ['Keep the $-16t^{2}$: it comes from gravity, in feet and seconds.', 'Put $v_0$ in front of $t$.', 'Put $h_0$ at the end as the constant.', 'Write the terms from $t^{2}$ to the constant.'],
+          `$h(t) = -16t^{2} + ${v0}t + ${h0}$: gravity, the starting velocity times time, and the starting height.`,
+          misconceptions,
+          inputHint,
+        ),
       ];
     } else if (kind === 'fence') {
       const P = rng.pick([20, 30, 36, 40, 50, 64, 80, 100]);
@@ -1068,6 +1186,7 @@ export const genModelSituation: GeneratorDef = {
       hints,
       solution,
       misconceptions,
+      ...(launchSteps ? { steps: launchSteps } : {}),
     });
   },
   verify(pr) {
@@ -1083,7 +1202,9 @@ export const genModelSituation: GeneratorDef = {
       if (!ev(g, 0, 't').eq(h0)) errs.push('wrong starting height');
       if (!g.coeff('t', 2).eq(-16)) errs.push('wrong gravity term');
       if (!ev(g, 1, 't').sub(ev(g, 0, 't')).eq(v0 - 16)) errs.push('wrong velocity');
-      return errs;
+      if (errs.length) return errs;
+      // steps: v0 and h0 as printed in the story (the key was checked against them physically above), then the key
+      return checkSteps(pr, [String(v0), String(h0), pr.answer.value]);
     }
     if ((m = /enclosed by \$(\d+)\$ feet of fencing/.exec(text))) {
       const P = Number(m[1]);
@@ -1300,11 +1421,54 @@ export const genCompareFunctions: GeneratorDef = {
     }
     const L = (w: string) => (w === 'same' ? `They have the same ${T.noun}` : `$${w}$ has the ${T.greater}`);
     const correct = fv.gt(gv) ? L('f') : gv.gt(fv) ? L('g') : L('same');
+    const answer = makeChoice(rng, correct, [L('f'), L('g'), L('same')].filter((x) => x !== correct));
+    let steps: ProblemStep[] | undefined;
+    if (difficulty === 1) {
+      const isY = ft === 'yint';
+      const what = isY ? 'its $y$-intercept, the output when $x = 0$' : 'the number $h$ in its axis of symmetry, $x = h$';
+      steps = [
+        gstep(
+          `Start with $${fTex}$. What is ${what}?`,
+          numSpec(fv),
+          [
+            isY ? 'The $y$-intercept is where the graph crosses the $y$-axis, where $x = 0$.' : 'The axis of symmetry is the vertical line through the vertex.',
+            isY ? 'Substitute $x = 0$ into the equation.' : fForm === 'vertex' ? 'In vertex form $a(x - h)^{2} + k$, the vertex is $(h, k)$.' : 'For standard form, use $x = -\\frac{b}{2a}$.',
+            isY ? (fForm === 'standard' ? 'Every term with an $x$ becomes $0$.' : 'Work inside the parentheses first, square, multiply by $a$, then add $k$.') : fForm === 'vertex' ? '$h$ is the number subtracted from $x$ inside the parentheses.' : `Here $a = ${F.f.coeff('x', 2).toTex()}$ and $b = ${F.f.coeff('x', 1).toTex()}$.`,
+            isY ? 'The result is one number, an output.' : 'Watch the sign of $h$.',
+          ],
+          findF,
+          isY
+            ? numMis(fv, [fForm === 'vertex' ? { value: Q(F.k), tag: 'other', feedback: 'That is $k$, the $y$-value of the vertex. The $y$-intercept is the output when $x = 0$.' } : null])
+            : numMis(fv, [{ value: Q(-F.h), tag: 'vertex-sign', feedback: fForm === 'vertex' ? 'Watch the sign: $(x - 3)^{2}$ has $h = 3$ and $(x + 3)^{2}$ has $h = -3$.' : 'Keep the negative sign in $x = -\\frac{b}{2a}$.' }, { value: Q(F.k), tag: 'graph-reading', feedback: 'That is the $y$-value of the vertex. The axis of symmetry uses the $x$-value.' }]),
+        ),
+        gstep(
+          `Now use the table for $g$. What is ${what}?`,
+          numSpec(gv),
+          [
+            isY ? 'In a table, the $y$-intercept is the output in the row where $x = 0$.' : 'A parabola is symmetric, so its table outputs match in pairs around the vertex.',
+            isY ? 'Find the row with $x = 0$.' : 'Look for the output that is the highest or lowest, where the values turn around.',
+            isY ? 'Read across to the $g(x)$ column.' : 'The outputs on each side of that row are equal.',
+            isY ? 'The answer is an output, not an input.' : 'The axis is $x = $ the input of that turning row.',
+          ],
+          findG,
+          isY
+            ? numMis(gv, [{ value: Q(G.k), tag: 'graph-reading', feedback: 'That is the $y$-value of the vertex of $g$. The $y$-intercept is the output in the row where $x = 0$.' }])
+            : numMis(gv, [{ value: Q(G.k), tag: 'graph-reading', feedback: 'That is the output at the vertex. The axis of symmetry uses the input, the $x$-value.' }]),
+        ),
+        gstep(
+          `Compare $${fv.toTex()}$ and $${gv.toTex()}$. Which function has the ${T.greater}?`,
+          answer,
+          [isY ? 'The greater $y$-intercept is the greater number.' : 'Farther to the right means a greater $x$-value.', 'Use the two values you found.', 'Remember that a negative number is less than $0$ and less than any positive number.', 'If the two values are equal, neither is greater.'],
+          `${correct}: $${fv.toTex()}$ ${fv.gt(gv) ? '>' : fv.lt(gv) ? '<' : '='} $${gv.toTex()}$.`,
+          [L('f'), L('g'), L('same')].map((lab) => choiceMis(answer, lab, 'other', `Compare the two values: $f$ gives $${fv.toTex()}$ and $g$ gives $${gv.toTex()}$. ${fv.eq(gv) ? 'They are equal.' : `The greater one is $${(fv.gt(gv) ? fv : gv).toTex()}$.`}`)),
+        ),
+      ];
+    }
     return makeProblem({
       skillId: 'S4.21',
       tags: [],
       prompt: [...prompt, p(`Which function has the ${T.greater}?`)],
-      answer: makeChoice(rng, correct, [L('f'), L('g'), L('same')].filter((x) => x !== correct)),
+      answer,
       hints,
       solution: [
         { text: `Find the ${T.noun} of $f$.`, why: findF },
@@ -1312,6 +1476,7 @@ export const genCompareFunctions: GeneratorDef = {
         { text: `Compare: $${fv.toTex()}$ and $${gv.toTex()}$.`, why: `${correct}.` },
       ],
       misconceptions: [],
+      ...(steps ? { steps } : {}),
     });
   },
   verify(pr) {
@@ -1368,7 +1533,9 @@ export const genCompareFunctions: GeneratorDef = {
     if (pr.answer.kind !== 'choice') return ['unexpected kind'];
     const label = choiceLabel(pr.answer);
     const want = fv.gt(gv) ? /^\$f\$ has/ : gv.gt(fv) ? /^\$g\$ has/ : /^They have the same/;
-    return want.test(label) ? [] : ['wrong key'];
+    if (!want.test(label)) return ['wrong key'];
+    // steps (difficulty 1): the feature of f from its equation, of g from the fitted table, then the comparison
+    return pr.difficulty === 1 ? checkSteps(pr, [fv.toString(), gv.toString(), pr.answer.correct]) : [];
   },
 };
 

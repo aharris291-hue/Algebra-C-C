@@ -159,7 +159,7 @@ export const U6L08: LessonContent = {
       steps: [
         { text: 'Find the common ratio.', tex: 'r = \\frac{10}{5} = 2', why: 'Check: $\\frac{20}{10} = 2$ and $\\frac{40}{20} = 2$, so the ratio really is constant. The base is $b = r = 2$.' },
         { text: 'Find $a$ by stepping back one term.', tex: 'a = \\frac{a_1}{r} = \\frac{5}{2} = 2.5', why: 'Going back from term 1 to "term 0" undoes one multiplication by $2$.' },
-        { text: 'Write the function.', tex: 'f(n) = 2.5(2)^n' },
+        { text: 'Write the function.', tex: 'f(n) = 2.5(2)^n', why: 'Use $a = 2.5$ and $b = 2$ in $f(n) = a(b)^n$. Check: $f(1) = 2.5 \\cdot 2 = 5$, the first term, and $f(4) = 2.5 \\cdot 16 = 40$, the 4th term. The domain is the positive integers.' },
         { text: 'Check two terms.', tex: 'f(1) = 2.5(2) = 5, \\quad f(4) = 2.5(16) = 40', why: 'Both match the sequence. Always check $f(1)$: it must be the first term.' },
       ],
       answer: '$f(n) = 2.5(2)^n$ with domain $\\{1, 2, 3, \\ldots\\}$',
@@ -171,7 +171,7 @@ export const U6L08: LessonContent = {
       steps: [
         { text: 'Find the common ratio.', tex: 'r = \\frac{12}{48} = \\frac{1}{4}', why: 'Check: $\\frac{3}{12} = \\frac{1}{4}$ and $\\frac{0.75}{3} = 0.25 = \\frac{1}{4}$. A ratio between $0$ and $1$ means exponential **decay**.' },
         { text: 'Find $a$.', tex: 'a = \\frac{48}{\\frac{1}{4}} = 48 \\cdot 4 = 192', why: 'Dividing by $\\frac{1}{4}$ is the same as multiplying by $4$. Stepping back from a shrinking sequence makes the number **bigger**.' },
-        { text: 'Write the function.', tex: 'f(n) = 192\\left(\\tfrac{1}{4}\\right)^n' },
+        { text: 'Write the function.', tex: 'f(n) = 192\\left(\\tfrac{1}{4}\\right)^n', why: 'Use $a = 192$ and $b = \\frac{1}{4}$. Check: $f(1) = 192 \\cdot \\frac{1}{4} = 48$, the first term, and $f(3) = 192 \\cdot \\frac{1}{64} = 3$, the 3rd term.' },
         { text: 'Check two terms.', tex: 'f(1) = \\frac{192}{4} = 48, \\quad f(3) = \\frac{192}{64} = 3', why: '$\\left(\\frac{1}{4}\\right)^3 = \\frac{1}{64}$. Both values match the sequence.' },
       ],
       answer: '$f(n) = 192\\left(\\frac{1}{4}\\right)^n$, or $192(0.25)^n$, with domain $\\{1, 2, 3, \\ldots\\}$',

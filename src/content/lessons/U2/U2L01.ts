@@ -88,6 +88,7 @@ export const U2L01: LessonContent = {
       ],
     },
     { t: 'callout', variant: 'warning', title: 'Two meanings of less than', text: '"$x$ **is** less than 5" is the inequality $x < 5$. But "5 less than $x$" is the expression $x - 5$ (start with $x$, take away 5). Look for the word **is** to spot an inequality.' },
+    { t: 'p', text: '**Starting amount plus a rate.** Many one-variable situations start with an amount and then add (or take away) the same amount each time. A gift card starts with \\$90, and you spend \\$5 on it each week. After $w$ weeks the balance is $90 - 5w$: the \\$5 is **subtracted** because spending makes the balance go down. To keep **at least** \\$35 on the card, write $90 - 5w \\ge 35$. Saving works the same way with addition: \\$60 saved plus \\$9 per hour is $60 + 9h$.' },
     { t: 'p', text: '### Inequalities in two variables' },
     { t: 'p', text: 'Some situations have two unknown amounts. Suppose you have \\$60 to spend at a trampoline park. Each jump session costs \\$3 and each snack costs \\$5. Let $x$ be the number of jump sessions and $y$ the number of snacks. You can spend **at most** \\$60:' },
     { t: 'math', tex: '3x + 5y \\le 60' },
@@ -153,7 +154,7 @@ export const U2L01: LessonContent = {
       steps: [
         { text: 'Distribute the $3$.', tex: '3x - 12 > 5x + 2', why: 'The distributive property: $3 \\cdot x - 3 \\cdot 4$.' },
         { text: 'Subtract $5x$ from both sides.', tex: '-2x - 12 > 2', why: 'Collect the $x$-terms on one side. $3x - 5x = -2x$.' },
-        { text: 'Add $12$ to both sides.', tex: '-2x > 14' },
+        { text: 'Add $12$ to both sides.', tex: '-2x > 14', why: 'Undo the subtraction of $12$. Adding the same number to both sides does not change the symbol, and $2 + 12 = 14$.' },
         { text: 'Divide by $-2$ and flip.', tex: 'x < -7', why: 'Dividing by a negative reverses the symbol. $14 \\div (-2) = -7$. (You could instead subtract $3x$ first to get $-14 > 2x$, so $-7 > x$: the same answer with no flip.)' },
         { text: 'Check $x = -8$.', tex: '3(-8 - 4) = -36, \\quad 5(-8) + 2 = -38, \\quad -36 > -38 \\checkmark', why: '$-36$ is to the right of $-38$ on a number line, so it is greater. The answer checks.' },
       ],

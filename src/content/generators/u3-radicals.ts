@@ -12,6 +12,7 @@ import { p, makeProblem, stringMisconceptions } from './util';
 import { radTexToPlain, texSurd, plainSurd, splitPower, SQUAREFREE, CUBEFREE, radPlain, radTex, joinTerms, surdPlain, isSimplifiedSurd } from './u3-common';
 import { Surd } from '../../core/math/surd';
 import { Rational } from '../../core/math/rational';
+import { rotChoice, idOf, stepLabel, stepsFinishErrors } from './u3-steps';
 
 const RAD_HINT = 'Type a root like 6sqrt(2) or 2cbrt(5)';
 
@@ -38,6 +39,20 @@ function verifyConstant(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
   const b = evalNumeric(parseExpression(pr.answer.value));
   if (!(Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a)))) errs.push('numeric mismatch');
   return errs;
+}
+
+/** Step checks for a single root: the factor step is the largest perfect power factor (found by trial), and the steps finish the problem. */
+function simplifyStepErrors(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (!pr.steps?.length) return [];
+  const tex = expressionOf(pr as never) ?? '';
+  const m = /\\sqrt(\[3\])?\{(-?\d+)\}/.exec(tex);
+  const a = pr.steps[0].answer;
+  if (!m || a.kind !== 'number') return ['cannot read the factor step'];
+  const index = m[1] ? 3 : 2;
+  const n = Math.abs(Number(m[2]));
+  let best = 1;
+  for (let j = 2; Math.pow(j, index) <= n; j++) if (n % Math.pow(j, index) === 0) best = Math.pow(j, index);
+  return [...(Number(a.value) === best ? [] : [`factor step ${a.value}, largest perfect power is ${best}`]), ...stepsFinishErrors(pr)];
 }
 
 function squareStep(n: number, k: number, index: 2 | 3): ProblemStep {
@@ -110,7 +125,7 @@ export const genSimplifySqrt: GeneratorDef = {
       ],
     });
   },
-  verify: verifyConstant,
+  verify: (pr) => [...verifyConstant(pr), ...simplifyStepErrors(pr)],
 };
 
 // ---------------------------------------------------------------------------
@@ -166,7 +181,7 @@ export const genSimplifyCbrt: GeneratorDef = {
       ],
     });
   },
-  verify: verifyConstant,
+  verify: (pr) => [...verifyConstant(pr), ...simplifyStepErrors(pr)],
 };
 
 // ---------------------------------------------------------------------------
@@ -192,6 +207,152 @@ function makeTerm(rng: Rng, b: number, simplifyFirst: boolean, allowNeg: boolean
   let c = rng.int(1, simplifyFirst ? 3 : 9);
   if (allowNeg && rng.bool()) c = -c;
   return { shownCoef: c, shownRad: k * k * b, coef: c * k, rad: b };
+}
+
+// ---------------------------------------------------------------------------
+// Guided steps for adding like radicals (difficulty 1)
+// ---------------------------------------------------------------------------
+
+const rootOf = (r: number, index: 2 | 3) => (index === 2 ? `\\sqrt{${r}}` : `\\sqrt[3]{${r}}`);
+const LIKE_YES = (r: number, index: 2 | 3) => `Yes: both terms have $${rootOf(r, index)}$, so they are like radicals. Combine the numbers in front.`;
+const LIKE_ADD_INSIDE = (r: number, index: 2 | 3) => `Yes: add the numbers under the roots to get $${rootOf(2 * r, index)}$.`;
+const LIKE_NO = 'No: two roots can never be combined.';
+
+/** Steps for c1·root(b) ± c2·root(b): like radicals?, the new coefficient, the answer. */
+function addLikeSteps(tex: string, c1: number, c2: number, r: number, index: 2 | 3, answer: string, answerTex: string, finalMisc: Misconception[]): ProblemStep[] {
+  const like = rotChoice(LIKE_YES(r, index), [LIKE_ADD_INSIDE(r, index), LIKE_NO], c1 + r);
+  const sum = c1 + c2;
+  const c2Tex = c2 < 0 ? `(${c2})` : String(c2);
+  const word = index === 2 ? 'root' : 'cube root';
+  return [
+    {
+      prompt: [p(`Look at $${tex}$. Can the two terms be combined into one term?`)],
+      answer: like,
+      hints: [
+        'Like radicals have the same index and the same number under the root.',
+        'Like radicals combine the way like terms do: $3x + 4x = 7x$.',
+        `Compare the number under each ${word}.`,
+        'When you combine like terms, the variable part stays the same.',
+      ],
+      misconceptions: [
+        { answer: idOf(like, LIKE_ADD_INSIDE(r, index)), tag: 'radical-simplify', feedback: `The number under the root stays the same, just as $3x + 4x = 7x$, not $7x^2$. Here $\\sqrt{a} + \\sqrt{b} \\ne \\sqrt{a + b}$.` },
+        { answer: idOf(like, LIKE_NO), tag: 'radical-simplify', feedback: `Roots with the same number inside are like radicals, so they **can** be combined, like $3x + 4x$.` },
+      ],
+      explanation: `Both terms have $${rootOf(r, index)}$, so they are like radicals, the way $3x$ and $4x$ are like terms.`,
+    },
+    {
+      prompt: [p(`Combine the numbers in front of $${rootOf(r, index)}$. What is $${c1} + ${c2Tex}$?`)],
+      answer: { kind: 'number', value: String(sum) },
+      hints: [
+        `A root with no number in front has a $1$ in front: $${rootOf(r, index)} = 1${rootOf(r, index)}$.`,
+        `The numbers in front are $${c1}$ and $${c2}$.`,
+        c2 < 0 ? 'Adding a negative number is the same as subtracting.' : 'Add the two numbers.',
+        `Leave $${rootOf(r, index)}$ out of this step: just combine $${c1}$ and $${c2}$.`,
+      ],
+      misconceptions: numberMisconceptionsInt(sum, [
+        { value: c1 * c2, feedback: 'Add the numbers in front, do not multiply them.' },
+        { value: c2 < 0 ? c1 - c2 : null, feedback: 'The second term is subtracted. Keep its minus sign.' },
+      ]),
+      explanation: `$${c1} + ${c2Tex} = ${sum}$.`,
+    },
+    {
+      prompt: [p(`Now write $${tex}$ in simplest form.`)],
+      answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
+      inputHint: index === 2 ? 'Type an answer like 7sqrt(3)' : 'Type an answer like 7cbrt(2)',
+      hints: [
+        `Put your combined number in front of $${rootOf(r, index)}$.`,
+        `The number under the ${word} stays $${r}$.`,
+        sum === 1 || sum === -1 ? `A $1$ in front does not need to be written: $1${rootOf(r, index)} = ${rootOf(r, index)}$.` : 'Write the number, then the root, with no times sign.',
+        `Check: your answer keeps $${r}$ under the ${word}, and its number in front is the one you found in the last step.`,
+      ],
+      misconceptions: finalMisc,
+      explanation: `$${tex} = ${answerTex}$.`,
+    },
+  ];
+}
+
+/** Integer misconceptions: drop nulls, the key itself and duplicates. */
+function numberMisconceptionsInt(key: number, list: Array<{ value: number | null; feedback: string }>): Misconception[] {
+  const seen = new Set<number>([key]);
+  const out: Misconception[] = [];
+  for (const m of list) {
+    if (m.value === null || seen.has(m.value)) continue;
+    seen.add(m.value);
+    out.push({ answer: String(m.value), tag: 'radical-simplify', feedback: m.feedback });
+  }
+  return out;
+}
+
+/** Independent step checks for like-radical sums: the radicands in the prompt really match, and coefficient times root is the prompt's value. */
+function addLikeStepErrors(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (pr.steps?.length !== 3) return [];
+  const tex = expressionOf(pr as never) ?? '';
+  const rads = [...tex.matchAll(/\\sqrt(\[3\])?\{(\d+)\}/g)].map((m) => `${m[1] ?? ''}${m[2]}`);
+  const errs: string[] = [];
+  if (!(rads.length === 2 && rads[0] === rads[1]) || !stepLabel(pr.steps[0]).startsWith('Yes: both')) errs.push('like-radicals step wrong');
+  const c = pr.steps[1].answer;
+  const m = /\\sqrt(\[3\])?\{(\d+)\}/.exec(tex);
+  const given = texSurd(tex);
+  if (c.kind !== 'number' || !m || !given || !Surd.root(BigInt(m[2]), m[1] ? 3 : 2, Rational.parse(c.value)).equals(given)) errs.push('coefficient step wrong');
+  return [...errs, ...stepsFinishErrors(pr)];
+}
+
+// ---------------------------------------------------------------------------
+// Guided steps for multiplying two roots (difficulty 1)
+// ---------------------------------------------------------------------------
+
+/** Steps for root(u)·root(v): the product under one root, its largest perfect power factor, the answer. */
+function multiplySteps(tex: string, u: number, v: number, index: 2 | 3, answer: string, answerTex: string, finalMisc: Misconception[]): ProblemStep[] {
+  const prod = u * v;
+  const { out } = splitPower(prod, index);
+  const word = index === 2 ? 'square' : 'cube';
+  return [
+    {
+      prompt: [p(`Use $${index === 2 ? '\\sqrt{a} \\cdot \\sqrt{b} = \\sqrt{ab}' : '\\sqrt[3]{a} \\cdot \\sqrt[3]{b} = \\sqrt[3]{ab}'}$: $${tex} = ${index === 2 ? '\\sqrt{N}' : '\\sqrt[3]{N}'}$. What is $N$?`)],
+      answer: { kind: 'number', value: String(prod) },
+      hints: [
+        'Two roots with the same index multiply into one root.',
+        `Multiply the numbers ${index === 2 ? 'under' : 'inside'} the roots.`,
+        `The numbers are $${u}$ and $${v}$.`,
+        `Work out $${u} \\cdot ${v}$.`,
+      ],
+      misconceptions: numberMisconceptionsInt(prod, [{ value: u + v, feedback: 'Multiply the numbers under the roots. Do not add them.' }]),
+      explanation: `$${u} \\cdot ${v} = ${prod}$, so $${tex} = ${rootOf(prod, index)}$.`,
+    },
+    squareStep(prod, out, index),
+    {
+      prompt: [p(`Now simplify $${rootOf(prod, index)}$ completely to finish $${tex}$.`)],
+      answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
+      inputHint: index === 2 ? RAD_HINT : 'Type an answer like 2cbrt(3)',
+      hints: [
+        `Split $${prod}$ into (perfect ${word}) $\\cdot$ (what is left).`,
+        `Take the ${word} root of the perfect ${word}: it comes out in front.`,
+        `What is left stays ${index === 2 ? 'under' : 'inside'} the root.`,
+        `$\\${index === 2 ? 'sqrt' : 'sqrt[3]'}{${Math.pow(out, index)}} = ${out}$.`,
+      ],
+      misconceptions: finalMisc,
+      explanation: `$${prod} = ${Math.pow(out, index)} \\cdot ${prod / Math.pow(out, index)}$, so $${rootOf(prod, index)} = ${answerTex}$.`,
+    },
+  ];
+}
+
+/** Independent step checks for a product of two roots. */
+function multiplyStepErrors(pr: Parameters<GeneratorDef['verify']>[0]): string[] {
+  if (pr.steps?.length !== 3) return [];
+  const tex = expressionOf(pr as never) ?? '';
+  const index: 2 | 3 = tex.includes('[3]') ? 3 : 2;
+  const errs: string[] = [];
+  const a1 = pr.steps[0].answer;
+  const a2 = pr.steps[1].answer;
+  const given = texSurd(tex);
+  const N = a1.kind === 'number' ? Number(a1.value) : NaN;
+  const asRoot = Number.isInteger(N) ? texSurd(rootOf(N, index)) : null;
+  if (!given || !asRoot || !asRoot.equals(given)) errs.push('product step wrong');
+  const f = a2.kind === 'number' ? Number(a2.value) : NaN;
+  const r = Math.round(Math.pow(f, 1 / index));
+  // a perfect power that divides N and leaves nothing with a perfect power factor
+  if (!(Math.pow(r, index) === f && N % f === 0 && splitPower(N / f, index).out === 1)) errs.push('largest perfect power step wrong');
+  return [...errs, ...stepsFinishErrors(pr)];
 }
 
 export const genAddRadicals: GeneratorDef = {
@@ -238,6 +399,7 @@ export const genAddRadicals: GeneratorDef = {
       prompt: [p('Simplify completely.'), { t: 'math', tex }],
       answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
       inputHint: 'Type an answer like 3sqrt(2) + 4sqrt(3)',
+      steps: difficulty === 1 ? addLikeSteps(tex, terms[0].coef, terms[1].coef, b, 2, answer, answerTex, misconceptions) : undefined,
       hints: [
         'Like radicals have the same number under the root. You can only combine like radicals.',
         difficulty >= 2 ? 'Simplify every root first. Then look for like radicals.' : 'Add or subtract the numbers in front of the roots.',
@@ -248,7 +410,7 @@ export const genAddRadicals: GeneratorDef = {
       misconceptions,
     });
   },
-  verify: verifyConstant,
+  verify: (pr) => [...verifyConstant(pr), ...addLikeStepErrors(pr)],
 };
 
 
@@ -316,6 +478,7 @@ function addCubeRoots(rng: Rng, difficulty: number) {
     prompt: [p('Simplify completely.'), { t: 'math', tex }],
     answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
     inputHint: 'Type an answer like 7cbrt(2) or 3cbrt(2) + cbrt(5)',
+    steps: difficulty === 1 ? addLikeSteps(tex, terms[0].coef, terms[1].coef, b, 3, answer, answerTex, stringMisconceptions(answer, misc)) : undefined,
     hints: [
       'Like radicals have the same index **and** the same number inside. Only like radicals combine.',
       difficulty >= 2 ? 'Simplify every cube root first: look for a perfect cube factor, $8, 27, 64, \\ldots$' : 'Add or subtract the numbers in front of the cube roots.',
@@ -345,6 +508,8 @@ export const genMultiplyRadicals: GeneratorDef = {
     let answer: string;
     let solution: SolutionStep[];
     const misc: Misconception[] = [];
+    let stepPair: [number, number] | null = null;
+    let stepAnswerTex = '';
     if (rng.next() < (difficulty === 3 ? 0.25 : 0.35)) return multiplyCubeRoots(rng, difficulty);
     if (difficulty <= 2) {
       // (p√a)(q√b) with ab having a square factor
@@ -369,6 +534,8 @@ export const genMultiplyRadicals: GeneratorDef = {
       ];
       if (pc * qc !== 1 && pc + qc !== 0) misc.push({ answer: radPlain((pc + qc) * out, inside), tag: 'arithmetic-error', feedback: 'Multiply the numbers in front of the roots. Do not add them.' });
       misc.push({ answer: radPlain(pc * qc * out, prod), tag: 'radical-simplify', feedback: 'When a factor comes out of the root, it no longer stays inside.' });
+      stepPair = [a1, a2];
+      stepAnswerTex = radTex(coef, inside);
     } else {
       const b = rng.pick(SQUAREFREE.slice(0, 6));
       const kind = rng.int(0, 2);
@@ -412,6 +579,7 @@ export const genMultiplyRadicals: GeneratorDef = {
       }
     }
     const misconceptions = stringMisconceptions(answer, misc);
+    const steps = difficulty === 1 && stepPair ? multiplySteps(tex, stepPair[0], stepPair[1], 2, answer, stepAnswerTex, misconceptions) : undefined;
     return makeProblem({
       skillId: 'S3.06',
       tags: difficulty === 3 ? ['multi-step'] : [],
@@ -426,9 +594,10 @@ export const genMultiplyRadicals: GeneratorDef = {
       ],
       solution,
       misconceptions,
+      steps,
     });
   },
-  verify: verifyConstant,
+  verify: (pr) => [...verifyConstant(pr), ...multiplyStepErrors(pr)],
 };
 
 
@@ -437,6 +606,8 @@ const CUBE_FACTORS = [2, 3, 4, 5, 6, 9, 10, 12, 18, 25];
 
 function multiplyCubeRoots(rng: Rng, difficulty: number) {
   const misc: Misconception[] = [];
+  let cubePair: [number, number] | null = null;
+  let cubeAnswerTex = '';
   let tex: string;
   let answer: string;
   let solution: SolutionStep[];
@@ -466,6 +637,8 @@ function multiplyCubeRoots(rng: Rng, difficulty: number) {
     const sq = splitPower(prod, 2);
     if (sq.out > 1 && (sq.out !== out || sq.inside !== inside)) misc.push({ answer: radPlain(pc * qc * sq.out, sq.inside, 3), tag: 'radical-simplify', feedback: 'For a **cube** root, take out a perfect **cube** factor ($8, 27, 64, 125, \\ldots$), not a perfect square.' });
     if (pc * qc !== 1 && pc + qc !== 0) misc.push({ answer: radPlain((pc + qc) * out, inside, 3), tag: 'arithmetic-error', feedback: 'Multiply the numbers in front of the roots. Do not add them.' });
+    cubePair = [u, v];
+    cubeAnswerTex = radTex(coef, inside, 3);
   } else {
     // ∛b(∛c + k): distribute
     const b = rng.pick([2, 3, 4, 5]);
@@ -488,6 +661,7 @@ function multiplyCubeRoots(rng: Rng, difficulty: number) {
     prompt: [p('Multiply and simplify completely.'), { t: 'math', tex }],
     answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
     inputHint: 'Type an answer like 2cbrt(3) or 2 + 3cbrt(2)',
+    steps: difficulty === 1 && cubePair ? multiplySteps(tex, cubePair[0], cubePair[1], 3, answer, cubeAnswerTex, stringMisconceptions(answer, misc)) : undefined,
     hints: [
       'Use $\\sqrt[3]{a} \\cdot \\sqrt[3]{b} = \\sqrt[3]{ab}$, and multiply numbers in front of the roots together.',
       difficulty === 3 ? 'Multiply the cube root by every term in the parentheses.' : 'Multiply first, then simplify the cube root you get.',
@@ -508,6 +682,46 @@ function powTex(v: string, e: number): string {
 }
 function powPlain(v: string, e: number): string {
   return e === 0 ? '' : e === 1 ? v : `${v}^${e}`;
+}
+
+/** Guided steps for √(n·x^e) with e even (difficulty 1): the number part, the variable part, the answer. */
+function variableSteps(tex: string, n: number, k: number, ex: number, answer: string, answerTex: string, finalMisc: Misconception[]): ProblemStep[] {
+  const half = ex / 2;
+  const xHalf = powPlain('x', half);
+  const xHalfTex = powTex('x', half);
+  return [
+    squareStep(n, k, 2),
+    {
+      prompt: [p(`Now the variable part. What is $\\sqrt{${powTex('x', ex)}}$? (Remember that $x$ is positive.)`)],
+      answer: { kind: 'expression', value: xHalf, variables: ['x'] },
+      inputHint: 'Type a power like x^3.',
+      hints: [
+        `$\\sqrt{${powTex('x', ex)}}$ asks: what times itself is $${powTex('x', ex)}$?`,
+        'When you multiply powers of the same base, you add the exponents: $x^{a} \\cdot x^{a} = x^{2a}$.',
+        `So you need an exponent that, added to itself, gives $${ex}$.`,
+        `Divide the exponent $${ex}$ by $2$.`,
+      ],
+      misconceptions: stringMisconceptions(xHalf, [
+        { answer: powPlain('x', ex), tag: 'exponent-rule', feedback: 'The square root changes the power: divide the exponent by $2$.' },
+        ...(ex - 2 !== half && ex > 2 ? [{ answer: powPlain('x', ex - 2), tag: 'exponent-rule' as const, feedback: 'Divide the exponent by $2$; do not subtract $2$.' }] : []),
+        ...(ex > 2 ? [{ answer: `x^${ex * 2}`, tag: 'exponent-rule' as const, feedback: 'A square root makes the exponent smaller: divide by $2$, do not multiply.' }] : []),
+      ]),
+      explanation: `$${xHalfTex} \\cdot ${xHalfTex} = ${powTex('x', ex)}$, so $\\sqrt{${powTex('x', ex)}} = ${xHalfTex}$.`,
+    },
+    {
+      prompt: [p(`Put the parts together: simplify $${tex}$ completely.`)],
+      answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
+      inputHint: 'Type an answer like 3x^2sqrt(2).',
+      hints: [
+        '$\\sqrt{ab} = \\sqrt{a} \\cdot \\sqrt{b}$, so simplify each part and multiply.',
+        `The square root of the perfect square factor of $${n}$ comes out in front.`,
+        `$\\sqrt{${powTex('x', ex)}} = ${xHalfTex}$ comes out in front too.`,
+        n === k * k ? 'Nothing is left under the root, so no root is needed in the answer.' : `What is left of $${n}$ stays under the root.`,
+      ],
+      misconceptions: finalMisc,
+      explanation: `$${tex} = ${answerTex}$.`,
+    },
+  ];
 }
 
 export const genRadicalVariables: GeneratorDef = {
@@ -550,6 +764,7 @@ export const genRadicalVariables: GeneratorDef = {
       return e % index === 0 ? `$${powTex(v, e)} = ${perfect}$` : `$${powTex(v, e)} = ${perfect} \\cdot ${powTex(v, e % index)}$`;
     };
     const numLine = inNum === 1 ? `$${n} = ${k}^{${index}}$` : `$${n} = ${k}^{${index}} \\cdot ${inNum}$`;
+    const steps = difficulty === 1 ? variableSteps(tex, n, k, ex, answer, answerTex, misconceptions) : undefined;
     return makeProblem({
       skillId: 'S3.07',
       tags: [],
@@ -567,6 +782,7 @@ export const genRadicalVariables: GeneratorDef = {
         { text: `Take the ${index === 2 ? 'square' : 'cube'} root of each perfect power.`, tex: `${tex} = ${answerTex}`, why: `Divide each exponent in the perfect power by ${index}. The leftovers stay under the root.` },
       ],
       misconceptions,
+      steps,
     });
   },
   verify(pr) {
@@ -580,6 +796,23 @@ export const genRadicalVariables: GeneratorDef = {
       const a = evalNumeric(given, { x, y });
       const b = evalNumeric(key, { x, y });
       if (!(Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a)))) errs.push(`mismatch at x=${x}, y=${y}`);
+    }
+    if (pr.steps?.length === 3) {
+      // the number step: a perfect square that divides n and leaves no perfect square factor
+      const n = Number(/\\sqrt\{(\d+)/.exec(tex)?.[1]);
+      const f = pr.steps[0].answer.kind === 'number' ? Number(pr.steps[0].answer.value) : NaN;
+      const r = Math.round(Math.sqrt(f));
+      if (!(r * r === f && n % f === 0 && splitPower(n / f, 2).out === 1)) errs.push('perfect square step wrong');
+      // the variable step: its square is the power of x under the root
+      const ex = Number(/x\^\{(\d+)\}/.exec(tex)?.[1] ?? (/x/.test(tex) ? 1 : 0));
+      const s2 = pr.steps[1].answer;
+      if (s2.kind !== 'expression') errs.push('variable step kind');
+      else
+        for (const x of [1.3, 2.2, 0.7]) {
+          const v = evalNumeric(parseExpression(s2.value), { x });
+          if (!(v > 0 && Math.abs(v * v - Math.pow(x, ex)) <= 1e-9 * Math.pow(x, ex))) errs.push('variable step wrong');
+        }
+      errs.push(...stepsFinishErrors(pr));
     }
     // simplified: inside the root, the number has no perfect power factor and exponents are below the index
     const m = /(sqrt|cbrt)\(([^)]*)\)/.exec(pr.answer.value);

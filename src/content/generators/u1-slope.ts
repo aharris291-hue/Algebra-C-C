@@ -9,7 +9,7 @@ import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, numberMisconceptions, numStr, sub, pickDistinct, makeChoice, choiceLabel, texToExpr } from './util';
 import { buildContext, ctxStory, type LinearContext } from './u1-contexts';
-import { numStep, finalStep, stepErrors } from './u1-steps';
+import { numStep, finalStep, stepErrors, choiceMisc } from './u1-steps';
 
 const frac = (num: Rational, den: Rational) => `\\frac{${num.toTex()}}{${den.toTex()}}`;
 
@@ -82,21 +82,21 @@ export const genSlopePoints: GeneratorDef = {
           answer: { kind: 'number', value: numStr(dy) },
           hints: ['The rise is the second $y$-value minus the first $y$-value.', `Compute $${y2} - ${sub(Q(y1))}$.`, 'Subtracting a negative means adding.', 'Use a number line if the signs are tricky.'],
           misconceptions: numberMisconceptions(dy, [{ value: dy.neg(), tag: 'sign-error', feedback: 'Subtract in the order shown: second minus first.' }]),
-          explanation: `The rise is $${dy.toTex()}$.`,
+          explanation: `The rise is the change in $y$, second minus first, so it is $${dy.toTex()}$${dy.isNegative() ? ': the line goes down' : ''}.`,
         },
         {
           prompt: [p(`Find the run (change in $x$) in the same order: $${x2} - ${sub(Q(x1))}$.`)],
           answer: { kind: 'number', value: numStr(dx) },
           hints: ['The run uses the $x$-values, in the same order as the rise.', `Compute $${x2} - ${sub(Q(x1))}$.`, 'Subtracting a negative means adding.', 'Use a number line if the signs are tricky.'],
           misconceptions: numberMisconceptions(dx, [{ value: dx.neg(), tag: 'sign-error', feedback: 'Keep the same order you used for the rise.' }]),
-          explanation: `The run is $${dx.toTex()}$.`,
+          explanation: `Subtracting the $x$-values in the same order as the $y$-values keeps the slope's sign right: the run is $${dx.toTex()}$.`,
         },
         {
           prompt: [p(`Divide: slope $= \\dfrac{\\text{rise}}{\\text{run}} = ${frac(dy, dx)}$. Simplify.`)],
           answer: { kind: 'number', value: numStr(m) },
           hints: ['Divide the rise by the run.', 'A negative divided by a positive is negative; a negative divided by a negative is positive.', 'Simplify the fraction by dividing top and bottom by a common factor.', 'If it does not divide evenly, a simplified fraction is fine.'],
           misconceptions: slopeMisconceptions(dy, dx),
-          explanation: `The slope is $${m.toTex()}$.`,
+          explanation: `Rise over run is the change in $y$ for each 1-unit change in $x$, so the slope is $${m.toTex()}$.`,
         },
       ],
     });
@@ -109,7 +109,9 @@ export const genSlopePoints: GeneratorDef = {
     if (a === c) return ['vertical line'];
     // reverse order on purpose: (y1 - y2)/(x1 - x2)
     const m = Q(b - d, a - c);
-    return m.eq(Rational.parse(pr.answer.value)) ? [] : [`slope should be ${m}`];
+    if (!m.eq(Rational.parse(pr.answer.value))) return [`slope should be ${m}`];
+    // steps go from the first listed point to the second
+    return stepErrors(pr, [Q(d - b), Q(c - a), m]);
   },
 };
 
@@ -353,7 +355,11 @@ export const genRateContext: GeneratorDef = {
           { text: 'Give it units.', why: `The output is measured in ${ctx.outUnit === '%' ? 'percent' : ctx.outUnit} and the input in ${ctx.inUnits}, so the slope is in ${ctx.rateUnit}.` },
           { text: 'Interpret.', why: `${ctx.rateMeaning[0].toUpperCase()}${ctx.rateMeaning.slice(1)}.` },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisc(answer, [
+          { label: `The slope is $${decTex(ctx.b)}$: ${ctx.startMeaning}.`, tag: 'graph-reading', feedback: 'That is the starting value, the number added on by itself. The slope is the number multiplied by the input.' },
+          { label: `The slope is $${decTex(Q(1).div(rate))}$: it takes that many ${ctx.inUnits} for the output to change by 1.`, tag: 'rise-run-swap', feedback: `That is upside down. The slope is the change in the output for each one ${ctx.inUnit}.` },
+          { label: `The slope is $${decTex(rate.add(ctx.b))}$: the output after the first ${ctx.inUnit}.`, tag: 'slope-calc', feedback: 'That is the output after one unit, not the change in the output. The slope is the amount that repeats every unit.' },
+        ]),
         steps: [
           numStep(
             `In the rule, what number is multiplied by $${ctx.v}$?`,

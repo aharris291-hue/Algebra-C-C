@@ -2,9 +2,11 @@
  * Unit 3, Lesson 1 generators: rational and irrational numbers (S3.01) and
  * closure of sums and products (S3.02).
  */
-import type { GeneratorDef, Rng, Difficulty, SolutionStep } from '../../core/curriculum/types';
-import { p, makeProblem, makeChoice, choiceLabel } from './util';
+import type { GeneratorDef, Rng, Difficulty, SolutionStep, ProblemStep } from '../../core/curriculum/types';
+import { p, makeProblem, makeChoice, choiceLabel, numberMisconceptions } from './util';
 import { texSurd, SQUAREFREE, CUBEFREE, radTex } from './u3-common';
+import { Rational } from '../../core/math/rational';
+import { ChoiceAnswer, rotChoice, idOf, stepLabel, stepsFinishErrors, numForm, ratStep, wrongGroupFeedback, RAT, IRR } from './u3-steps';
 
 // ---------------------------------------------------------------------------
 // Number pool
@@ -185,6 +187,155 @@ const CLASSIFY_HINTS: [string, string, string, string] = [
   'A calculator rounds every number to a few digits, so the screen alone cannot tell you whether the decimal stops or repeats.',
 ];
 
+// ---------------------------------------------------------------------------
+// Guided steps for classifying one number (difficulty 1)
+// ---------------------------------------------------------------------------
+
+const PI_TRUE = 'Its decimal never ends and never repeats; $3.14$ is only a rounded value.';
+const PI_ENDS = 'Its decimal ends: $\\pi = 3.14$ exactly.';
+const PI_REPEATS = 'Its decimal repeats: $3.141414\\ldots$';
+const SQ_NO = (b: number) => {
+  const s = Math.floor(Math.sqrt(b));
+  return `No: $${b}$ is between the perfect squares $${s * s}$ and $${(s + 1) * (s + 1)}$.`;
+};
+const SQ_YES = (b: number) => `Yes: $${b}$ is a whole number times itself.`;
+const FRAC_YES = 'Yes: both are integers, and the bottom is not zero.';
+const FRAC_NO_NEG = 'No: a fraction with a negative sign does not count.';
+const FRAC_NO_WHOLE = 'No: it is not a whole number, so it does not count.';
+
+/** Places after the decimal point of a terminating decimal written in plain digits. */
+const placesOf = (tex: string) => (tex.split('.')[1] ?? '').length;
+
+/** The first step for one number: the check that decides rational or irrational. */
+function formStep(tex: string): ProblemStep {
+  const form = numForm(tex);
+  const value = texSurd(tex);
+  switch (form) {
+    case 'integer': {
+      const n = Number(tex);
+      return {
+        prompt: [p(`An integer is rational if it can be written as a fraction of two integers. Write $${tex}$ as a fraction with bottom $2$: $${tex} = \\frac{?}{2}$. What number goes on top?`)],
+        answer: { kind: 'number', value: String(2 * n) },
+        hints: ['A fraction $\\frac{a}{2}$ means $a$ divided by $2$.', `The fraction has to equal $${tex}$.`, 'Dividing by $2$ undoes multiplying by $2$.', `Multiply $${tex}$ by $2$ to get the top.`],
+        misconceptions: numberMisconceptions(Rational.from((2 * n) as never), [
+          { value: Rational.from(n as never), tag: 'other', feedback: `$\\frac{${n}}{2}$ is half of $${tex}$. The top must be twice as big so the fraction still equals $${tex}$.` },
+          { value: n % 2 === 0 ? Rational.from((n / 2) as never) : null, tag: 'other', feedback: 'Multiply by $2$ to get the top; do not divide.' },
+          { value: n === 0 ? null : Rational.from((-2 * n) as never), tag: 'sign-error', feedback: 'Keep the sign of the integer.' },
+        ]),
+        explanation: `$${tex} = \\frac{${2 * n}}{2}$ (and also $\\frac{${n}}{1}$), a fraction of two integers.`,
+      };
+    }
+    case 'fraction': {
+      const neg = tex.startsWith('-');
+      const FRAC_NO = neg ? FRAC_NO_NEG : FRAC_NO_WHOLE;
+      const ans = rotChoice(FRAC_YES, [FRAC_NO], tex.length);
+      return {
+        prompt: [p(`Look at $${tex}$. Are its top and bottom both integers, with a bottom that is not zero?`)],
+        answer: ans,
+        hints: ['Integers are the whole numbers and their opposites: $\\ldots, -2, -1, 0, 1, 2, \\ldots$', 'Read the top number and the bottom number.', 'A minus sign in front just makes the fraction negative; negative integers are still integers.', 'Is the bottom zero?'],
+        misconceptions: [{ answer: idOf(ans, FRAC_NO), tag: 'other', feedback: neg ? 'Negative integers like $-5$ are integers too, so a negative fraction of integers still counts.' : 'Rational numbers do not have to be whole numbers. "Rational" comes from "ratio": a fraction of two integers.' }],
+        explanation: `$${tex}$ is already a fraction of two integers.`,
+      };
+    }
+    case 'terminating': {
+      const k = placesOf(tex);
+      const D = Math.pow(10, k);
+      const N = Rational.parse(tex).mul(Rational.from(D as never));
+      return {
+        prompt: [p(`Write $${tex}$ as a fraction with bottom $${D}$: $${tex} = \\frac{?}{${D}}$. What number goes on top?`)],
+        answer: { kind: 'number', value: N.toString() },
+        hints: ['A decimal that ends can be written as a fraction over $10$, $100$ or $1000$.', `$${tex}$ has $${k}$ digit${k === 1 ? '' : 's'} after the decimal point, so use $${D}$.`, `Multiply $${tex}$ by $${D}$ to get the top.`, `Multiplying by $${D}$ moves the decimal point $${k}$ place${k === 1 ? '' : 's'} to the right.`],
+        misconceptions: numberMisconceptions(N, [
+          { value: N.neg(), tag: 'sign-error', feedback: 'Keep the sign of the decimal.' },
+          { value: N.div(Rational.from(10 as never)), tag: 'other', feedback: `Move the decimal point ${k} place${k === 1 ? '' : 's'}, one for each digit after the point.` },
+          { value: N.mul(Rational.from(10 as never)), tag: 'other', feedback: `Move the decimal point ${k} place${k === 1 ? '' : 's'}, one for each digit after the point.` },
+        ]),
+        explanation: `$${tex} = \\frac{${N.toString()}}{${D}}$, a fraction of two integers.`,
+      };
+    }
+    case 'perfectRoot': {
+      const sq = Number(/\\sqrt\{(\d+)\}/.exec(tex)![1]);
+      const r = Math.round(Math.sqrt(sq));
+      const v = value!.isRational() ? value!.rationalPart() : Rational.from(0 as never);
+      return {
+        prompt: [p(`What is the value of $${tex}$?`)],
+        answer: { kind: 'number', value: v.toString() },
+        hints: [`$\\sqrt{${sq}}$ asks: what positive number times itself is $${sq}$?`, 'Perfect squares: $4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169$.', `Try numbers near $${r > 6 ? 10 : 5}$: square them and compare with $${sq}$.`, tex.startsWith('-') ? 'Find the square root, then keep the minus sign in front.' : 'The answer is a whole number.'],
+        misconceptions: numberMisconceptions(v, [
+          { value: Rational.from(sq as never), tag: 'radical-simplify', feedback: `The square root of $${sq}$ is the number that, times itself, gives $${sq}$.` },
+          { value: Rational.from((sq / 2) as never), tag: 'radical-simplify', feedback: 'A square root is not half of the number. Look for a number times itself.' },
+          { value: v.neg(), tag: 'sign-error', feedback: tex.startsWith('-') ? 'Keep the minus sign that is in front of the root.' : 'The square root symbol means the positive root.' },
+        ]),
+        explanation: `$${r} \\cdot ${r} = ${sq}$, so $${tex} = ${v.toString()}$, an integer.`,
+      };
+    }
+    case 'root': {
+      const b = Number(/\\sqrt\{(\d+)\}/.exec(tex)![1]);
+      const ans = rotChoice(SQ_NO(b), [SQ_YES(b)], b);
+      return {
+        prompt: [p(`Look at the number under the root in $${tex}$. Is $${b}$ a perfect square?`)],
+        answer: ans,
+        hints: ['A perfect square is a whole number times itself, like $9 = 3 \\cdot 3$.', 'Perfect squares: $1, 4, 9, 16, 25, 36, 49, \\ldots$', `Which perfect squares are just below and just above $${b}$?`, `Is $${b}$ itself in the list of perfect squares?`],
+        misconceptions: [{ answer: idOf(ans, SQ_YES(b)), tag: 'radical-simplify', feedback: `Try it: no whole number times itself is $${b}$.` }],
+        explanation: `$${b}$ is not a perfect square, so $\\sqrt{${b}}$ never ends and never repeats${tex.startsWith('\\sqrt') ? '' : ', and a nonzero rational number times it is still irrational'}.`,
+      };
+    }
+    case 'pi': {
+      const ans = rotChoice(PI_TRUE, [PI_ENDS, PI_REPEATS], tex.length);
+      return {
+        prompt: [p(`$${tex}$ is built from $\\pi$. What is true about the decimal for $\\pi$?`)],
+        answer: ans,
+        hints: ['$\\pi$ is the circumference of a circle divided by its diameter.', 'People have found trillions of digits of $\\pi$.', '$3.14$ and $\\frac{22}{7}$ are only close approximations.', 'No pattern ever starts repeating in the digits of $\\pi$.'],
+        misconceptions: [
+          { answer: idOf(ans, PI_ENDS), tag: 'other', feedback: '$3.14$ is a rounded value. The digits of $\\pi$ keep going: $3.14159265\\ldots$' },
+          { answer: idOf(ans, PI_REPEATS), tag: 'other', feedback: 'The digits of $\\pi$ ($3.14159265\\ldots$) never settle into a repeating pattern.' },
+        ],
+        explanation: `The decimal for $\\pi$ never ends and never repeats${tex === '\\pi' ? '' : ', and a nonzero rational number times $\\pi$ is still irrational'}.`,
+      };
+    }
+  }
+}
+
+/** Independent check of the first step for one number. */
+function formStepErrors(tex: string, st: ProblemStep): string[] {
+  const a = st.answer;
+  switch (numForm(tex)) {
+    case 'integer':
+      return a.kind === 'number' && Rational.parse(a.value).div(Rational.from(2 as never)).eq(Rational.parse(tex)) ? [] : ['integer step wrong'];
+    case 'terminating':
+      return a.kind === 'number' && Rational.parse(a.value).div(Rational.from(Math.pow(10, placesOf(tex)) as never)).eq(Rational.parse(tex)) ? [] : ['decimal step wrong'];
+    case 'perfectRoot': {
+      const v = texSurd(tex);
+      return a.kind === 'number' && v && v.isRational() && v.rationalPart().eq(Rational.parse(a.value)) ? [] : ['root value step wrong'];
+    }
+    case 'root':
+      return stepLabel(st).startsWith('No') && classifyTex(tex) === false ? [] : ['perfect-square step wrong'];
+    case 'pi':
+      return stepLabel(st) === PI_TRUE ? [] : ['pi step wrong'];
+    case 'fraction':
+      return stepLabel(st) === FRAC_YES && classifyTex(tex) === true ? [] : ['fraction step wrong'];
+  }
+}
+
+function classifySteps(item: NumItem, answer: ChoiceAnswer): ProblemStep[] {
+  const fb = (label: string): string =>
+    label === WRONG_ROOT
+      ? 'Not every square root is irrational: $\\sqrt{9} = 3$. Choose a reason that is always true.'
+      : label === WRONG_DECIMAL
+        ? 'A calculator shows irrational numbers as decimals too, so that is not a reason.'
+        : `Use what you found in the last step. ${wrongGroupFeedback(item.tex)}`;
+  return [
+    formStep(item.tex),
+    {
+      prompt: [p(`Now choose the correct answer **and** reason: is $${item.tex}$ rational or irrational?`)],
+      answer,
+      hints: ['Use what you found in the last step.', 'Rational means it can be written as a fraction of two integers.', 'Check the reason too: it must be true, not just sound right.', 'A calculator rounds every decimal, so the screen alone proves nothing.'],
+      misconceptions: answer.options.filter((o) => o.id !== answer.correct).map((o) => ({ answer: o.id, tag: 'other' as const, feedback: fb(o.label) })),
+      explanation: item.why,
+    },
+  ];
+}
+
 export const genClassifyNumber: GeneratorDef = {
   id: 'u3.classify-number',
   skillId: 'S3.01',
@@ -208,6 +359,7 @@ export const genClassifyNumber: GeneratorDef = {
       hints: CLASSIFY_HINTS,
       solution,
       misconceptions: [],
+      steps: difficulty === 1 ? classifySteps(item, answer) : undefined,
     });
   },
   verify(pr) {
@@ -219,6 +371,10 @@ export const genClassifyNumber: GeneratorDef = {
     const errs: string[] = [];
     if (choiceLabel(pr.answer) !== (rational ? RATIONAL_LABEL : IRRATIONAL_LABEL)) errs.push('wrong key');
     if (pr.answer.options.length !== 4) errs.push('expected 4 options');
+    if (pr.steps?.length) {
+      errs.push(...formStepErrors(m[1], pr.steps[0]));
+      errs.push(...stepsFinishErrors(pr));
+    }
     return errs;
   },
 };
@@ -226,6 +382,20 @@ export const genClassifyNumber: GeneratorDef = {
 // ---------------------------------------------------------------------------
 // S3.01: pick the one irrational (or rational) number
 // ---------------------------------------------------------------------------
+
+/** Guided steps for "which number is irrational" (difficulty 1): classify the first three choices, then choose. */
+function whichSteps(all: NumItem[], answer: ChoiceAnswer): ProblemStep[] {
+  return [
+    ...all.slice(0, 3).map((it, i) => ratStep(it.tex, it.rational, it.why, i === 0 ? 'Check the choices one at a time, starting with the first. ' : '')),
+    {
+      prompt: [p('You have checked three of the choices. Which number is **irrational**?')],
+      answer,
+      hints: ['Exactly one choice is irrational.', 'If one of the three you checked is irrational, that is the answer.', 'If all three were rational, check the last choice.', 'Irrational numbers here are $\\pi$ (or a multiple of it) and square roots of numbers that are not perfect squares.'],
+      misconceptions: answer.options.filter((o) => o.id !== answer.correct).map((o) => ({ answer: o.id, tag: 'other' as const, feedback: wrongGroupFeedback(o.label.slice(1, -1)) })),
+      explanation: `$${all.find((it) => !it.rational)!.tex}$ is the only irrational choice.`,
+    },
+  ];
+}
 
 export const genWhichIrrational: GeneratorDef = {
   id: 'u3.which-irrational',
@@ -264,6 +434,7 @@ export const genWhichIrrational: GeneratorDef = {
         { text: `The ${word} number is $${odd.tex}$.` },
       ],
       misconceptions: [],
+      steps: difficulty === 1 ? whichSteps(all, answer) : undefined,
     });
   },
   verify(pr) {
@@ -278,6 +449,11 @@ export const genWhichIrrational: GeneratorDef = {
     if (hits.length !== 1) errs.push(`${hits.length} options are ${m[1]}`);
     else if (hits[0].id !== pr.answer.correct) errs.push('wrong key');
     if (pr.answer.options.length !== 4) errs.push('expected 4 options');
+    if (pr.steps?.length === 4) {
+      // the first three choices, each classified on its own
+      for (let i = 0; i < 3; i++) if (stepLabel(pr.steps[i]) !== (classes[i] ? RAT : IRR)) errs.push(`classify step ${i + 1} wrong`);
+      errs.push(...stepsFinishErrors(pr));
+    }
     return errs;
   },
 };
@@ -352,6 +528,76 @@ function combineTex(op: Op, q: Pair): string {
   return op === 'sum' ? `${x} + ${y}` : `${x} \\cdot ${y}`;
 }
 
+/** Guided steps for one specific sum or product (difficulty 1): classify the parts, work out what is needed, decide. */
+function closureSteps(op: Op, kind: number, q: Pair, expr: string, b: number, rational: boolean, why: string, answer: ChoiceAnswer): ProblemStep[] {
+  const sym = op === 'sum' ? '+' : '\\cdot';
+  const num = (prompt: string, v: number, hints: [string, string, string, string], misc: Array<{ value: number; feedback: string }>, explanation: string): ProblemStep => ({
+    prompt: [p(prompt)],
+    answer: { kind: 'number', value: String(v) },
+    hints,
+    misconceptions: numberMisconceptions(Rational.from(v as never), misc.map((m) => ({ value: Rational.from(m.value as never), tag: 'radical-simplify' as const, feedback: m.feedback }))),
+    explanation,
+  });
+  const first = ratStep(q.x, kind <= 1, kind <= 1 ? 'It can be written as a fraction of two integers.' : `$${b}$ is not a perfect square.`, `Start with the parts of $${expr}$. `);
+  const steps: ProblemStep[] = [first];
+  if (kind === 0) steps.push(ratStep(q.y, false, `$${b}$ is not a perfect square.`));
+  else if (kind === 1) {
+    const k = Math.round(Math.sqrt(Number(/\{(\d+)\}/.exec(q.y)![1])));
+    steps.push(num(`What is the value of $${q.y}$?`, k, [`$${q.y}$ asks: what positive number times itself is $${k * k}$?`, 'Perfect squares: $4, 9, 16, 25, 36, 49, 64, 81$.', `Try a few whole numbers: square each one and compare with $${k * k}$.`, 'The answer is a whole number.'], [{ value: k * k, feedback: `The square root of $${k * k}$ is the number that, times itself, gives $${k * k}$.` }, { value: (k * k) / 2, feedback: 'A square root is not half of the number. Look for a number times itself.' }], `$${k} \\cdot ${k} = ${k * k}$, so $${q.y} = ${k}$, a rational number.`));
+  } else if (kind === 2 && op === 'sum') {
+    steps.push(num(`$${q.x}$ and $${q.y}$ are opposites. What is $${expr}$?`, 0, ['Opposites, like $3$ and $-3$, are the same distance from the middle of the number line, on opposite sides.', 'Think of $\\sqrt{' + b + '}$ as one unknown amount, like $x$.', 'What is $x + (-x)$?', 'A number plus its opposite always gives the same result.'], [{ value: 2 * b, feedback: 'The second number is **negative**, so the two cancel.' }], `$${expr} = 0$, and $0$ is rational.`));
+  } else if (kind === 2) {
+    const N = 4 * b * b;
+    steps.push(num(`Use $\\sqrt{a} \\cdot \\sqrt{c} = \\sqrt{ac}$: $${expr} = \\sqrt{N}$. What is $N$?`, N, ['Multiply the numbers under the two roots.', `The numbers under the roots are $${b}$ and $${4 * b}$.`, `Work out $${b} \\cdot ${4 * b}$.`, 'Keep the product under one root.'], [{ value: 5 * b, feedback: 'Multiply the numbers under the roots. Do not add them.' }], `$${b} \\cdot ${4 * b} = ${N}$, so $${expr} = \\sqrt{${N}}$.`));
+    steps.push(num(`What is $\\sqrt{${N}}$?`, 2 * b, [`$\\sqrt{${N}}$ asks: what positive number times itself is $${N}$?`, `$${N} = 4 \\cdot ${b * b}$.`, `$\\sqrt{4} = 2$ and $\\sqrt{${b * b}} = ${b}$.`, 'Multiply those two roots.'], [{ value: N / 2, feedback: 'A square root is not half of the number. Look for a number times itself.' }, { value: 4 * b, feedback: `Take the square root of each factor: $\\sqrt{4} = 2$, not $4$.` }], `$${2 * b} \\cdot ${2 * b} = ${N}$, so $\\sqrt{${N}} = ${2 * b}$, an integer.`));
+  } else {
+    const c = Number(/\{(\d+)\}/.exec(q.y)![1]);
+    steps.push(ratStep(q.y, false, `$${c}$ is not a perfect square.`));
+    if (op === 'product')
+      steps.push(num(`Use $\\sqrt{a} \\cdot \\sqrt{c} = \\sqrt{ac}$: $${expr} = \\sqrt{N}$. What is $N$?`, b * c, ['Multiply the numbers under the two roots.', `The numbers under the roots are $${b}$ and $${c}$.`, `Work out $${b} \\cdot ${c}$.`, 'Keep the product under one root.'], [{ value: b + c, feedback: 'Multiply the numbers under the roots. Do not add them.' }], `$${b} \\cdot ${c} = ${b * c}$, and $${b * c}$ is not a perfect square.`));
+  }
+  steps.push({
+    prompt: [p(`Now decide: is $${expr}$ rational or irrational?`)],
+    answer,
+    hints: [
+      'Use what you found in the steps so far.',
+      `Rational $${sym}$ rational is rational. ${op === 'sum' ? 'Rational + irrational is irrational.' : 'Nonzero rational $\\cdot$ irrational is irrational.'}`,
+      'When both parts are irrational, look at the simplified result.',
+      'A whole number, or $0$, is rational.',
+    ],
+    misconceptions: answer.options.filter((o) => o.id !== answer.correct).map((o) => ({ answer: o.id, tag: 'other' as const, feedback: rational ? (kind === 1 ? 'Both parts turned out to be rational, so the result is rational too.' : 'Two irrational numbers can give a rational result. Look at the value you worked out.') : kind === 0 ? `${op === 'sum' ? 'Adding a rational number to' : 'Multiplying by a nonzero rational number'} an irrational number never makes it rational.` : op === 'sum' ? 'Unlike radicals cannot cancel or combine, so their sum stays irrational.' : 'The product is the square root of a number that is not a perfect square, so it is irrational.' })),
+    explanation: why,
+  });
+  return steps;
+}
+
+/** Independent checks of the closure steps: each part classified by itself, each number recomputed from the expression. */
+function closureStepErrors(steps: ProblemStep[], whole: ReturnType<typeof texSurd>): string[] {
+  const errs: string[] = [];
+  for (const st of steps.slice(0, -1)) {
+    const text = (st.prompt[0] as { text: string }).text;
+    const own = /On its own, is \$(.+)\$ rational or irrational\?/.exec(text);
+    if (own) {
+      if (stepLabel(st) !== (classifyTex(own[1]) ? RAT : IRR)) errs.push(`part ${own[1]} misclassified`);
+      continue;
+    }
+    if (st.answer.kind !== 'number') continue;
+    const v = Rational.parse(st.answer.value);
+    const valOf = /What is (?:the value of )?\$(.+)\$\?$/.exec(text);
+    const rootN = /= \\sqrt\{N\}\$\. What is \$N\$\?$/.test(text);
+    if (rootN) {
+      const s = texSurd(`\\sqrt{${st.answer.value}}`);
+      if (!s || !whole || !s.equals(whole)) errs.push('product-under-root step wrong');
+    } else if (valOf) {
+      const s = texSurd(valOf[1]);
+      if (!s || !s.isRational() || !s.rationalPart().eq(v)) errs.push(`value step for ${valOf[1]} wrong`);
+    } else if (/are opposites/.test(text)) {
+      if (!whole || !whole.isRational() || !whole.rationalPart().eq(v)) errs.push('opposites step wrong');
+    } else errs.push('unrecognized step');
+  }
+  return errs;
+}
+
 export const genClosureType: GeneratorDef = {
   id: 'u3.closure-type',
   skillId: 'S3.02',
@@ -388,6 +634,7 @@ export const genClosureType: GeneratorDef = {
       }
       const expr = combineTex(op, q);
       const answer = makeChoice(rng, rational ? 'Rational' : 'Irrational', [rational ? 'Irrational' : 'Rational']);
+      const steps = closureSteps(op, kind, q, expr, b, rational, why, answer);
       return makeProblem({
         skillId: 'S3.02',
         tags: [],
@@ -404,6 +651,7 @@ export const genClosureType: GeneratorDef = {
           { text: `So $${expr}$ is **${rational ? 'rational' : 'irrational'}**.` },
         ],
         misconceptions: [],
+        steps,
       });
     }
     if (difficulty === 2 && rng.next() < 0.4) return measurementClosure(rng);
@@ -484,7 +732,9 @@ export const genClosureType: GeneratorDef = {
     if (one) {
       const s = texSurd(one[1]);
       if (!s) return ['cannot evaluate'];
-      return key === (s.isRational() ? 'Rational' : 'Irrational') ? [] : ['wrong key'];
+      const errs = key === (s.isRational() ? 'Rational' : 'Irrational') ? [] : ['wrong key'];
+      if (pr.steps?.length) errs.push(...closureStepErrors(pr.steps, s), ...stepsFinishErrors(pr));
+      return errs;
     }
     const rule = /^What can you say about the (sum|product) of (?:two (rational|irrational) numbers|an? (rational|nonzero rational) number and an? (irrational) number)\?$/.exec(text);
     if (rule) {

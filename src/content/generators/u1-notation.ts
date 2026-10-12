@@ -10,7 +10,7 @@ import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, numberMisconceptions, numStr, sub, pickDistinct, FUNC_NAMES, makeChoice, choiceLabel, texToExpr, texValue } from './util';
 import { buildContext, ctxRule, ctxStory } from './u1-contexts';
-import { numStep, choiceStep, finalStep, stepErrors } from './u1-steps';
+import { numStep, choiceStep, finalStep, stepErrors, choiceMisc } from './u1-steps';
 
 const TABLE_INPUT = 'An input: look for it in the $x$ column';
 const TABLE_OUTPUT = 'An output: look for it in the $f(x)$ column';
@@ -104,7 +104,7 @@ export const genSolveFx: GeneratorDef = {
             'Use a number line if the signs are tricky.',
           ],
           misconceptions: numberMisconceptions(diff, [{ value: c.add(b), tag: 'sign-error', feedback: 'Do the opposite of what the rule does to the constant.' }]),
-          explanation: `$${linearTex(m, 0)} = ${diff.toTex()}$.`,
+          explanation: `The constant was the last thing the rule did to $x$, so undoing it first (on both sides) leaves $${linearTex(m, 0)} = ${diff.toTex()}$.`,
         },
         {
           prompt: [p(`Now solve $${linearTex(m, 0)} = ${diff.toTex()}$. What is $x$?`)],
@@ -119,7 +119,7 @@ export const genSolveFx: GeneratorDef = {
             { value: diff.mul(m), tag: 'inverse-operation', feedback: 'Divide to undo multiplication.' },
             { value: x.neg(), tag: 'sign-error', feedback: 'Check the sign of your quotient.' },
           ]),
-          explanation: `$x = ${x.toTex()}$.`,
+          explanation: `Dividing both sides by $${m.toTex()}$ undoes the multiplication and leaves $x = ${x.toTex()}$.`,
         },
       ],
     });
@@ -134,7 +134,11 @@ export const genSolveFx: GeneratorDef = {
     const target = texValue(mm[3]);
     const errs: string[] = [];
     if (!out.eq(target)) errs.push(`f(${x}) = ${out}, not ${target}`);
-    if (ruleSlope(mm[2], 'x').isZero()) errs.push('constant rule has no unique input');
+    const slope = ruleSlope(mm[2], 'x');
+    if (slope.isZero()) return [...errs, 'constant rule has no unique input'];
+    // steps: the target minus the rule's value at 0, then that divided by the slope
+    const rest = target.sub(evalRule(mm[2], 'x', Q(0)));
+    errs.push(...stepErrors(pr, [rest, rest.div(slope)]));
     return errs;
   },
 };
@@ -177,7 +181,10 @@ export const genSolveFxGraph: GeneratorDef = {
           { text: 'Read the input in the same row.', tex: `${f}(${xs[i]}) = ${c}`, why: 'Each row pairs an input with its output.' },
           { text: `So $x = ${xs[i]}$.` },
         ],
-        misconceptions: numberMisconceptions(Q(xs[i]), [{ value: wrongCol, tag: 'graph-reading', feedback: `That's $${f}(${c})$, the output when the input is $${c}$. Here $${c}$ is the output. Look for it in the $${f}(x)$ column.` }]),
+        misconceptions: numberMisconceptions(Q(xs[i]), [
+          { value: wrongCol, tag: 'graph-reading', feedback: `That's $${f}(${c})$, the output when the input is $${c}$. Here $${c}$ is the output. Look for it in the $${f}(x)$ column.` },
+          { value: Q(c), tag: 'graph-reading', feedback: `$${c}$ is the output you were given. Find it in the $${f}(x)$ column and read the $x$-value in the same row.` },
+        ]),
         steps: [
           choiceStep(
             `In $${f}(x) = ${c}$, is the number $${c}$ an input or an output?`,
@@ -464,7 +471,11 @@ export const genInterpretNotation: GeneratorDef = {
           { text: `The output is ${ctx.outWord(y)}, so it goes after the equals sign.`, tex: `${f}(${decTex(a)}) = ${decTex(y)}` },
           { text: 'Check with the rule.', tex: `${f}(${decTex(a)}) = ${decTex(ctx.m)}(${decTex(a)})${ctx.b.isNegative() ? ' - ' + decTex(ctx.b.abs()) : ' + ' + decTex(ctx.b)} = ${decTex(y)}`, why: 'The statement is true for this function.' },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisc(answer, [
+          { label: `$${f}(${decTex(y)}) = ${decTex(a)}$`, tag: 'graph-reading', feedback: `The input and output are swapped. The number of ${ctx.inUnits} is the input, so it goes inside the parentheses.` },
+          { label: `$${decTex(a)} \\cdot ${f} = ${decTex(y)}$`, tag: 'formula-error', feedback: `Function notation is not multiplication. $${f}(\\ldots)$ means "the output of $${f}$ for this input."` },
+          { label: `$${f}(0) = ${decTex(y)}$`, tag: 'graph-reading', feedback: `$${f}(0)$ is the output at the very start, when the input is 0. The sentence is about a different input.` },
+        ]),
         steps: notationSteps(ctx, 'In the sentence', a, y, answer, 'So which statement in function notation matches the sentence?', `The input ${decTex(a)} goes inside the parentheses and the output ${decTex(y)} goes after the equals sign.`),
       });
     }
@@ -492,7 +503,11 @@ export const genInterpretNotation: GeneratorDef = {
           { text: `The output is ${ctx.outWord(b)}.`, tex: `${f}(0) = ${decTex(ctx.m)}(0)${b.isNegative() ? ' - ' + decTex(b.abs()) : ' + ' + decTex(b)} = ${decTex(b)}`, why: `This is ${ctx.startMeaning}.` },
           { text: 'So the statement describes the starting value.' },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisc(answer, [
+          { label: `Each ${ctx.inUnit} changes the output by ${ctx.outWord(b)}.`, tag: 'graph-reading', feedback: `That describes a rate. $${f}(0)$ is one output: the value when the input is 0, at the start.` },
+          { label: ctx.says(ctx.inWord(b.abs()), ctx.outWord(Q(0))), tag: 'graph-reading', feedback: `The input and output are swapped. In $${f}(0)$, the input is the 0 inside the parentheses.` },
+          { label: `The output is ${ctx.outWord(b)} for every number of ${ctx.inUnits}.`, tag: 'graph-reading', feedback: `$${f}(0)$ gives the output for one input only, 0. For other inputs the output changes.` },
+        ]),
         steps: notationSteps(ctx, `In $${f}(0) = ${decTex(b)}$`, Q(0), b, answer, `So what does $${f}(0) = ${decTex(b)}$ mean in this situation?`, `An input of 0 ${ctx.inUnits} is the very start, so the statement gives the starting value.`),
       });
     }
@@ -517,7 +532,11 @@ export const genInterpretNotation: GeneratorDef = {
         { text: `Identify the output: ${ctx.outWord(y)}.`, why: `$${f}(${v})$ is ${ctx.outputDesc}.` },
         { text: 'Put them in a sentence.', why: ctx.says(ctx.inWord(a), ctx.outWord(y)) },
       ],
-      misconceptions: [],
+      misconceptions: choiceMisc(answer, [
+        { label: ctx.says(ctx.inWord(y.abs()), ctx.outWord(a)), tag: 'graph-reading', feedback: `The input and output are swapped. The number inside the parentheses, ${decTex(a)}, counts ${ctx.inUnits}.` },
+        { label: `Each ${ctx.inUnit} changes the output by ${ctx.outWord(y)}.`, tag: 'graph-reading', feedback: 'That describes a rate. A statement like this gives one input and its one output.' },
+        { label: `$${f}$ multiplied by ${decTex(a)} equals ${decTex(y)}.`, tag: 'formula-error', feedback: `Function notation is not multiplication. $${f}(${decTex(a)})$ means the output when the input is ${decTex(a)}.` },
+      ]),
       steps: notationSteps(ctx, `In $${f}(${decTex(a)}) = ${decTex(y)}$`, a, y, answer, `So what does $${f}(${decTex(a)}) = ${decTex(y)}$ mean in this situation?`, `The sentence must connect the input ${ctx.inWord(a)} with the output ${ctx.outWord(y)}.`),
     });
   },

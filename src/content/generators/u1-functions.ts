@@ -184,7 +184,9 @@ export const genIsFunction: GeneratorDef = {
               { text: `The input ${rel.badInput} appears twice, with two different outputs.`, tex: rel.pairs.filter(([x]) => x === rel.badInput).map(([x, y]) => `(${x}, ${y})`).join(' \\text{ and } '), why: 'One input with two outputs breaks the rule of a function.' },
               { text: 'So the relation is not a function.' },
             ],
-        misconceptions: [],
+        misconceptions: [rel.isFunction
+          ? { answer: 'no', tag: 'other', feedback: 'A shared output is allowed. Only one input with two different outputs would break the rule.' }
+          : { answer: 'yes', tag: 'other', feedback: 'Look for an input ($x$-value) that appears twice with two different outputs.' }],
         steps: isFunctionSteps(rel),
       });
     }
@@ -332,7 +334,7 @@ export const genEvalLinear: GeneratorDef = {
             { value: product.neg(), tag: 'sign-error', feedback: 'Check the sign of your product.' },
             { value: m.add(a), tag: 'order-of-operations', feedback: 'The coefficient and $x$ are multiplied, not added.' },
           ]),
-          explanation: `$${m.toTex()}\\cdot ${sub(a)} = ${product.toTex()}$.`,
+          explanation: `Multiplication comes before addition, so the $x$-term is worked out first: $${m.toTex()}\\cdot ${sub(a)} = ${product.toTex()}$.`,
         },
         {
           prompt: [p(`Now finish: $${f}(${a.toTex()}) = ${product.toTex()}${b.isNegative() ? ' - ' + b.abs().toTex() : ' + ' + b.toTex()}$. What is $${f}(${a.toTex()})$?`)],
@@ -344,7 +346,7 @@ export const genEvalLinear: GeneratorDef = {
             `Start at $${product.toTex()}$ and move ${b.abs().toTex()} ${b.isNegative() ? 'left' : 'right'}.`,
           ],
           misconceptions: numberMisconceptions(value, [{ value: product.sub(b), tag: 'sign-error', feedback: 'Check the sign of the constant term.' }]),
-          explanation: `$${f}(${a.toTex()}) = ${value.toTex()}$.`,
+          explanation: `With the product found, only the constant term is left, so combining them gives the single output $${f}(${a.toTex()}) = ${value.toTex()}$.`,
         },
       ],
     });
@@ -361,6 +363,8 @@ export const genEvalLinear: GeneratorDef = {
     const x = toPoly(parseExpression(input)).constantValue();
     const val = poly.evaluate({ x });
     if (pr.answer.kind !== 'number' || !Rational.parse(pr.answer.value).eq(val)) errs.push(`answer ${JSON.stringify(pr.answer)} != ${val}`);
+    // steps: the x-term is the rule's value at the input minus its value at 0, then the whole output
+    errs.push(...stepErrors(pr, [val.sub(poly.evaluate({ x: Q(0) })), val]));
     return errs;
   },
 };
@@ -514,7 +518,10 @@ export const genNotationTable: GeneratorDef = {
           { text: `Find the row where $x = ${a}$.`, why: `In $${f}(${a})$, the number in parentheses is the input.` },
           { text: `Read the output in that row: $${f}(${a}) = ${ys[i]}$.` },
         ],
-        misconceptions: numberMisconceptions(val, [{ value: swapped, tag: 'graph-reading', feedback: `You found the input whose output is ${a}. In $${f}(${a})$, ${a} is the input.` }]),
+        misconceptions: numberMisconceptions(val, [
+          { value: swapped, tag: 'graph-reading', feedback: `You found the input whose output is ${a}. In $${f}(${a})$, ${a} is the input.` },
+          { value: Q(a), tag: 'graph-reading', feedback: `That is the input. $${f}(${a})$ is the output in the row where $x = ${a}$.` },
+        ]),
         steps: [
           numStep(
             `In $${f}(${a})$, which number is the input ($x$-value)?`,

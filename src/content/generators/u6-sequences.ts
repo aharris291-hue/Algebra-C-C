@@ -15,6 +15,7 @@ import { p, math, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconc
 import { moneyText as money } from './u5-models';
 import { dTex, commas, pct, texExact } from './u5-common';
 import { textAll } from './u6-common';
+import { numStep, specStep, choiceStep, finalStep, withSteps, stepErrors } from './u5-steps';
 
 type Mis = { value: Rational | null; tag: MisconceptionTag; feedback: string };
 const exactStr = (v: Rational) => {
@@ -44,6 +45,8 @@ function readList(tex: string): Rational[] {
     .filter((t) => t.length)
     .map((t) => texExact(t)!);
 }
+/** A term as a divisor or second operand: negative values in parentheses. */
+const sg = (v: Rational) => (v.isNegative() ? `(${dTex(v)})` : dTex(v));
 const ratios = (ts: Rational[]) => ts.slice(1).map((t, i) => (ts[i].isZero() ? null : t.div(ts[i])));
 const diffs = (ts: Rational[]) => ts.slice(1).map((t, i) => t.sub(ts[i]));
 const allEq = (xs: Array<Rational | null>) => xs.every((x) => x !== null && x.eq(xs[0]!));
@@ -106,6 +109,21 @@ function situations(rng: Rng): Situation[] {
 }
 const isExpText = (s: string) => /%|doubles|triples|in half/.test(s);
 
+/** Steps for "linear (arithmetic), exponential (geometric) or neither": check differences, then ratios. */
+function patternSteps(pr: Problem, ys: Rational[], words: { item: string; lin: string; exp: string }): ReturnType<typeof choiceStep>[] {
+  const d = diffs(ys);
+  const r = ratios(ys);
+  const dConst = allEq(d);
+  const rConst = allEq(r);
+  const dList = d.map((q) => `$${dTex(q)}$`).join(', ');
+  const rList = r.map((q) => (q ? `$${dTex(q)}$` : 'undefined')).join(', ');
+  return [
+    choiceStep(`Subtract each ${words.item} from the next one. Are the differences all the same?`, ['Yes, they are all the same', 'No, they change'], dConst ? 0 : 1, ['A difference is the next value minus the one before it.', `Start with $${dTex(ys[1])} - ${ys[0].isNegative() ? `(${dTex(ys[0])})` : dTex(ys[0])}$.`, 'Find every difference, not just the first one.', 'Compare all of them.'], `The differences are ${dList}${dConst ? ': all the same' : ': they change'}.`, [{ index: dConst ? 1 : 0, tag: 'arithmetic-error', feedback: `Check every pair again: subtract each ${words.item} from the next one.` }]),
+    choiceStep(`Now divide each ${words.item} by the one before it. Are the ratios all the same?`, ['Yes, they are all the same', 'No, they change'], rConst ? 0 : 1, ['A ratio is the next value divided by the one before it.', `Start with $${dTex(ys[1])} \\div ${ys[0].isNegative() ? `(${dTex(ys[0])})` : dTex(ys[0])}$.`, 'Find every ratio, not just the first one.', 'Compare all of them.'], `The ratios are ${rList}${rConst ? ': all the same' : ': they change'}.`, [{ index: rConst ? 1 : 0, tag: 'arithmetic-error', feedback: `Check every pair: divide each ${words.item} by the one before it.` }]),
+    finalStep(pr, `Use the two checks. Which is it?`, [`Constant differences mean ${words.lin}.`, `Constant ratios mean ${words.exp}.`, 'If neither stays the same, it is neither.', 'Use your answers to the last two steps.'], dConst ? `The differences are constant, so it is ${words.lin}.` : rConst ? `The ratios are constant, so it is ${words.exp}.` : 'Neither the differences nor the ratios are constant, so it is neither.'),
+  ];
+}
+
 export const genLinearOrExp: GeneratorDef = {
   id: 'u6.linear-or-exp',
   skillId: 'S6.04',
@@ -121,7 +139,7 @@ export const genLinearOrExp: GeneratorDef = {
       const rRow = `Ratios: ${r.map((q) => (q ? `$${dTex(q)}$` : 'undefined')).join(', ')}.`;
       if (difficulty === 1) {
         const correct = kind === 'linear' ? 'Linear' : kind === 'exponential' ? 'Exponential' : 'Neither';
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S6.04',
           tags: [],
           prompt: [p('Is the function in the table linear, exponential or neither?'), table],
@@ -133,10 +151,10 @@ export const genLinearOrExp: GeneratorDef = {
             { text: kind === 'linear' ? 'The differences are constant, so the function is linear.' : kind === 'exponential' ? 'The ratios are constant, so the function is exponential.' : 'Neither the differences nor the ratios are constant, so it is neither linear nor exponential.' },
           ],
           misconceptions: [],
-        });
+        }), (pr) => patternSteps(pr, ys, { item: '$y$-value', lin: 'linear', exp: 'exponential' }));
       }
       const key = kind === 'linear' ? d[0] : r[0]!;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.04',
         tags: [],
         prompt: [p('The table shows a function that is either linear or exponential. Decide which. If it is linear, enter the common difference. If it is exponential, enter the common ratio.'), table],
@@ -153,7 +171,11 @@ export const genLinearOrExp: GeneratorDef = {
           { value: kind === 'exponential' ? d[1] : null, tag: 'other', feedback: 'The differences change, so the function is not linear. Divide instead of subtracting.' },
           { value: kind === 'exponential' && r[0] && !r[0].isZero() ? r[0].inv() : null, tag: 'other', feedback: 'Divide each $y$-value by the one before it, not the other way around.' },
         ]),
-      });
+      }), (pr) => [
+        numStep(`Find the first two differences. What is $${dTex(ys[2])} - ${sg(ys[1])}$?`, d[1], ['A difference is the next $y$-value minus the one before it.', 'Subtract in order: later minus earlier.', 'Watch negative signs.', `Compare it with $${dTex(ys[1])} - ${sg(ys[0])} = ${dTex(d[0])}$.`], `$${dTex(ys[2])} - ${sg(ys[1])} = ${dTex(d[1])}$, ${d[1].eq(d[0]) ? 'the same as the first difference' : `but the first difference is $${dTex(d[0])}$`}.`, [{ value: d[1].neg(), tag: 'sign-error', feedback: 'Subtract the earlier value from the later one.' }]),
+        choiceStep('Which stays the same from row to row?', ['The differences, so it is linear', 'The ratios, so it is exponential'], kind === 'linear' ? 0 : 1, ['Compare the two differences you have.', 'If they match, check the rest of the table too.', 'If they do not match, divide each $y$-value by the one before it.', 'Exactly one of the two patterns stays the same.'], kind === 'linear' ? `Every difference is $${dTex(key)}$, so the function is linear.` : `The differences change, but every ratio is $${dTex(key)}$, so the function is exponential.`, [{ index: kind === 'linear' ? 1 : 0, tag: 'other', feedback: kind === 'linear' ? 'The differences are all the same, so the function adds the same amount each time.' : 'The differences change. Divide each $y$-value by the one before it.' }]),
+        finalStep(pr, kind === 'linear' ? 'Enter the common difference.' : 'Enter the common ratio.', ['Use the pattern that stays the same.', kind === 'linear' ? 'Subtract any $y$-value from the next one.' : 'Divide any $y$-value by the one before it.', 'Check it with another pair of rows.', 'Type a number or a fraction.'], kind === 'linear' ? `The common difference is $${dTex(key)}$.` : `The common ratio is $${dTex(key)}$.`),
+      ]);
     }
     if (rng.bool()) {
       const all = situations(rng);
@@ -205,11 +227,12 @@ export const genLinearOrExp: GeneratorDef = {
       // classify again by testing the general linear and exponential models through the first two points
       const isLin = ys.every((y, i) => y.eq(ys[0].add(ys[1].sub(ys[0]).mul(i))));
       const isExp = !ys[0].isZero() && ys.every((y, i) => y.eq(iterGeo(ys[0], ys[1].div(ys[0]), i + 1)));
-      if (pr.answer.kind === 'choice') return choiceLabel(pr.answer) === (isLin ? 'Linear' : isExp ? 'Exponential' : 'Neither') ? [] : ['classification wrong'];
+      const yes = (b: boolean) => (b ? 'Yes, they are all the same' : 'No, they change');
+      if (pr.answer.kind === 'choice') return [...(choiceLabel(pr.answer) === (isLin ? 'Linear' : isExp ? 'Exponential' : 'Neither') ? [] : ['classification wrong']), ...stepErrors(pr, [yes(isLin), yes(isExp), null])];
       if (pr.answer.kind !== 'number') return ['unexpected kind'];
       if (isLin === isExp) return ['table is not exactly one of linear or exponential'];
       const want = isLin ? ys[1].sub(ys[0]) : ys[1].div(ys[0]);
-      return Q(pr.answer.value).eq(want) ? [] : ['constant wrong'];
+      return [...(Q(pr.answer.value).eq(want) ? [] : ['constant wrong']), ...stepErrors(pr, [ys[2].sub(ys[1]), isLin ? 'The differences, so it is linear' : 'The ratios, so it is exponential', null])];
     }
     if (pr.answer.kind !== 'choice') return ['unexpected kind'];
     const plan = /start with \\\$([\d,]+)\. Plan A adds \\\$([\d,.]+) .* grows by ([\d.]+)% .* after (\d+) months/.exec(text);
@@ -280,19 +303,21 @@ function verifyGeoApplied(pr: Problem, text: string): string[] | null {
     return Math.abs(c1 - t1) < 1e-9 && Math.abs(cr * t1 - t2) < 1e-9 && Math.abs(cr * t2 - t3) < 1e-9 ? [] : ['recursive formula does not match the explicit formula'];
   } else return null;
   const a = pr.answer;
+  // guided steps: the first term and the common ratio, read from the story or the plotted points
+  const steps = stepErrors(pr, [a1, r, null]);
   if (a.kind === 'expression') {
     const node = parseExpression(a.value);
     for (let n = 1; n <= 8; n++) {
       const want = iterGeo(a1, r, n).toNumber();
       if (Math.abs(evalNumeric(node, { n }) - want) > 1e-9 * Math.max(1, Math.abs(want))) return [`formula wrong at n = ${n}`];
     }
-    return [];
+    return steps;
   }
   if (a.kind !== 'number') return ['unexpected kind'];
   const k = /bounce (\d+)\?|on day (\d+)\?|the (\d+)th term/.exec(text);
   if (!k) return ['cannot read term number'];
   const n = Number(k[1] ?? k[2] ?? k[3]);
-  return Q(a.value).eq(iterGeo(a1, r, n)) ? [] : ['term wrong'];
+  return [...(Q(a.value).eq(iterGeo(a1, r, n)) ? [] : ['term wrong']), ...steps];
 }
 
 export const genGeometric: GeneratorDef = {
@@ -340,9 +365,13 @@ export const genGeometric: GeneratorDef = {
       const firstStep = bounce
         ? { text: 'Find the first term.', tex: `a_1 = ${rc.toTex()} \\cdot ${a1c.div(rc).toTex()} = ${dTex(a1c)}`, why: 'The first bounce rises to that fraction of the drop height.' }
         : { text: 'Find the first term.', tex: `a_1 = ${dTex(a1c)}`, why: 'Day 1 is the first term.' };
+      const ctxSteps = () => [
+        numStep(bounce ? 'What height, in feet, does the ball reach on its first bounce? That is $a_1$.' : 'How many new shares are there on day 1? That is $a_1$.', a1c, bounce ? ['The drop height is not a bounce.', 'The first bounce rises to the given fraction of the drop height.', `Multiply the drop height by $${rc.toTex()}$.`, 'Give the height in feet.'] : ['The first term is the number on the first day.', 'Read the first sentence.', 'Day 1 is term number 1.', 'Give just the number.'], bounce ? `$a_1 = ${rc.toTex()} \\cdot ${a1c.div(rc).toTex()} = ${dTex(a1c)}$ feet.` : `$a_1 = ${dTex(a1c)}$.`, [{ value: bounce ? a1c.div(rc) : null, tag: 'sequence-index', feedback: 'That is the drop height. The first bounce is already a fraction of it.' }, { value: bounce ? a1c.mul(rc) : null, tag: 'sequence-index', feedback: 'That is the second bounce. Multiply the drop height by the fraction once.' }], { unit: bounce ? 'feet' : undefined }),
+        numStep('What is the common ratio $r$, the number each term is multiplied by?', rc, ['Each term is the term before it times the same factor.', bounce ? 'Each bounce reaches the same fraction of the height before.' : 'Each day has the same multiple of the day before.', bounce ? 'The fraction is given in the story.' : '"Twice" means times 2; "three times" means times 3.', 'Type a whole number or a fraction.'], `$r = ${rc.toTex()}$.`, [{ value: bounce ? Q(1).sub(rc) : null, tag: 'growth-decay', feedback: 'That is the part of the height that is lost. The ratio is the part that remains.' }]),
+      ];
       if (askFormula) {
         const spec = { kind: 'expression' as const, value: geoPlain(a1c, rc), variables: ['n'] };
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S6.07',
           tags: ['real-world'],
           prompt: [p(story), p('Write an explicit formula for $a_n$.')],
@@ -359,11 +388,11 @@ export const genGeometric: GeneratorDef = {
             { answer: geoPlain(a1c, rc, 'n'), tag: 'sequence-index', feedback: 'Check $n = 1$: your formula should give the first term. Use the exponent $n - 1$.' },
             { answer: `${numStr(a1c)}+(n-1)*${numStr(rc)}`, tag: 'other', feedback: 'That adds the ratio. The amount is multiplied by the same factor each time.' },
           ]),
-        });
+        }), (pr) => [...ctxSteps(), finalStep(pr, 'Write the explicit formula $a_n = a_1(r)^{n-1}$.', ['Put the first term in front.', 'Put the ratio in parentheses as the base.', 'The exponent is $n - 1$.', 'Check: at $n = 1$ the formula should give the first term.'], `$a_n = ${geoTex(a1c, rc)}$: term $n$ is the first term multiplied by $r$ a total of $n - 1$ times.`)]);
       }
       const k = rng.pick(ks);
       const v = geo(a1c, rc, k);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.07',
         tags: ['real-world'],
         prompt: [p(story), p(ask(k))],
@@ -380,7 +409,7 @@ export const genGeometric: GeneratorDef = {
           ...(bounce ? [{ value: geo(a1c, rc, k - 1), tag: 'sequence-index' as const, feedback: 'The drop height is not the first bounce. Start the count at the first bounce.' }] : []),
           { value: a1c.add(rc.mul(k - 1)), tag: 'other', feedback: 'That adds the ratio. A geometric sequence multiplies by it.' },
         ]),
-      });
+      }), (pr) => [...ctxSteps(), finalStep(pr, `Use $a_n = a_1(r)^{n-1}$ with $n = ${k}$. ${ask(k)}`, [`From term 1 to term ${k} you multiply by $r$ exactly ${k - 1} times.`, `Find the power $\\left(${rc.toTex()}\\right)^{${k - 1}}$ first.`, 'Then multiply by the first term.', 'Or keep multiplying term by term.'], `$a_{${k}} = ${geoTex(a1c, rc, String(k - 1))} = ${dTex(v)}$.`)]);
     }
     if (task === 'graph') {
       const rg = Q(rng.pick(['2', '3', '0.5']));
@@ -402,7 +431,7 @@ export const genGeometric: GeneratorDef = {
       const askF = rng.int(0, 2) === 0;
       const v = geo(a1g, rg, 6);
       const spec2 = { kind: 'expression' as const, value: geoPlain(a1g, rg), variables: ['n'] };
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.07',
         tags: ['graph'],
         prompt: [p('The graph shows the first four terms of a geometric sequence, plotted as points $(n, a_n)$.'), { t: 'graph', spec, caption: 'Each point is (term number, term).' }, p(askF ? 'Write an explicit formula for $a_n$.' : 'Find the 6th term, $a_{6}$.')],
@@ -422,7 +451,13 @@ export const genGeometric: GeneratorDef = {
               { value: geo(a1g, rg, 5), tag: 'sequence-index', feedback: 'That is the 5th term. Multiply by the ratio once more.' },
               { value: tsg[3].add(tsg[3].sub(tsg[2]).mul(2)), tag: 'other', feedback: 'The points do not go up by the same amount each time. Multiply by the ratio.' },
             ]),
-      });
+      }), (pr) => [
+        numStep('Read the first point. What is $a_1$?', a1g, ['The point at $n = 1$ shows the first term.', 'Its label is $(1, a_1)$.', 'Read the second coordinate.', 'Give just the term.'], `The point $(1, ${numStr(a1g)})$ shows $a_1 = ${numStr(a1g)}$.`, [{ value: Q(1), tag: 'graph-reading', feedback: 'That is the term number. Read the height of the point.' }, { value: tsg[1], tag: 'sequence-index', feedback: 'That is the second term.' }]),
+        numStep('Divide the second term by the first. What is the common ratio $r$?', rg, ['Each term is the term before it times $r$.', `Read $a_2$ from the point at $n = 2$.`, `Find $${numStr(tsg[1])} \\div ${numStr(a1g)}$.`, 'Check with the next pair of points.'], `$r = \\frac{${dTex(tsg[1])}}{${dTex(a1g)}} = ${dTex(rg)}$.`, [{ value: tsg[1].sub(a1g), tag: 'other', feedback: 'That is the difference. A geometric sequence multiplies, so divide.' }, { value: rg.inv(), tag: 'other', feedback: 'Divide the later term by the earlier one.' }]),
+        askF
+          ? finalStep(pr, 'Write the explicit formula $a_n = a_1(r)^{n-1}$.', ['Put the first term in front.', 'Put the ratio in parentheses as the base.', 'The exponent is $n - 1$.', 'Check: at $n = 1$ the formula should give the first point.'], `$a_n = ${geoTex(a1g, rg)}$.`)
+          : finalStep(pr, 'Keep multiplying by the ratio. What is $a_{6}$?', ['The graph shows terms 1 to 4.', 'Multiply the 4th term by $r$ to get the 5th.', 'Multiply again to get the 6th.', 'Or use $a_1(r)^{5}$.'], `$a_5 = ${dTex(geo(a1g, rg, 5))}$ and $a_6 = ${dTex(v)}$.`),
+      ]);
     }
     if (task === 'exp2rec') {
       const rTex = r.isInteger() && !r.isNegative() ? rT : paren(r);
@@ -443,12 +478,12 @@ export const genGeometric: GeneratorDef = {
       });
     }
     if (task === 'ratio') {
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.07',
         tags: [],
         prompt: [...intro, p('What is the common ratio?')],
         answer: numSpec(r),
-        hints: ['In a geometric sequence you multiply by the same number each time.', 'Divide any term by the term before it.', `Try $${dTex(ts[1])} \\div ${dTex(ts[0])}$.`, 'If the signs alternate, the ratio is negative.'],
+        hints: ['In a geometric sequence you multiply by the same number each time.', 'Divide any term by the term before it.', `Try $${dTex(ts[1])} \\div ${sg(ts[0])}$.`, 'If the signs alternate, the ratio is negative.'],
         solution: [
           { text: 'Divide a term by the one before it.', tex: `\\frac{${dTex(ts[1])}}{${dTex(ts[0])}} = ${rT}`, why: 'The common ratio is the factor that takes one term to the next.' },
           { text: 'Check with the next pair.', tex: `\\frac{${dTex(ts[2])}}{${dTex(ts[1])}} = ${rT}` },
@@ -458,11 +493,15 @@ export const genGeometric: GeneratorDef = {
           { value: r.inv(), tag: 'other', feedback: 'Divide a term by the term before it, not the other way around.' },
           { value: r.neg(), tag: 'sign-error', feedback: 'Check the sign: do the terms alternate between positive and negative?' },
         ]),
-      });
+      }), (pr) => [
+        numStep(`Divide the second term by the first. What is $${dTex(ts[1])} \\div ${sg(ts[0])}$?`, ts[1].div(ts[0]), ['A geometric sequence multiplies by the same number each time.', 'Divide the later term by the earlier one.', 'If exactly one of the two numbers is negative, the result is negative.', 'Simplify the result.'], `$${dTex(ts[1])} \\div ${sg(ts[0])} = ${rT}$.`, [{ value: ts[1].sub(ts[0]), tag: 'other', feedback: 'That is the difference. Divide instead.' }, { value: ts[0].div(ts[1]), tag: 'other', feedback: 'Divide the later term by the earlier one, not the other way around.' }]),
+        numStep(`Check the next pair. What is $${dTex(ts[2])} \\div ${sg(ts[1])}$?`, ts[2].div(ts[1]), ['Every pair of neighbors must give the same ratio.', 'Divide the third term by the second.', 'Watch the signs.', 'Compare with the last step.'], `$${dTex(ts[2])} \\div ${sg(ts[1])} = ${rT}$, the same as before.`, [{ value: ts[2].sub(ts[1]), tag: 'other', feedback: 'That is the difference. Divide instead.' }]),
+        finalStep(pr, 'Both pairs give the same number. What is the common ratio?', ['The common ratio is the number every term is multiplied by.', 'It is the ratio you found for both pairs.', 'If the signs alternate, the ratio is negative.', 'Type a whole number or a fraction.'], `The common ratio is $${rT}$.`),
+      ]);
     }
     if (task === 'next') {
       const next = [5, 6, 7].map((n) => geo(a1, r, n));
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.07',
         tags: [],
         prompt: [...intro, p('Write the next three terms.')],
@@ -476,12 +515,16 @@ export const genGeometric: GeneratorDef = {
         misconceptions: ([
           { answer: [1, 2, 3].map((i) => numStr(ts[3].add(ts[3].sub(ts[2]).mul(i)))).join(', '), tag: 'other', feedback: 'Those add the same amount each time. A geometric sequence multiplies by the common ratio.' },
         ] as Misconception[]).filter((m) => checkAnswer({ kind: 'sequence-terms', values: next.map(exactStr) }, m.answer).status === 'incorrect'),
-      });
+      }), (pr) => [
+        numStep('Divide a term by the one before it. What is the common ratio $r$?', r, ['A geometric sequence multiplies by the same number each time.', `Try $${dTex(ts[1])} \\div ${sg(ts[0])}$.`, 'Check with another pair.', 'If the signs alternate, the ratio is negative.'], `$r = ${rT}$.`, [{ value: ts[1].sub(ts[0]), tag: 'other', feedback: 'That is the difference. Divide instead.' }, { value: r.neg(), tag: 'sign-error', feedback: 'Check the sign: do the terms alternate?' }]),
+        numStep(`Multiply the last term shown by $r$. What is the 5th term?`, next[0], [`The last term shown is $${dTex(ts[3])}$.`, 'Each term is the term before it times $r$.', `Find $${dTex(ts[3])} \\cdot ${paren(r)}$.`, 'Watch the sign.'], `$${dTex(ts[3])} \\cdot ${paren(r)} = ${dTex(next[0])}$.`, [{ value: ts[3].add(ts[3].sub(ts[2])), tag: 'other', feedback: 'That adds the last difference. Multiply by the ratio instead.' }, { value: next[0].neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }]),
+        finalStep(pr, 'Keep multiplying by $r$. Write the 5th, 6th and 7th terms.', ['Start with the 5th term you just found.', 'Multiply it by $r$ to get the 6th term.', 'Multiply again to get the 7th term.', 'Separate the three terms with commas.'], `${dTex(next[0])}, then $${dTex(next[0])} \\cdot ${paren(r)} = ${dTex(next[1])}$, then $${dTex(next[1])} \\cdot ${paren(r)} = ${dTex(next[2])}$.`),
+      ]);
     }
     if (task === 'term') {
       const n = rng.int(6, r.abs().eq(2) || r.abs().lt(1) ? 9 : 7);
       const an = geo(a1, r, n);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.07',
         tags: [],
         prompt: [...intro, p(`Find the ${ordinal(n)} term, $a_{${n}}$.`)],
@@ -498,7 +541,11 @@ export const genGeometric: GeneratorDef = {
           { value: a1.mul(r).pow(n - 1), tag: 'order-of-operations', feedback: 'Only the ratio is raised to the power. Find the power first, then multiply by $a_1$.' },
           { value: a1.add(r.mul(n - 1)), tag: 'other', feedback: 'That adds the ratio each time. A geometric sequence multiplies by it.' },
         ]),
-      });
+      }), (pr) => [
+        numStep('Divide a term by the one before it. What is the common ratio $r$?', r, ['A geometric sequence multiplies by the same number each time.', `Try $${dTex(ts[1])} \\div ${sg(ts[0])}$.`, 'Check with another pair.', 'If the signs alternate, the ratio is negative.'], `$r = ${rT}$.`, [{ value: ts[1].sub(ts[0]), tag: 'other', feedback: 'That is the difference. Divide instead.' }, { value: r.inv(), tag: 'other', feedback: 'Divide the later term by the earlier one.' }]),
+        numStep(`From term 1 to term ${n}, how many times do you multiply by $r$? That is the exponent in $a_{${n}} = a_1(r)^{?}$.`, Q(n - 1), ['Going from term 1 to term 2 is one multiplication.', 'Going from term 1 to term 3 is two multiplications.', 'Look for the pattern.', 'The exponent in the explicit formula is $n - 1$.'], `There are ${n - 1} multiplications, so $a_{${n}} = ${geoTex(a1, r, String(n - 1))}$.`, [{ value: Q(n), tag: 'sequence-index', feedback: 'The first term is already there before any multiplying. Count the steps between terms.' }]),
+        finalStep(pr, `Evaluate. What is $a_{${n}}$?`, [`Compute the power $${paren(r)}^{${n - 1}}$ first.`, 'An even power of a negative number is positive; an odd power is negative.', `Then multiply by $a_1 = ${dTex(a1)}$.`, 'Simplify any fraction.'], `$a_{${n}} = ${dTex(a1)} \\cdot ${r.pow(n - 1).toTex()} = ${an.toTex()}$.`),
+      ]);
     }
     const spec = { kind: 'expression' as const, value: geoPlain(a1, r), variables: ['n'] };
     const formulaMis = () =>
@@ -510,7 +557,7 @@ export const genGeometric: GeneratorDef = {
       ]);
     if (task === 'formula' || task === 'rec2exp') {
       const prompt = task === 'formula' ? [...intro, p('Write an explicit formula for $a_n$.')] : [p('A geometric sequence is defined recursively:'), math(`a_1 = ${dTex(a1)},\\quad a_n = ${r.isInteger() && !r.isNegative() ? rT : paren(r)}\\,a_{n-1}`), p('Write an explicit formula for $a_n$.')];
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.07',
         tags: task === 'rec2exp' ? ['multi-step'] : [],
         prompt,
@@ -523,7 +570,11 @@ export const genGeometric: GeneratorDef = {
           { text: 'Check with $n = 2$.', tex: `${geoTex(a1, r, '1')} = ${dTex(geo(a1, r, 2))}`, why: 'It gives the second term, so the formula is right.' },
         ],
         misconceptions: formulaMis(),
-      });
+      }), (pr) => [
+        numStep('What is the first term $a_1$?', a1, task === 'formula' ? ['The first term is the first number in the list.', 'It is term number 1.', 'Read it from the left.', 'Keep its sign.'] : ['The recursive formula gives the first term directly.', 'Look for $a_1 =$.', 'The second part is the rule for later terms.', 'Keep its sign.'], `$a_1 = ${dTex(a1)}$.`, [{ value: r, tag: 'other', feedback: 'That is the ratio. The first term is the starting value.' }]),
+        numStep('What is the common ratio $r$?', r, task === 'formula' ? ['Divide any term by the one before it.', `Try $${dTex(ts[1])} \\div ${sg(ts[0])}$.`, 'Check with another pair.', 'If the signs alternate, the ratio is negative.'] : ['In the recursive rule, $a_{n-1}$ is multiplied by the ratio.', 'Look at the number in front of $a_{n-1}$.', 'Each term is that number times the term before it.', 'Keep its sign.'], `$r = ${rT}$.`, [{ value: task === 'formula' ? ts[1].sub(ts[0]) : null, tag: 'other', feedback: 'That is the difference. Divide instead.' }, { value: a1, tag: 'other', feedback: 'That is the first term. The ratio is what each term is multiplied by.' }]),
+        finalStep(pr, 'Write the explicit formula $a_n = a_1(r)^{n-1}$.', ['Put the first term in front.', 'Put the ratio in parentheses as the base.', 'The exponent is $n - 1$.', 'Check: at $n = 2$ the formula should give the second term.'], `$a_n = ${geoTex(a1, r)}$: term $n$ is the first term multiplied by $r$ a total of $n - 1$ times.`),
+      ]);
     }
     if (task === 'recursive') {
       const rTex = r.isInteger() && !r.isNegative() ? rT : paren(r);
@@ -583,12 +634,12 @@ export const genGeometric: GeneratorDef = {
     }
     const a = pr.answer;
     if (a.kind === 'sequence-terms') {
-      return a.values.every((v, i) => Q(v).eq(iterGeo(a1, r, ts.length + 1 + i))) ? [] : ['next terms wrong'];
+      return [...(a.values.every((v, i) => Q(v).eq(iterGeo(a1, r, ts.length + 1 + i))) ? [] : ['next terms wrong']), ...stepErrors(pr, [r, iterGeo(a1, r, ts.length + 1), null])];
     }
     if (a.kind === 'expression') {
       const node = parseExpression(a.value);
       for (let n = 1; n <= 10; n++) if (Math.abs(evalNumeric(node, { n }) - iterGeo(a1, r, n).toNumber()) > 1e-9 * Math.max(1, Math.abs(iterGeo(a1, r, n).toNumber()))) return [`formula wrong at n = ${n}`];
-      return [];
+      return stepErrors(pr, [a1, r, null]);
     }
     if (a.kind === 'choice') {
       const label = choiceLabel(a);
@@ -598,9 +649,9 @@ export const genGeometric: GeneratorDef = {
     }
     if (a.kind !== 'number') return ['unexpected kind'];
     const v = Q(a.value);
-    if (/What is the common ratio/.test(text)) return v.eq(r) ? [] : ['ratio wrong'];
+    if (/What is the common ratio/.test(text)) return [...(v.eq(r) ? [] : ['ratio wrong']), ...stepErrors(pr, [ts[1].div(ts[0]), ts[2].div(ts[1]), null])];
     const tm = /\$a_\{(\d+)\}\$/.exec(text);
-    if (tm && /Find the/.test(text)) return v.eq(iterGeo(a1, r, Number(tm[1]))) ? [] : ['term wrong'];
+    if (tm && /Find the/.test(text)) return [...(v.eq(iterGeo(a1, r, Number(tm[1]))) ? [] : ['term wrong']), ...stepErrors(pr, [r, Q(Number(tm[1]) - 1), null])];
     const wm = /Which term of the sequence is \$(.+?)\$/.exec(text);
     if (!wm) return ['cannot read'];
     const target = texExact(wm[1])!;
@@ -636,7 +687,7 @@ export const genGeoFunction: GeneratorDef = {
         ts = [0, 1, 2, 3, 4].map((i) => a.add(Q(s * (i * (i + 1)) / 2)));
       }
       const correct = kind === 'arithmetic' ? 'Arithmetic' : kind === 'geometric' ? 'Geometric' : 'Neither';
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.08',
         tags: [],
         prompt: [p('Is the sequence arithmetic, geometric or neither?'), math(listTex(ts))],
@@ -648,7 +699,7 @@ export const genGeoFunction: GeneratorDef = {
           { text: kind === 'arithmetic' ? 'There is a common difference, so the sequence is arithmetic.' : kind === 'geometric' ? 'There is a common ratio, so the sequence is geometric.' : 'There is no common difference and no common ratio, so it is neither.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => patternSteps(pr, ts, { item: 'term', lin: 'arithmetic', exp: 'geometric' }));
     }
     if (difficulty === 2) {
       const r = Q(rng.pick(['2', '3', '1/2', '4', '1.5']));
@@ -657,7 +708,7 @@ export const genGeoFunction: GeneratorDef = {
       const ts = [1, 2, 3, 4].map((n) => geo(a1, r, n));
       if (rng.int(0, 2) === 0) {
         const correct = 'The positive integers $1, 2, 3, \\dots$';
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S6.08',
           tags: [],
           prompt: [p(`The geometric sequence $${listTex(ts)}$ can be written as the function $f(n) = ${geoTex(c, r, 'n')}$, where $f(n)$ is the $n$th term. What is the domain of $f$?`)],
@@ -665,10 +716,14 @@ export const genGeoFunction: GeneratorDef = {
           hints: ['The input $n$ is the term number.', 'Is there a 0th term, or a term number 2.5?', 'The first term is term number 1.', 'Term numbers count 1, 2, 3, and so on.'],
           solution: [{ text: 'The input $n$ is a term number: 1st, 2nd, 3rd and so on.', why: 'Sequences are functions whose domain is a set of whole-number positions.' }, { text: 'So the domain is the positive integers.', why: 'There is no term number 0, no negative term number and no term number like 2.5.' }],
           misconceptions: [],
-        });
+        }), (pr) => [
+          choiceStep('What does the input $n$ stand for?', ['A term number: 1st, 2nd, 3rd, ...', 'Any amount of time', 'The value of a term'], 0, ['Read the sentence: $f(n)$ is the $n$th term.', 'The output $f(n)$ is the value of the term.', 'So the input tells which term.', 'Think "1st term, 2nd term, 3rd term".'], 'The input $n$ is the position of a term in the list, so it counts 1, 2, 3, and so on.', [{ index: 1, tag: 'other', feedback: 'Nothing in a list of terms is measured in time. $n$ tells which term.' }, { index: 2, tag: 'other', feedback: 'The value of a term is the output $f(n)$. The input tells which term.' }]),
+          numStep('What is the smallest term number?', Q(1), ['The list starts with the first term.', 'Is there a term before the first one?', 'The first term is term number...', 'It is a positive whole number.'], 'The first term is term number 1; there is no term number 0.', [{ value: Q(0), tag: 'sequence-index', feedback: 'There is no 0th term in the list. Counting starts at the first term.' }]),
+          finalStep(pr, 'Term numbers start there and go up by 1 with no end. What is the domain of $f$?', ['Term numbers are whole numbers.', 'There is no term number like 2.5 or $-1$.', 'The sequence goes on forever.', 'Pick the set that starts at the smallest term number and counts up.'], 'The domain is the positive integers $1, 2, 3, \\dots$'),
+        ]);
       }
       const spec = { kind: 'expression' as const, value: geoPlain(c, r, 'n'), variables: ['n'] };
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.08',
         tags: [],
         prompt: [p('Write the geometric sequence as an exponential function $f(n) = a(b)^{n}$, where $f(n)$ is the $n$th term and $n = 1, 2, 3, \\dots$.'), math(listTex(ts))],
@@ -684,7 +739,11 @@ export const genGeoFunction: GeneratorDef = {
           { answer: geoPlain(a1, r, 'n'), tag: 'sequence-index', feedback: 'Check $n = 1$: that gives the second term. Divide the first term by the ratio to get $a$.' },
           { answer: geoPlain(r, a1, 'n'), tag: 'other', feedback: 'The base is the common ratio.' },
         ]),
-      });
+      }), (pr) => [
+        numStep('Divide neighboring terms. What is the common ratio? That is the base $b$.', r, ['Each term is the term before it times the ratio.', `Try $${dTex(ts[1])} \\div ${sg(ts[0])}$.`, 'Check with another pair.', 'Type a whole number, decimal or fraction.'], `$b = r = \\frac{${dTex(ts[1])}}{${dTex(ts[0])}} = ${dTex(r)}$.`, [{ value: ts[1].sub(ts[0]), tag: 'other', feedback: 'That is the difference. Divide instead.' }, { value: r.inv(), tag: 'other', feedback: 'Divide the later term by the earlier one.' }]),
+        numStep(`At $n = 1$ the function must give the first term, so $a \\cdot ${dTex(r)} = ${dTex(a1)}$. What is $a$?`, c, ['$f(1) = a(b)^{1} = a \\cdot b$.', 'That must equal the first term.', `Divide the first term by $${dTex(r)}$.`, `Find $${dTex(a1)} \\div ${dTex(r)}$.`], `$a = ${dTex(a1)} \\div ${dTex(r)} = ${dTex(c)}$.`, [{ value: a1, tag: 'sequence-index', feedback: 'With exponent $n$ (not $n - 1$), the first term is $a \\cdot b$, so $a$ is not the first term. Divide by $b$.' }, { value: a1.mul(r), tag: 'sequence-index', feedback: 'Divide by the ratio, not multiply.' }]),
+        finalStep(pr, 'Write the function $f(n) = a(b)^{n}$.', ['Put $a$ in front.', 'Put the ratio in parentheses as the base.', 'The exponent is $n$.', 'Check: $f(1)$ should be the first term.'], `$f(n) = ${geoTex(c, r, 'n')}$. Check: $f(1) = ${dTex(c)} \\cdot ${dTex(r)} = ${dTex(a1)}$.`),
+      ]);
     }
     // compare an arithmetic and a geometric sequence
     const A0 = Q(rng.pick([20, 30, 50, 100]));
@@ -762,19 +821,21 @@ export const genGeoFunction: GeneratorDef = {
       const [x, y] = at(n);
       return choiceLabel(a) === (y.gt(x) ? 'Sequence B' : x.gt(y) ? 'Sequence A' : 'They are equal') ? [] : ['comparison wrong'];
     }
-    if (a.kind === 'choice' && /domain/.test(text)) return /positive integers/.test(choiceLabel(a)) ? [] : ['domain wrong'];
+    if (a.kind === 'choice' && /domain/.test(text)) return [...(/positive integers/.test(choiceLabel(a)) ? [] : ['domain wrong']), ...stepErrors(pr, ['A term number: 1st, 2nd, 3rd, ...', Q(1), null])];
     const tex = lists[0] ?? /\$(.+?\\dots)\$/.exec(text)?.[1];
     const ts = readList(tex);
     if (a.kind === 'choice') {
       const kind = allEq(diffs(ts)) ? 'Arithmetic' : allEq(ratios(ts)) ? 'Geometric' : 'Neither';
-      return choiceLabel(a) === kind ? [] : ['classification wrong'];
+      const yes = (b: boolean) => (b ? 'Yes, they are all the same' : 'No, they change');
+      return [...(choiceLabel(a) === kind ? [] : ['classification wrong']), ...stepErrors(pr, [yes(kind === 'Arithmetic'), yes(allEq(ratios(ts))), null])];
     }
     if (a.kind !== 'expression') return ['unexpected kind'];
     const node = parseExpression(a.value);
     const r = ts[1].div(ts[0]);
     if (r.sign() <= 0) return ['ratio must be positive for an exponential function'];
     for (let n = 1; n <= 8; n++) if (Math.abs(evalNumeric(node, { n }) - iterGeo(ts[0], r, n).toNumber()) > 1e-9 * Math.max(1, iterGeo(ts[0], r, n).abs().toNumber())) return [`f(${n}) wrong`];
-    return [];
+    // steps: the ratio, then a = f(1) / b (the value the formula gives at n = 0 when continued backward)
+    return stepErrors(pr, [r, ts[0].div(r), null]);
   },
 };
 
@@ -996,7 +1057,7 @@ function mixedCompare(rng: Rng, difficulty: number) {
       const what = q === 'yint' ? 'the greater $y$-intercept' : q === 'value' ? `the greater value at $x = ${n}$` : q === 'asym' ? 'the higher horizontal asymptote' : 'the greater growth factor';
       concl = `Compare: ${fmtV(vf)} for $f$ and ${fmtV(vg)} for $g$. So ${correct} has ${what}.`;
     }
-    return makeProblem({
+    return withSteps(makeProblem({
       skillId: 'S6.09',
       tags: ['multi-step', ...(rf === 'graph' || rg === 'graph' ? (['graph'] as const) : [])],
       prompt,
@@ -1004,6 +1065,20 @@ function mixedCompare(rng: Rng, difficulty: number) {
       hints: MIX_HINTS[q](n),
       solution: [mixRead('f', f, rf, q, n), mixRead('g', g, rg, q, n), { text: concl, why: 'The two functions are given in different ways, so first turn each one into the same kind of fact, then compare.' }],
       misconceptions: [],
+    }), (pr) => {
+      if (q !== 'yint' && q !== 'value') return [];
+      const how = (name: string, h: MixFn, rep: Rep): [string, string, string, string] => {
+        if (q === 'yint') return rep === 'graph' ? ['The $y$-intercept is where the graph crosses the $y$-axis.', 'On the $y$-axis, $x = 0$.', 'Find the labeled point with $x = 0$.', 'Give its $y$-coordinate.'] : rep === 'table' ? ['The $y$-intercept is the output when $x = 0$.', 'Find the row with $x = 0$.', 'Read the output in that row.', 'Give just the number.'] : rep === 'verbal' ? ['The $y$-intercept is the output when $x = 0$.', 'The description tells the output at $x = 0$.', 'Read the first part of the sentence.', 'Give just the number.'] : ['The $y$-intercept is the output when $x = 0$.', `Substitute $x = 0$ into $${name}(x)$.`, h.kind === 'exp' ? 'Any nonzero base to the power 0 is 1.' : 'Terms with $x$ become 0.', 'Add what is left.'];
+        if (rep === 'eq') return [`Substitute $x = ${n}$ into $${name}(x)$.`, 'Find any power first.', 'Then multiply and add.', 'Keep the exact value.'];
+        if (rep === 'verbal') return ['Start with the output at $x = 0$.', h.kind === 'lin' ? `Add the same amount for each step up to $x = ${n}$.` : `Multiply by the same factor for each step up to $x = ${n}$.`, h.kind === 'lin' ? 'That is the start plus $n$ times the change.' : 'That is the start times the factor to the power $n$.', 'Keep the exact value.'];
+        return ['Decide whether the table is linear, quadratic or exponential.', 'Constant differences: keep adding. Constant ratios: keep multiplying. Constant second differences: quadratic.', `Extend the pattern to $x = ${n}$.`, 'Keep the exact value.'];
+      };
+      const ask = (name: string) => (q === 'yint' ? `What is the $y$-intercept of $${name}$?` : `What is $${name}(${n})$?`);
+      return [
+        numStep(ask('f'), vf, how('f', f, rf), `$f(${n}) = ${dTex(vf)}$.`, [{ value: q === 'value' && rf === 'table' && f.kind === 'exp' ? f.at(n - 1).add(f.at(n - 1).sub(f.at(n - 2))) : null, tag: 'other', feedback: 'The table multiplies by the same factor, so keep multiplying, not adding.' }]),
+        numStep(ask('g'), vg, how('g', g, rg), `$g(${n}) = ${dTex(vg)}$.`, [{ value: q === 'value' && g.kind === 'exp' ? g.p[0].mul(g.p[1]).mul(n).add(g.p[2]) : null, tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication by the base, not the base times $x$.' }]),
+        finalStep(pr, `Compare $${dTex(vf)}$ and $${dTex(vg)}$. ${question}`, ['Put the two numbers side by side.', 'Watch negative numbers: $-5$ is less than $-2$.', 'The larger number wins.', 'Answer with the name of the function.'], concl),
+      ];
     });
   }
   throw new Error('mixedCompare: no untied pair');
@@ -1073,6 +1148,17 @@ function mixEvaluators(pr: Pick<Problem, 'prompt'>): Map<string, (x: number) => 
   return out.size === 2 ? out : 'functions not found';
 }
 
+/** Steps whose keys are numbers: compare each with a value recomputed numerically (null skips). */
+function numericStepErrors(pr: Problem, want: Array<number | null>): string[] {
+  const errs = stepErrors(pr, want.map(() => null));
+  (pr.steps ?? []).forEach((st, i) => {
+    const w = want[i];
+    if (w === null || w === undefined) return;
+    if (st.answer.kind !== 'number' || Math.abs(Q(st.answer.value).toNumber() - w) > 1e-9 * Math.max(1, Math.abs(w))) errs.push(`step ${i + 1}: expected ${w}`);
+  });
+  return errs;
+}
+
 function verifyMixed(pr: Problem): string[] {
   const ev = mixEvaluators(pr);
   if (typeof ev === 'string') return [ev];
@@ -1102,7 +1188,8 @@ function verifyMixed(pr: Problem): string[] {
     [vf, vg] = [fac(F), fac(G)];
   } else return ['unknown question'];
   if (Math.abs(vf - vg) < 1e-9) return label === 'They are equal' ? [] : ['should be equal'];
-  return label === (vf > vg ? '$f$' : '$g$') ? [] : ['comparison wrong'];
+  const steps = /greater \$y\$-intercept|greater value at/.test(text) ? numericStepErrors(pr, [vf, vg, null]) : [];
+  return [...(label === (vf > vg ? '$f$' : '$g$') ? [] : ['comparison wrong']), ...steps];
 }
 
 export const genCompareFamilies: GeneratorDef = {
@@ -1118,7 +1205,7 @@ export const genCompareFamilies: GeneratorDef = {
       const d1 = diffs(ys);
       const d2 = diffs(d1);
       const correct = fam[0].toUpperCase() + fam.slice(1);
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.09',
         tags: [],
         prompt: [p('Which kind of function does the table show?'), { t: 'table', headers: ['$x$', '$y$'], rows: ys.map((y, i) => [String(i), numStr(y)]) }],
@@ -1131,7 +1218,11 @@ export const genCompareFamilies: GeneratorDef = {
           { text: fam === 'linear' ? 'The first differences are constant, so it is linear.' : fam === 'quadratic' ? 'The second differences are constant, so it is quadratic.' : 'The ratios are constant, so it is exponential.' },
         ],
         misconceptions: [],
-      });
+      }), (pr) => [
+        choiceStep('Find the first differences (subtract each $y$-value from the next). Are they all the same?', ['Yes, they are all the same', 'No, they change'], fam === 'linear' ? 0 : 1, ['Subtract each $y$-value from the next one.', `Start with $${dTex(ys[1])} - ${dTex(ys[0])}$.`, 'Find all four differences.', 'Compare them.'], `The first differences are ${d1.map((q) => `$${dTex(q)}$`).join(', ')}.`, [{ index: fam === 'linear' ? 1 : 0, tag: 'arithmetic-error', feedback: 'Check every difference, not just the first one.' }]),
+        choiceStep(fam === 'linear' ? 'The first differences are constant. Which kind of function adds the same amount each step?' : 'They change. Now find the second differences (the differences of the differences) and the ratios. Which one is constant?', fam === 'linear' ? ['Linear', 'Quadratic', 'Exponential'] : ['The second differences', 'The ratios'], fam === 'linear' ? 0 : fam === 'quadratic' ? 0 : 1, fam === 'linear' ? ['A constant first difference means the same amount is added each time.', 'That is a straight-line pattern.', 'Quadratic patterns have changing first differences.', 'Exponential patterns multiply.'] : ['Subtract each first difference from the next.', 'Divide each $y$-value by the one before it.', 'Only one of the two is constant.', 'Check every pair.'], fam === 'linear' ? 'Adding the same amount each step is linear.' : fam === 'quadratic' ? `The second differences are all $${dTex(d2[0])}$.` : `The ratios are all $${dTex(ratios(ys)[0]!)}$.`, fam === 'linear' ? [{ index: 1, tag: 'other', feedback: 'Quadratic tables have first differences that change.' }, { index: 2, tag: 'other', feedback: 'Exponential tables multiply, so their differences change.' }] : [{ index: fam === 'quadratic' ? 1 : 0, tag: 'arithmetic-error', feedback: 'Check that one again for every pair.' }]),
+        finalStep(pr, 'Which kind of function does the table show?', ['Constant first differences: linear.', 'Constant second differences: quadratic.', 'Constant ratios: exponential.', 'Use the checks you just did.'], fam === 'linear' ? 'The first differences are constant, so it is linear.' : fam === 'quadratic' ? 'The second differences are constant, so it is quadratic.' : 'The ratios are constant, so it is exponential.'),
+      ]);
     }
     // functions given in two different representations (A.FGR.9.5)
     if (difficulty === 2 ? rng.bool() : rng.int(0, 4) < 2) return mixedCompare(rng, difficulty);
@@ -1157,7 +1248,7 @@ export const genCompareFamilies: GeneratorDef = {
       }
       if (vl.eq(ve)) return genCompareFamilies.generate(rng, 2);
       const correct = `$${ve.gt(vl) ? names[1] : names[0]}$`;
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.09',
         tags: [],
         prompt: [...intro, p(askRate ? `Which function has the greater average rate of change from $x = ${x1}$ to $x = ${x2}$?` : `Which function has the greater value at $x = ${x1}$?`)],
@@ -1175,7 +1266,17 @@ export const genCompareFamilies: GeneratorDef = {
               { text: `${correct} has the greater value.` },
             ],
         misconceptions: [],
-      });
+      }), (pr) => askRate
+        ? [
+            numStep(`Find the average rate of change of $${names[0]}$ from $x = ${x1}$ to $x = ${x2}$.`, vl, [`$${names[0]}$ is linear.`, `Find $${names[0]}(${x1})$ and $${names[0]}(${x2})$.`, `Subtract, then divide by $${x2 - x1}$.`, 'For a linear function this is the slope.'], `$\\frac{${dTex(lin.at(x2))} - ${dTex(lin.at(x1))}}{${x2 - x1}} = ${dTex(vl)}$, the slope.`, [{ value: lin.at(x2).sub(lin.at(x1)).eq(vl) ? null : lin.at(x2).sub(lin.at(x1)), tag: 'slope-calc', feedback: 'Divide the change in output by the change in input.' }]),
+            numStep(`Find the average rate of change of $${names[1]}$ from $x = ${x1}$ to $x = ${x2}$.`, ve, [`Find $${names[1]}(${x1})$ and $${names[1]}(${x2})$.`, 'Find each power first.', `Subtract, then divide by $${x2 - x1}$.`, 'Simplify.'], `$\\frac{${dTex(ex.at(x2))} - ${dTex(ex.at(x1))}}{${x2 - x1}} = ${dTex(ve)}$.`, [{ value: ex.at(x2).sub(ex.at(x1)).eq(ve) ? null : ex.at(x2).sub(ex.at(x1)), tag: 'slope-calc', feedback: 'Divide the change in output by the change in input.' }]),
+            finalStep(pr, `Compare $${dTex(vl)}$ and $${dTex(ve)}$. Which function has the greater average rate of change?`, ['Put the two rates side by side.', 'The larger number is the greater rate.', 'A linear function has the same rate everywhere; an exponential one keeps changing.', 'Answer with the name of the function.'], `${correct} has the greater rate.`),
+          ]
+        : [
+            numStep(`Find $${names[0]}(${x1})$.`, vl, [`Substitute $x = ${x1}$.`, 'Multiply first.', 'Then add.', 'Keep the exact value.'], `$${names[0]}(${x1}) = ${dTex(vl)}$.`, []),
+            numStep(`Find $${names[1]}(${x1})$.`, ve, [`Substitute $x = ${x1}$.`, 'Find the power first.', 'Then multiply by the number in front.', 'Keep the exact value.'], `$${names[1]}(${x1}) = ${dTex(ve)}$.`, [{ value: ex.at(1).mul(x1), tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication, not multiplying by $x$.' }]),
+            finalStep(pr, `Compare $${dTex(vl)}$ and $${dTex(ve)}$. Which function has the greater value at $x = ${x1}$?`, ['Put the two outputs side by side.', 'The larger number is the greater value.', 'Small inputs can favor the linear function; large ones favor the exponential.', 'Answer with the name of the function.'], `${correct} has the greater value.`),
+          ]);
     }
     if (rng.bool()) {
       // first whole x where the exponential passes the line; exp(0) < line(0) so there is one crossing for x > 0
@@ -1229,7 +1330,7 @@ export const genCompareFamilies: GeneratorDef = {
     if (table && table.t === 'table') {
       const ys = table.rows.map((r) => Q(r[1]));
       const fam = allEq(diffs(ys)) ? 'Linear' : allEq(diffs(diffs(ys))) ? 'Quadratic' : allEq(ratios(ys)) ? 'Exponential' : '?';
-      return a.kind === 'choice' && choiceLabel(a) === fam ? [] : ['family wrong'];
+      return [...(a.kind === 'choice' && choiceLabel(a) === fam ? [] : ['family wrong']), ...stepErrors(pr, [fam === 'Linear' ? 'Yes, they are all the same' : 'No, they change', fam === 'Linear' ? 'Linear' : fam === 'Quadratic' ? 'The second differences' : 'The ratios', null])];
     }
     const defs = [...text.matchAll(/([fgh])\(x\) = (.+?)(?=\$|,\\quad|$)/g)].map((m) => ({ name: m[1], tex: m[2].trim() }));
     const F = (name: string, x: number) => evalTex(defs.find((d) => d.name === name)!.tex, x);
@@ -1248,7 +1349,8 @@ export const genCompareFamilies: GeneratorDef = {
     const val = (name: string) => (rate ? (F(name, Number(rate[2])) - F(name, Number(rate[1]))) / (Number(rate[2]) - Number(rate[1])) : F(name, Number(/value at \$x = (\d+)\$/.exec(text)![1])));
     const vf = val('f');
     const vg = val('g');
-    return label === (vf > vg ? '$f$' : vg > vf ? '$g$' : 'They are equal') ? [] : ['comparison wrong'];
+    // steps: the first-defined function's value (or rate), then the second's
+    return [...(label === (vf > vg ? '$f$' : vg > vf ? '$g$' : 'They are equal') ? [] : ['comparison wrong']), ...numericStepErrors(pr, [val(defs[0].name), val(defs[1].name), null])];
   },
 };
 
@@ -1287,7 +1389,7 @@ export const genExpModel: GeneratorDef = {
         ...(grow && !byFactor ? [{ answer: `y = ${numStr(a)}*(${numStr(Q(1).add(r.mul(100)))})^t`, tag: 'percent-rate', feedback: 'Change the percent to a decimal before adding it to 1.' }] : []),
         { answer: `y = ${numStr(a)}+${numStr(a.mul(b.sub(1)))}*t`, tag: 'other', feedback: 'That is linear. The amount changes by the same factor each time, so the model is exponential.' },
       ] as Misconception[]).filter((m, i, all) => all.findIndex((o) => o.answer === m.answer) === i && checkAnswer({ kind: 'equation', value: key }, m.answer).status === 'incorrect');
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.10',
         tags: ['real-world'],
         prompt: [p(`${c.what} ${aText}. The ${c.noun} ${change}. Write an equation for $y$, ${c.y} after $t$ ${c.per}s.`)],
@@ -1300,7 +1402,11 @@ export const genExpModel: GeneratorDef = {
           { text: 'Write the model.', tex: `y = ${dTex(a)}\\left(${dTex(b)}\\right)^{t}` },
         ],
         misconceptions: mis,
-      });
+      }), (pr) => [
+        numStep('What is the starting amount $a$?', a, ['$a$ is the amount at $t = 0$, before any change.', 'Read the first sentence.', 'Give just the number, without units.', 'Do not use the percent or the factor.'], `$a = ${dTex(a)}$.`, [{ value: byFactor ? r : r.mul(100), tag: 'other', feedback: 'That describes the change. The starting amount is given first.' }]),
+        numStep(byFactor ? `The ${c.noun} ${r.eq(2) ? 'doubles' : 'triples'}. What is the factor $b$?` : `What is the ${grow ? 'growth' : 'decay'} factor $b$?`, b, byFactor ? ['The factor is what the amount is multiplied by each time.', `${r.eq(2) ? 'Doubling' : 'Tripling'} means multiplying by the same whole number.`, `${r.eq(2) ? 'Doubling' : 'Tripling'} is ${r.eq(2) ? 'two' : 'three'} times as much.`, 'Type a whole number.'] : [`Write ${pct(r)}% as a decimal.`, grow ? 'For growth, add it to 1.' : 'For a decrease, subtract it from 1.', grow ? 'The factor is greater than 1.' : 'The factor is between 0 and 1.', 'Type the factor as a decimal.'], byFactor ? `$b = ${dTex(b)}$.` : `$b = 1 ${grow ? '+' : '-'} ${dTex(r)} = ${dTex(b)}$.`, [{ value: byFactor ? null : r, tag: 'percent-rate', feedback: grow ? 'The growth factor is $1 + r$, not $r$ alone.' : 'The decay factor is $1 - r$: what is left after the decrease.' }, { value: byFactor ? null : grow ? Q(1).sub(r) : r.add(1), tag: 'percent-rate', feedback: grow ? 'Growth means the factor is greater than 1.' : 'A decrease means the factor is less than 1.' }, { value: grow && !byFactor ? Q(1).add(r.mul(100)) : null, tag: 'percent-rate', feedback: 'Change the percent to a decimal before adding it to 1.' }]),
+        finalStep(pr, 'Write the model $y = a(b)^{t}$.', ['Use the form $y = a(b)^{t}$.', 'Put the starting amount in front.', 'Put the factor in parentheses as the base.', 'Keep $t$ as the exponent.'], `$y = ${dTex(a)}\\left(${dTex(b)}\\right)^{t}$.`),
+      ]);
     }
     if (difficulty === 2) {
       const half = rng.bool();
@@ -1316,7 +1422,7 @@ export const genExpModel: GeneratorDef = {
       const askValue = rng.bool();
       const why = `In ${T} ${unitT} there are $${T} \\div ${k} = ${m}$ ${half ? 'half-lives' : 'doubling times'}.`;
       if (askValue) {
-        return makeProblem({
+        return withSteps(makeProblem({
           skillId: 'S6.10',
           tags: ['real-world'],
           prompt: [p(`${story} The amount after $t$ ${unitT} is modeled by the function below. How many ${half ? 'milligrams are left' : 'bacteria are there'} after ${T} ${unitT}?`), math(model)],
@@ -1330,9 +1436,13 @@ export const genExpModel: GeneratorDef = {
             { value: half ? a.div(2 * m) : a.mul(2 * m), tag: 'exponent-rule', feedback: half ? `Halving ${m} times multiplies by $\\frac{1}{2}$ ${m} times. It does not divide by $${2 * m}$.` : `Doubling ${m} times multiplies by 2 ${m} times, not by $${2 * m}$.` },
             { value: T <= 30 ? a.mul(b.pow(T)) : null, tag: 'exponent-rule', feedback: `The exponent is $t/${k}$, the number of ${half ? 'half-lives' : 'doubling times'}, not $t$ itself.` },
           ]),
-        });
+        }), (pr) => [
+          numStep(`Substitute $t = ${T}$ into the exponent $t/${k}$. How many ${half ? 'half-lives' : 'doubling times'} pass?`, Q(m), ['The exponent counts the number of periods.', `Each period is ${k} ${unitT}.`, `Divide ${T} by ${k}.`, 'It is a whole number here.'], why, [{ value: Q(T), tag: 'exponent-rule', feedback: `The exponent is $t/${k}$, not $t$. Divide by ${k}.` }, { value: Q(T * k), tag: 'exponent-rule', feedback: 'Divide the time by the length of one period; do not multiply.' }]),
+          numStep(`What is $\\left(${half ? '\\frac{1}{2}' : '2'}\\right)^{${m}}$?`, b.pow(m), [`That is ${m} factors of $${half ? '\\frac{1}{2}' : '2'}$.`, half ? 'Multiply the denominators: $2 \\cdot 2 \\cdots$' : 'Multiply 2 by itself.', `Use ${m} factors.`, half ? 'Write it as a fraction.' : 'Write it as a whole number.'], `$\\left(${half ? '\\frac{1}{2}' : '2'}\\right)^{${m}} = ${b.pow(m).toTex()}$.`, [{ value: half ? Q(1, 2 * m) : Q(2 * m), tag: 'exponent-rule', feedback: 'The exponent means repeated multiplication, not multiplying by the exponent.' }], { inputHint: half ? 'Type a fraction like 1/8.' : undefined }),
+          finalStep(pr, `Multiply by the starting amount, ${commas(a).replace('{,}', ',')}. How many ${half ? 'milligrams are left' : 'bacteria are there'} after ${T} ${unitT}?`, ['The amount is the starting amount times the power.', 'Use the power from the last step.', `Multiply ${commas(a).replace('{,}', ',')} by it.`, half ? 'The amount should be smaller than the start.' : 'The amount should be bigger than the start.'], `$A(${T}) = ${commas(a)} \\cdot ${b.pow(m).toTex()} = ${commas(v)}$.`),
+        ]);
       }
-      return makeProblem({
+      return withSteps(makeProblem({
         skillId: 'S6.10',
         tags: ['real-world', 'multi-step'],
         prompt: [p(`${story} The amount after $t$ ${unitT} is modeled by the function below. After how many ${unitT} will ${half ? `only ${commas(v).replace('{,}', ',')} milligrams be left` : `there be ${commas(v).replace('{,}', ',')} bacteria`}?`), math(model)],
@@ -1344,7 +1454,11 @@ export const genExpModel: GeneratorDef = {
           { text: 'Set the exponent equal to that count.', tex: `\\frac{t}{${k}} = ${m} \\Rightarrow t = ${T}`, why: `Each ${half ? 'half-life' : 'doubling time'} is ${k} ${unitT}.` },
         ],
         misconceptions: numberMisconceptions(Q(T), [{ value: Q(m), tag: 'other', feedback: `That is the number of ${half ? 'half-lives' : 'doubling times'}. Multiply by ${k} ${unitT}.` }]),
-      });
+      }), (pr) => [
+        numStep(`Divide the target by the starting amount. What is $${commas(v)} \\div ${commas(a)}$?`, v.div(a), ['Compare the target with the starting amount.', 'Divide the target by the start.', half ? 'The result is less than 1, so write it as a fraction.' : 'The result is a whole number.', 'Simplify.'], `$${commas(v)} \\div ${commas(a)} = ${v.div(a).toTex()}$.`, [{ value: a.div(v), tag: 'other', feedback: 'Divide the target by the starting amount, not the other way around.' }, { value: v.sub(a).abs(), tag: 'other', feedback: 'Exponential change multiplies, so divide instead of subtracting.' }], { inputHint: half ? 'Type a fraction like 1/8.' : undefined }),
+        numStep(`Write $${v.div(a).toTex()}$ as a power of $${half ? '\\frac{1}{2}' : '2'}$. How many ${half ? 'halvings' : 'doublings'} is that?`, Q(m), [`Multiply $${half ? '\\frac{1}{2}' : '2'}$ by itself until you reach $${v.div(a).toTex()}$.`, 'Count the factors.', half ? 'Each halving doubles the denominator.' : 'Each doubling multiplies by 2.', 'Give the count.'], `$${v.div(a).toTex()} = \\left(${half ? '\\frac{1}{2}' : '2'}\\right)^{${m}}$: ${m} ${half ? 'halvings' : 'doublings'}.`, [{ value: half ? v.div(a).inv() : v.div(a), tag: 'exponent-rule', feedback: 'That is the value of the power. The question asks how many factors make it.' }, { value: half ? v.div(a).inv().div(2) : v.div(a).div(2), tag: 'exponent-rule', feedback: 'Dividing by 2 does not undo an exponent. Count the factors of 2.' }]),
+        finalStep(pr, `The exponent $t/${k}$ must equal ${m}. After how many ${unitT}?`, [`Set $t/${k} = ${m}$.`, `Multiply both sides by ${k}.`, `Each ${half ? 'half-life' : 'doubling time'} is ${k} ${unitT}.`, `Give the time in ${unitT}.`], `$t = ${m} \\cdot ${k} = ${T}$ ${unitT}.`),
+      ]);
     }
     if (rng.bool()) {
       // interpret the parts of a model
@@ -1429,10 +1543,13 @@ export const genExpModel: GeneratorDef = {
       };
       if (a.kind !== 'number') return ['unexpected kind'];
       const after = /after (\d+) (hours|minutes)\?/.exec(text);
-      if (after) return Q(a.value).eq(amountAt(Number(after[1]))) ? [] : ['amount wrong'];
+      if (after) {
+        const periods = Number(after[1]) / k;
+        return [...(Q(a.value).eq(amountAt(Number(after[1]))) ? [] : ['amount wrong']), ...stepErrors(pr, [Q(periods), amountAt(Number(after[1])).div(a0), null])];
+      }
       const target = Q(/(?:only|there be) ([\d,]+)/.exec(text)![1].replace(/,/g, ''));
       const t = Q(a.value).toInt();
-      return t % k === 0 && amountAt(t).eq(target) ? [] : ['time wrong'];
+      return [...(t % k === 0 && amountAt(t).eq(target) ? [] : ['time wrong']), ...stepErrors(pr, [target.div(a0), Q(t / k), null])];
     }
     if (a.kind === 'equation') {
       const m = /(?:of|has|worth) ([\\$\d,.]+)(?: \w+)?\. The .+? (doubles|triples|grows by ([\d.]+)%|decreases by ([\d.]+)%)/.exec(text);
@@ -1442,7 +1559,7 @@ export const genExpModel: GeneratorDef = {
       // the key must give a0 at t = 0 and multiply by b each step
       const node = parseExpression(a.value.split('=')[1]);
       for (let t = 0; t <= 5; t++) if (Math.abs(evalNumeric(node, { t }) - a0.mul(b.pow(t)).toNumber()) > 1e-6 * a0.toNumber()) return ['model wrong'];
-      return [];
+      return stepErrors(pr, [a0, b, null]);
     }
     if (a.kind !== 'choice') return ['unexpected kind'];
     const im = /\$y = ([\d{},]+)\\left\(([\d.]+)\\right\)\^\{t\}\$.*What does the \$([\d{},.]+)\$/.exec(text);

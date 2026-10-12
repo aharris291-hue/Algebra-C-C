@@ -10,7 +10,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U4L05: LessonContent = {
   lessonId: 'U4L05',
-  goal: 'Factor trinomials whose leading coefficient is not 1, like $2x^2 + 7x + 3 = (2x + 1)(x + 3)$, using the a·c method, and recognize special patterns like $9x^2 - 25 = (3x + 5)(3x - 5)$ and $x^2 - 10x + 25 = (x - 5)^2$.',
+  goal: 'You will be able to factor trinomials whose leading coefficient is not 1, like $2x^2 + 7x + 3 = (2x + 1)(x + 3)$, using the a·c method, and recognize special patterns like $9x^2 - 25 = (3x + 5)(3x - 5)$ and $x^2 - 10x + 25 = (x - 5)^2$.',
   needToKnow: [
     { t: 'p', text: 'This lesson builds on the last two:' },
     {

@@ -251,7 +251,7 @@ export const genDomainRange: GeneratorDef = {
         numStep(
           askDomain ? 'What is the $x$-coordinate of the ray\'s endpoint?' : 'What is the $y$-coordinate of the ray\'s endpoint?',
           askDomain ? Q(x0) : y0,
-          ['A ray has one endpoint, marked with a dot.', `The endpoint is $(${x0}, ${y0.toTex()})$.`, askDomain ? 'The domain uses $x$-values: the first coordinate.' : 'The range uses $y$-values: the second coordinate.', 'Ignore for now whether the dot is open or filled.'],
+          ['A ray has one endpoint, marked with a dot.', 'Find the dot and read its two coordinates.', askDomain ? 'The domain uses $x$-values: the first coordinate.' : 'The range uses $y$-values: the second coordinate.', 'Ignore for now whether the dot is open or filled.'],
           askDomain ? 'The endpoint is where the inputs start.' : 'The endpoint is where the outputs start.',
           [{ value: askDomain ? y0 : Q(x0), tag: 'graph-reading', feedback: askDomain ? 'That is the $y$-coordinate. The domain uses $x$-values.' : 'That is the $x$-coordinate. The range uses $y$-values.' }],
         ),

@@ -12,7 +12,7 @@ import { Poly, toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr, numberMisconceptions } from './util';
 import { buildContext, DECREASING_KEYS, type LinearContext } from './u1-contexts';
-import { numStep, choiceStep, finalStep, stepErrors } from './u1-steps';
+import { numStep, choiceStep, finalStep, stepErrors, choiceMisc } from './u1-steps';
 
 /** "y = mx + b" in parser syntax */
 const yEq = (m: Rational, b: Rational) => `y = ${linearPlain(m, b)}`;
@@ -103,17 +103,19 @@ export const genWriteSlopePoint: GeneratorDef = {
             `Then subtract that product from $${y1.toTex()}$.`,
             'Be careful subtracting a negative: it is the same as adding.',
           ],
-          misconceptions: [
-            ...(y1.add(mx1).eq(b) ? [] : [{ answer: numStr(y1.add(mx1)), tag: 'sign-error' as const, feedback: 'Subtract the product from both sides, do not add it.' }]),
-          ],
-          explanation: `$b = ${b.toTex()}$.`,
+          misconceptions: numberMisconceptions(b, [
+            { value: y1.add(mx1), tag: 'sign-error', feedback: 'Subtract the product from both sides, do not add it.' },
+            { value: x1.isZero() ? null : y1, tag: 'equation-setup', feedback: 'A point is only the $y$-intercept if its $x$-coordinate is 0. Solve for $b$.' },
+          ]),
+          explanation: `The point is on the line, so its coordinates make $y = mx + b$ true; subtracting $${m.toTex()}\\cdot${sub(x1)}$ from both sides leaves $b = ${b.toTex()}$.`,
         },
         {
           prompt: [p(`Now write the equation of the line with $m = ${m.toTex()}$ and $b = ${b.toTex()}$.`)],
           answer: { kind: 'equation', value: yEq(m, b), form: 'slope-intercept' },
           inputHint: SI_HINT,
           hints: ['Use $y = mx + b$.', 'Put the slope in front of $x$.', 'Put $b$ at the end.', 'If $b$ is negative, write "minus".'],
-          explanation: `$${yEqTex(m, b)}$.`,
+          misconceptions: lineMisconceptions({ m, b }, [{ m, b: b.neg(), tag: 'sign-error', feedback: 'Check the sign of $b$.' }]),
+          explanation: `Slope-intercept form needs only the slope and the $y$-intercept, so $${yEqTex(m, b)}$.`,
         },
       ],
     });
@@ -131,6 +133,8 @@ export const genWriteSlopePoint: GeneratorDef = {
     const errs: string[] = [];
     if (!line.m.eq(m)) errs.push('slope mismatch');
     if (!line.m.mul(x).add(line.b).eq(y)) errs.push('point not on line');
+    // steps: b = y - m x from the prompt's numbers, then the line
+    errs.push(...stepErrors(pr, [y.sub(m.mul(x)), null]));
     return errs;
   },
 };
@@ -678,16 +682,17 @@ export const genConvertForms: GeneratorDef = {
         }),
         steps: [
           {
-            prompt: [p(`Clear the fraction: multiply every term on both sides by $${den}$. The equation becomes $${den}y = \\;?$ Type the right side.`)],
-            answer: { kind: 'expression', value: linearPlain(Q(num), b.mul(den)), variables: ['x'] },
+            // the slope is shown in lowest terms, so clear its own denominator
+            prompt: [p(`Clear the fraction: multiply every term on both sides by $${Q(m.den).toTex()}$. The equation becomes $${Q(m.den).toTex()}y = \\;?$ Type the right side.`)],
+            answer: { kind: 'expression', value: linearPlain(Q(m.num), b.mul(Q(m.den))), variables: ['x'] },
             inputHint: 'Type an expression in x, like 3x - 8.',
             hints: [
               'Standard form needs integer coefficients, so the fraction has to go.',
-              `Multiplying by the denominator, $${den}$, cancels the fraction.`,
-              `$${den}\\cdot ${m.toTex()}x = ${num}x$.`,
-              `Do not forget to multiply the constant $${b.toTex()}$ by $${den}$ as well.`,
+              `Multiplying by the denominator, $${Q(m.den).toTex()}$, cancels the fraction.`,
+              `Multiply the $x$-term: $${Q(m.den).toTex()}\\cdot ${m.toTex()}x$.`,
+              `Do not forget to multiply the constant $${b.toTex()}$ by $${Q(m.den).toTex()}$ as well.`,
             ],
-            misconceptions: [{ answer: linearPlain(Q(num), b), tag: 'arithmetic-error' as const, feedback: 'Multiply **every** term by the denominator, including the constant.' }],
+            misconceptions: [{ answer: linearPlain(Q(m.num), b), tag: 'arithmetic-error' as const, feedback: 'Multiply **every** term by the denominator, including the constant.' }],
             explanation: 'Multiplying both sides by the same number keeps the equation true and clears the fraction.',
           },
           finalStep(
@@ -695,12 +700,12 @@ export const genConvertForms: GeneratorDef = {
             { kind: 'equation', value: standardPlain(A, B, C), form: 'standard' },
             [
               'Standard form is $Ax + By = C$: both variable terms on the left, the constant on the right.',
-              `${num > 0 ? 'Subtract' : 'Add'} $${Math.abs(num)}x$ on both sides.`,
+              `${m.isNegative() ? 'Add' : 'Subtract'} $${Q(m.num).abs().toTex()}x$ on both sides.`,
               'If the $x$ coefficient is negative, multiply every term by $-1$.',
               'If all three numbers share a factor, divide it out.',
             ],
             'Moving the $x$-term keeps the equation balanced, and multiplying every term by $-1$ (if needed) makes $A$ positive without changing the line.',
-            [{ answer: standardPlain(Q(num), Q(den), b.mul(den)), tag: 'sign-error' as const, feedback: 'When you move the $x$-term to the other side, its sign changes.' }].filter((mc) => !equationsEquivalent(parseRelation(mc.answer), parseRelation(standardPlain(A, B, C)))),
+            [{ answer: standardPlain(Q(m.num), Q(m.den), b.mul(Q(m.den))), tag: 'sign-error' as const, feedback: 'When you move the $x$-term to the other side, its sign changes.' }].filter((mc) => !equationsEquivalent(parseRelation(mc.answer), parseRelation(standardPlain(A, B, C)))),
             'Type an equation like 3x + 4y = 12.',
           ),
         ],
@@ -746,7 +751,7 @@ export const genConvertForms: GeneratorDef = {
               `Multiply $${m.toTex()}$ by $${sub(x1.neg())}$.`,
               'A negative times a negative is positive.',
             ],
-            misconceptions: [{ answer: linearPlain(m, x1.neg()), tag: 'distribution' as const, feedback: 'Multiply the slope by **both** terms in the parentheses.' }],
+            misconceptions: m.eq(1) ? [] : [{ answer: linearPlain(m, x1.neg()), tag: 'distribution' as const, feedback: 'Multiply the slope by **both** terms in the parentheses.' }],
             explanation: 'The distributive property multiplies the slope by each term inside the parentheses.',
           },
           finalStep(
@@ -1193,7 +1198,7 @@ function whichGraphProblem(rng: Rng): Problem {
       numStep(
         `Read the equation $y = ${rule}$. What is the $y$-intercept $b$?`,
         b,
-        ['In $y = mx + b$, the $y$-intercept is the constant term.', 'It is the number that is not multiplied by $x$.', 'Keep its sign: "minus 3" means $b = -3$.', 'It is the $y$-value where the line crosses the $y$-axis.'],
+        ['In $y = mx + b$, the $y$-intercept is the constant term.', 'It is the number that is not multiplied by $x$.', 'Keep its sign: a minus sign in front of the constant makes $b$ negative.', 'It is the $y$-value where the line crosses the $y$-axis.'],
         `When $x = 0$ the $x$-term is 0, so the line crosses the $y$-axis at $(0, ${b.toTex()})$.`,
         [
           { value: m, tag: 'formula-error', feedback: 'That number multiplies $x$, so it is the slope. The $y$-intercept is the constant term.' },
@@ -1375,7 +1380,11 @@ export const genKeyFeatures: GeneratorDef = {
           { text: kind === 'inc' ? 'The line rises, so $y$ gets larger as $x$ gets larger.' : kind === 'dec' ? 'The line falls, so $y$ gets smaller as $x$ gets larger.' : 'The line is flat, so $y$ stays the same.', tex: `m = ${m.toTex()}` },
           { text: `The function is ${kind === 'inc' ? 'increasing' : kind === 'dec' ? 'decreasing' : 'constant'}.` },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisc(answer, [
+          { label: 'Increasing', tag: 'sign-error', feedback: 'Trace the line from left to right. Increasing means it goes up as you move right. Does it?' },
+          { label: 'Decreasing', tag: 'sign-error', feedback: 'Trace the line from left to right. Decreasing means it goes down as you move right. Does it?' },
+          { label: 'Constant', tag: 'graph-reading', feedback: 'A constant function is a flat (horizontal) line. Is this line flat?' },
+        ]),
         steps: [
           numStep(
             'Find the slope of the line. (Pick two points where the line crosses grid corners.)',

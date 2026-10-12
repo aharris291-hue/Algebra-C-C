@@ -289,7 +289,7 @@ export const genIneqPhrases: GeneratorDef = {
 
 const TWO_VAR_PHRASE: Array<{ x: string; y: string; a: [number, number]; b: [number, number]; n: [number, number]; phrases: string[]; text(a: number, b: number, ph: string, n: number): string }> = [
   { x: 'w', y: 't', a: [2, 3], b: [1, 1], n: [20, 45], phrases: ['at least', 'more than', 'a minimum of'], text: (a, b, ph, n) => `A soccer league gives $${a}$ points for each win $w$ and $${b}$ point for each tie $t$. To make the playoffs, a team's total points must be ${ph} $${n}$.` },
-  { x: 'p', y: 'v', a: [3, 6], b: [40, 90], n: [800, 2000], phrases: ['at most', 'cannot exceed', 'is under', 'no more than'], text: (a, b, ph, n) => `Each photo $p$ uses $${a}$ MB of storage and each video $v$ uses $${b}$ MB. The storage you use ${ph === 'at most' || ph === 'no more than' ? `is ${ph}` : ph} $${n}$ MB.` },
+  { x: 'p', y: 'v', a: [3, 6], b: [40, 90], n: [800, 2000], phrases: ['at most', 'cannot exceed', 'is under', 'no more than'], text: (a, b, ph, n) => `Each photo $p$ uses $${a}$ MB of storage and each video $v$ uses $${b}$ MB. The storage you use ${/at most|no more than/.test(ph) ? `is ${ph}` : ph} $${n}$ MB.` },
   { x: 'r', y: 'c', a: [6, 12], b: [3, 5], n: [60, 150], phrases: ['at least', 'more than', 'a minimum of'], text: (a, b, ph, n) => `A fitness app gives $${a}$ stars for each run $r$ and $${b}$ stars for each cycling ride $c$. To win the weekly challenge, your star total must be ${ph} $${n}$.` },
 ];
 
@@ -369,12 +369,21 @@ export const genWriteIneq2Var: GeneratorDef = {
           prompt: [...prompt.slice(0, 1), p(`First write an expression for the total${ctx.money ? ' in dollars' : ''} using $x$ and $y$.`)],
           answer: { kind: 'expression', value: `${numStr(a)}x + ${numStr(b)}y${extra ? ` + ${numStr(extra)}` : ''}`, variables: ['x', 'y'] },
           hints: ['Amount for each item times how many of that item.', `$x$ ${ctx.xNoun} give $${a.toTex()}x$.`, `$y$ ${ctx.yNoun} give $${b.toTex()}y$.`, extra ? `Add both parts and the ${fmt(extra)} already counted.` : 'Add the two parts.'],
+          misconceptions: stringMisconceptions(`${numStr(a)}x + ${numStr(b)}y${extra ? ` + ${numStr(extra)}` : ''}`, [
+            { answer: `${numStr(b)}x + ${numStr(a)}y${extra ? ` + ${numStr(extra)}` : ''}`, tag: 'equation-setup', feedback: `Match each amount with its own variable: $x$ counts the ${ctx.xNoun}, so it goes with ${fmt(a)}.` },
+            { answer: `${numStr(a.add(b))}xy${extra ? ` + ${numStr(extra)}` : ''}`, tag: 'equation-setup', feedback: 'The two kinds are separate terms: multiply each amount by its own variable, then add.' },
+            ...(extra ? [{ answer: `${numStr(a)}x + ${numStr(b)}y`, tag: 'equation-setup' as const, feedback: `Don't forget the ${fmt(extra)} that is already part of the total.` }] : []),
+          ]),
           explanation: `The total is $${lhsTex}$.`,
         },
         {
           prompt: [p(`The total is $${lhsTex}$. The situation says **${ph}** ${fmt(total)}. Write the inequality.`)],
           answer: { kind: 'inequality', value: answer },
-          hints: [PHRASE_HELP[op], 'Put the total on the left and the limit on the right.', `"${ph}" is ${isGreater(op) ? 'a lower limit' : 'an upper limit'}.`, `Use $${OP_TEX[op]}$.`],
+          hints: [PHRASE_HELP[op], 'Put the total on the left and the limit on the right.', `"${ph}" is ${isGreater(op) ? 'a lower limit' : 'an upper limit'}.`, `Decide whether "${ph}" includes ${fmt(total)} itself, then pick the symbol.`],
+          misconceptions: stringMisconceptions(answer, [
+            { answer: answer.replace(/<=|>=|<|>/, FLIP_OP[op]), tag: 'inequality-direction', feedback: `"${ph}" is ${isGreater(op) ? 'a lower limit: the total must reach it' : 'an upper limit: the total must stay within it'}. Check the direction of the symbol.` },
+            { answer: answer.replace(/<=|>=|<|>/, isStrict(op) ? `${op}=` : op[0]), tag: 'inequality-direction', feedback: isStrict(op) ? `"${ph}" leaves out the amount itself, so the symbol has no "or equal to".` : `"${ph}" includes the amount itself, so the symbol needs "or equal to".` },
+          ]),
           explanation: `$${lhsTex} ${OP_TEX[op]} ${total.toTex()}$.`,
         },
       ],
@@ -392,8 +401,16 @@ export const genWriteIneq2Var: GeneratorDef = {
     const rebuilt = `${numStr(a)}x + ${numStr(b)}y ${extra ? `+ ${numStr(extra)}` : ''} ${op} ${numStr(total)}`;
     for (let x = 0; x <= 40; x += 3)
       for (let y = 0; y <= 40; y += 4) if (holds(rebuilt, x, y) !== holds(pr.answer.value, x, y)) return [`differs at (${x}, ${y})`];
+    const errs: string[] = [];
+    if (pr.steps?.length === 2) {
+      // the total-expression step equals the left side rebuilt from the prompt's numbers
+      const e = pr.steps[0].answer;
+      const lhs = toPoly(parseExpression(`${numStr(a)}x + ${numStr(b)}y${extra ? ` + ${numStr(extra)}` : ''}`));
+      if (e.kind !== 'expression' || !toPoly(parseExpression(e.value)).sub(lhs).isZero()) errs.push('total step wrong');
+      errs.push(...lastStepErrors(pr));
+    }
     // the situation must have whole-number solutions and non-solutions
-    return holds(rebuilt, 0, 0) !== holds(rebuilt, 100, 100) ? [] : ['degenerate situation'];
+    return holds(rebuilt, 0, 0) !== holds(rebuilt, 100, 100) ? errs : [...errs, 'degenerate situation'];
   },
 };
 

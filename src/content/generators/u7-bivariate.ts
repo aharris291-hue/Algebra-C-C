@@ -347,11 +347,13 @@ export const genScatter: GeneratorDef = {
         ],
         misconceptions: [],
       }), (pr) => {
-        const signL = c.m > 0 ? 'Positive, because the trend rises' : 'Negative, because the trend falls';
+        // read from the plotted data (its r), not from the context's intended direction
+        const signL = r > 0 ? 'Positive, because the trend rises' : 'Negative, because the trend falls';
+        const sz = strengthWord(r).toLowerCase();
         const SZ: Record<string, string> = { strong: '|r| close to 1 (strong)', moderate: '|r| between 0.5 and 0.8 (moderate)', weak: '|r| less than 0.5 (weak)' };
         return [
-          choiceStep('Should r be positive or negative?', signL, ['Positive, because the trend rises', 'Negative, because the trend falls'].filter((o) => o !== signL), ['The sign of r matches the direction of the trend.', 'Read the plot from left to right.', 'Rising points give a positive r.', 'Falling points give a negative r.'], 'The sign of r is the direction of the trend.', {}, 'graph-reading'),
-          choiceStep('How big should |r| be?', SZ[band], Object.values(SZ).filter((o) => o !== SZ[band]), ['|r| measures how closely the points follow a line.', 'Points packed tightly around a line give |r| near 1.', 'Very spread-out points give |r| near 0.', 'A clear trend with some scatter is in between.'], 'The closer the points are to a line, the closer |r| is to 1.', { [SZ.strong]: 'The points are more spread out than that.', [SZ.moderate]: 'Compare how close the points are to a line once more.', [SZ.weak]: 'The points follow a line more closely than that.' }),
+          choiceStep('Should r be positive or negative?', signL, ['Positive, because the trend rises', 'Negative, because the trend falls'].filter((o) => o !== signL), ['The sign of r matches the direction of the trend.', 'Read the plot from left to right.', 'Rising points give a positive r.', 'Falling points give a negative r.'], 'The sign of r is the direction of the trend.', { [r > 0 ? 'Negative, because the trend falls' : 'Positive, because the trend rises']: `Read the plot from left to right again: the points tend to ${r > 0 ? 'rise' : 'fall'}.` }, 'graph-reading'),
+          choiceStep('How big should |r| be?', SZ[sz], Object.values(SZ).filter((o) => o !== SZ[sz]), ['|r| measures how closely the points follow a line.', 'Points packed tightly around a line give |r| near 1.', 'Very spread-out points give |r| near 0.', 'A clear trend with some scatter is in between.'], 'The closer the points are to a line, the closer |r| is to 1.', { [SZ.strong]: 'The points are more spread out than that.', [SZ.moderate]: 'Compare how close the points are to a line once more.', [SZ.weak]: 'The points follow a line more closely than that.' }),
           finalStep(pr, 'Which correlation coefficient best matches the scatter plot?', ['Use your answers from the last two steps.', 'First keep only the choices with the right sign.', 'Then pick the one with the right size.', 'The other choices are far from the plot.'], 'Decide the sign from the direction, then the size from the strength.', { feedback: Object.fromEntries(picks.map((v) => [fmtR(v), v === -shown ? 'That has the right size but the wrong sign.' : 'Check the sign and the size of r against the plot again.'])) }),
         ];
       });
@@ -544,7 +546,7 @@ export const genLinearModel: GeneratorDef = {
       ]),
     }), (pr) => [
         numStep(`Substitute $x = ${x0}$. What is $${numStr(a)} \\cdot ${x0}$?`, a.mul(x0), ['Replace $x$ with the given value.', 'Multiply the slope by that value.', 'Watch the sign of the slope.', 'Multiply as with whole numbers, then place the decimal point.'], `$${numStr(a)} \\cdot ${x0} = ${numStr(a.mul(x0))}$.`, [{ value: a.mul(x0).neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }]),
-        finalStep(pr, `Now ${b.isNegative() ? 'subtract' : 'add'} the y-intercept. What is the predicted ${c.yName}?`, ['The model is slope times x plus the y-intercept.', 'Use your product from the last step.', b.isNegative() ? `Subtract ${numStr(b.abs())}.` : `Add ${numStr(b)}.`, 'Check that your prediction is a sensible value.'], 'The model gives the predicted y for any x.'),
+        finalStep(pr, `Now add the y-intercept, $${numStr(b)}$${b.isNegative() ? ` (adding a negative number means subtracting ${numStr(b.abs())})` : ''}. What is the predicted ${c.yName}?`, ['The model is slope times x plus the y-intercept.', 'Use your product from the last step.', b.isNegative() ? `Subtract ${numStr(b.abs())}.` : `Add ${numStr(b)}.`, 'Check that your prediction is a sensible value.'], 'The model gives the predicted y for any x.'),
       ]);
   },
   verify(pr) {
@@ -662,7 +664,7 @@ export const genRegression: GeneratorDef = {
         ]),
       }), (pr) => [
           numStep(`Substitute $x = ${x0}$. What is $${numStr(out.a)} \\cdot ${x0}$?`, out.a.mul(x0), ['Use the slope exactly as the calculator shows it.', `Multiply it by ${x0}.`, 'Do not round yet.', 'Watch the sign of the slope.'], `$${numStr(out.a)} \\cdot ${x0} = ${numStr(out.a.mul(x0))}$.`, [{ value: out.a.mul(x0).neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }]),
-          finalStep(pr, `Now ${out.b.isNegative() ? 'subtract' : 'add'} the intercept. What is the predicted value? Round to the nearest tenth.`, ['The line is slope times x plus the intercept.', 'Use your product from the last step.', out.b.isNegative() ? `Subtract ${numStr(out.b.abs())}.` : `Add ${numStr(out.b)}.`, 'Round only the final answer.'], 'The line gives a predicted value; real data points scatter around it.'),
+          finalStep(pr, `Now add the intercept, $${numStr(out.b)}$${out.b.isNegative() ? ` (adding a negative number means subtracting ${numStr(out.b.abs())})` : ''}. What is the predicted value? Round to the nearest tenth.`, ['The line is slope times x plus the intercept.', 'Use your product from the last step.', out.b.isNegative() ? `Subtract ${numStr(out.b.abs())}.` : `Add ${numStr(out.b)}.`, 'Round only the final answer.'], 'The line gives a predicted value; real data points scatter around it.'),
         ]);
     }
     if (difficulty === 2) {
@@ -884,7 +886,7 @@ export const genChooseModel: GeneratorDef = {
       misconceptions: [],
     }), (pr) => {
       const PAT: Record<Fam, string> = { Linear: 'They stay about the same', Exponential: 'They keep growing, with the same sign', Quadratic: 'They change sign: up then down, or down then up' };
-      const pattern = choiceStep(ctx ? 'Look at how the heights of the points change from one point to the next. What do those changes do?' : 'Look at the first differences (each y-value minus the one before it). What do they do?', PAT[fam], Object.values(PAT).filter((o) => o !== PAT[fam]), ['A difference is how much y changes when x goes up by 1.', 'Compare the differences across the table.', 'About the same each time: a constant rate.', 'Growing and growing, or switching sign, are other patterns.'], fam === 'Linear' ? 'Nearly constant differences mean a constant rate of change.' : fam === 'Exponential' ? 'The differences keep growing because each y-value is about the same multiple of the one before.' : 'The differences switch sign, so the values turn around like a parabola.', Object.fromEntries(Object.values(PAT).filter((o) => o !== PAT[fam]).map((o) => [o, 'Find the differences again and compare them across the whole table.'])));
+      const pattern = choiceStep(ctx ? 'Look at how the heights of the points change from one point to the next. What do those changes do?' : 'Look at the first differences (each y-value minus the one before it). What do they do?', PAT[fam], Object.values(PAT).filter((o) => o !== PAT[fam]), ['A difference is how much y changes when x goes up by 1.', ctx ? 'Compare the changes from the left of the plot to the right.' : 'Compare the differences across the table.', 'About the same each time: a constant rate.', 'Growing and growing, or switching sign, are other patterns.'], fam === 'Linear' ? 'Nearly constant differences mean a constant rate of change.' : fam === 'Exponential' ? 'The differences keep growing because each y-value is about the same multiple of the one before.' : 'The differences switch sign, so the values turn around like a parabola.', Object.fromEntries(Object.values(PAT).filter((o) => o !== PAT[fam]).map((o) => [o, ctx ? 'Find the changes again and compare them across all the points.' : 'Find the differences again and compare them across the whole table.'])));
       const last = finalStep(pr, 'Which type of function best models the data, and why?', ['Use your answer from the last step.', 'About the same differences: linear.', 'Differences that keep growing, with about the same ratio each time: exponential.', 'Differences that change sign: quadratic.'], 'The pattern of the differences tells you the family.', { feedback: Object.fromEntries(pool.filter((o) => o !== correct).map((o) => [o, /multiplied/.test(o) && /^Linear/.test(o) ? 'Multiplying by the same number each time is exponential, not linear.' : /same amount/.test(o) && /^Exponential/.test(o) ? 'Changing by the same amount each time is linear, not exponential.' : 'Compare that reason with the pattern of the differences you found.'])) });
       return ctx
         ? [pattern, last]
@@ -1024,5 +1026,103 @@ export const genCausation: GeneratorDef = {
     return /do not show that one causes the other/.test(label) && opts.filter((o) => /causes/.test(o) && !/do not show/.test(o)).length === 2 ? [] : ['causation statement wrong'];
   },
 };
+
+// ---------------------------------------------------------------------------
+// Guided steps: verify() also recomputes each step from the prompt (the plotted points, the table, the
+// printed model or calculator output) and checks that the last step answers the problem.
+// ---------------------------------------------------------------------------
+const labelIs = (pr: Problem, i: number, want: string): string[] => (stepLabel(pr, i) === want ? [] : [`step ${i + 1} should be "${want}", got "${stepLabel(pr, i)}"`]);
+const STRENGTH_STEP: Record<string, string> = { Strong: 'Strong, because |r| ≥ 0.8', Moderate: 'Moderate, because 0.5 ≤ |r| < 0.8', Weak: 'Weak, because |r| < 0.5' };
+const stepText = (pr: Problem, i: number) => (pr.steps?.[i]?.prompt ?? []).map((b) => (b.t === 'p' ? b.text : '')).join(' ');
+
+addStepChecks(genScatter, (pr) => {
+  const text = textAll(pr);
+  const graphs = pr.prompt.filter((b) => b.t === 'graph');
+  if (graphs.length === 4) {
+    const table = pr.prompt.find((b) => b.t === 'table');
+    const x = Number(/whose x-value is (-?[\d.]+)/.exec(stepText(pr, 1))?.[1]);
+    const row = table && table.t === 'table' ? table.rows.find((r) => Number(r[0]) === x) : undefined;
+    if (!row) return ['step 2 names no row of the table'];
+    return [...expectSteps(pr, [null, Number(row[1]), null]), ...labelIs(pr, 0, 'The horizontal axis')];
+  }
+  const pts = scatterOf(pr)!;
+  const r = vR(pts);
+  const dir = r > 0 ? 'rise' : 'fall';
+  if (/What kind of association/.test(text)) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, Math.abs(r) < 0.2 ? 'They neither rise nor fall' : `They tend to ${dir}`)];
+  if (/Describe the association/.test(text)) {
+    const ST: Record<string, string> = { Strong: 'Strong: the points stay close to a line', Moderate: 'Moderate: a clear trend, with a fair amount of scatter', Weak: 'Weak: a slight trend, with the points very spread out' };
+    return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, r > 0 ? 'Positive: the points tend to rise' : 'Negative: the points tend to fall'), ...labelIs(pr, 1, ST[strengthWord(r)])];
+  }
+  if (/correlation coefficient best matches/.test(text)) {
+    const SZ: Record<string, string> = { Strong: '|r| close to 1 (strong)', Moderate: '|r| between 0.5 and 0.8 (moderate)', Weak: '|r| less than 0.5 (weak)' };
+    return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, r > 0 ? 'Positive, because the trend rises' : 'Negative, because the trend falls'), ...labelIs(pr, 1, SZ[strengthWord(r)])];
+  }
+  // "some points go against the trend": some pair of points, in x order, moves the other way
+  const byX = [...pts].sort((p1, p2) => p1.x - p2.x);
+  const against = byX.some((q, i) => byX.slice(i + 1).some((w) => w.x > q.x && Math.sign(w.y - q.y) === -Math.sign(r)));
+  if (!against) return ['every point follows the trend, so "always" would describe these data too'];
+  return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, `They tend to ${dir}`), ...labelIs(pr, 1, 'No, some points go against the trend')];
+});
+
+addStepChecks(genLinearModel, (pr) => {
+  const mdl = readModel(pr)!;
+  const text = textAll(pr);
+  const c = LM.find((x) => text.includes(`$x$ is ${x.xDef} `))!;
+  if (/interprets the slope/.test(text)) return [...expectSteps(pr, [mdl.a, null, null]), ...labelIs(pr, 1, 'The change in the predicted y for each increase of 1 in x')];
+  if (/interprets the y-intercept/.test(text)) return [...expectSteps(pr, [mdl.b, null, null]), ...labelIs(pr, 1, c.meaningful && !mdl.b.isNegative() ? 'Yes: that x-value is possible and the prediction is a possible value' : 'No: that x-value or the prediction is not possible here')];
+  if (/increases by (\d+)\?/.test(text)) return expectSteps(pr, [mdl.a, null]);
+  // the product is the prediction minus the intercept
+  const x0 = Number(/when \$x = (\d+)\$/.exec(text)![1]);
+  return expectSteps(pr, [Rational.parse(pr.answer.kind === 'number' ? pr.answer.value : '0').sub(mdl.b), null]).concat(mdl.a.mul(x0).add(mdl.b).eq(Rational.parse(pr.answer.kind === 'number' ? pr.answer.value : '0')) ? [] : ['prediction and product disagree']);
+});
+
+addStepChecks(genRegression, (pr) => {
+  const text = textAll(pr);
+  if (/Four data sets/.test(text)) {
+    const vals = pr.answer.kind === 'choice' ? pr.answer.options.map((o) => Math.abs(Number(o.label.replace('r = ', '')))) : [];
+    return expectSteps(pr, [Math.max(...vals), null]);
+  }
+  if (/Use the graphing tool/.test(text)) {
+    const table = pr.prompt.find((b) => b.t === 'table');
+    if (!table || table.t !== 'table') return ['cannot read'];
+    const tp = table.rows.map((r) => ({ x: Number(r[0]), y: Number(r[1]) }));
+    const ln = vLine(tp);
+    const want = /the slope \$a\$/.test(text) ? ln.a.toNumber() : /the \$y\$-intercept \$b\$/.test(text) ? ln.b.toNumber() : vR(tp);
+    return [...expectSteps(pr, [null, want, null]), ...labelIs(pr, 0, 'Linear regression')];
+  }
+  const out = readOut(pr)!;
+  const pts = scatterOf(pr)!;
+  if (/predict .+ when \$x = \d+\$\. Round/.test(text)) {
+    const x0 = Number(/when \$x = (\d+)\$\. Round/.exec(text)![1]);
+    return expectSteps(pr, [out.a.toNumber() * x0, null]);
+  }
+  if (/correlation coefficient tell/.test(text)) return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, out.r > 0 ? 'Positive: y tends to increase as x increases' : 'Negative: y tends to decrease as x increases'), ...labelIs(pr, 1, STRENGTH_STEP[strengthWord(out.r)])];
+  const x0 = Number(/when \$x = (\d+)\$\. How reliable/.exec(text)![1]);
+  const xs = pts.map((q) => q.x);
+  const inside = x0 >= Math.min(...xs) && x0 <= Math.max(...xs);
+  return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, inside ? 'Yes, it is inside the range of the data' : 'No, it is far outside the range of the data'), ...labelIs(pr, 1, STRENGTH_STEP[strengthWord(out.r)])];
+});
+
+addStepChecks(genChooseModel, (pr) => {
+  const pts = scatterOf(pr)!;
+  const fam = vFamily(pts)!;
+  if (/best models the data in the scatter plot\?/.test(textAll(pr))) {
+    const SH: Record<Fam, string> = { Linear: 'They follow a straight line', Quadratic: 'They turn around: they rise and then fall, or fall and then rise', Exponential: 'They curve, changing faster and faster' };
+    return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, SH[fam])];
+  }
+  const PAT: Record<Fam, string> = { Linear: 'They stay about the same', Exponential: 'They keep growing, with the same sign', Quadratic: 'They change sign: up then down, or down then up' };
+  const table = pr.prompt.find((b) => b.t === 'table');
+  if (table && table.t === 'table') return [...expectSteps(pr, [Number(table.rows[1][1]) - Number(table.rows[0][1]), null, null]), ...labelIs(pr, 1, PAT[fam])];
+  return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, PAT[fam])];
+});
+
+addStepChecks(genCausation, (pr) => {
+  const text = textAll(pr);
+  if (/Which study could show cause and effect/.test(text)) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, 'A randomized experiment')];
+  if (/A news story says/.test(text)) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, 'No, it was a survey, so it only shows an association')];
+  const c = CORR.find((x) => text.includes(`between ${x.a} and ${x.b}`))!;
+  if (/lurking variable/.test(text)) return [...expectSteps(pr, [null, null]), ...labelIs(pr, 0, 'Affects both variables in the study')];
+  return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, 'No, it only shows that they tend to change together'), ...labelIs(pr, 1, c.lurking)];
+});
 
 export const U7_BIVARIATE_GENERATORS: GeneratorDef[] = [genScatter, genLinearModel, genRegression, genChooseModel, genCausation];

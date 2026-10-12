@@ -63,6 +63,7 @@ function vQuartiles(xs: Rational[]): [Rational, Rational, Rational] {
   return [vMedian(lower), vMedian(s), vMedian(upper)];
 }
 const vMean = (xs: Rational[]) => xs.reduce((a, b) => a.add(b), Q(0)).div(xs.length);
+const vIqr = (xs: Rational[]) => { const [q1, , q3] = vQuartiles(xs); return q3.sub(q1); };
 /** sigma^2 = mean of squares minus square of mean */
 const vVar = (xs: Rational[]) => vMean(xs.map((x) => x.mul(x))).sub(vMean(xs).mul(vMean(xs)));
 function readList(tex: string): Rational[] {
@@ -183,6 +184,9 @@ export const genCenter: GeneratorDef = {
             ],
         misconceptions: numberMisconceptions(askMean ? v.round(1) : v, [
           { value: askMean ? (distinctMean.eq(v) ? null : distinctMean.round(1)) : median(R(uniq)).eq(v) ? null : median(R(uniq)), tag: 'statistics-concept', feedback: `Each value has to be counted as many times as it appears, not just once.` },
+          { value: askMean ? xs.reduce((a, b) => a.add(b), Q(0)).div(uniq.length).round(1) : null, tag: 'statistics-concept', feedback: `Divide the total by the number of values (add up the ${useTable ? 'frequencies' : 'dots'}), not by the number of different values.` },
+          { value: askMean ? null : mean(xs).round(1), tag: 'statistics-concept', feedback: 'That is the mean. The median is the middle value when all the values are in order.' },
+          { value: freq.filter((f) => f === Math.max(...freq)).length === 1 ? Q(uniq[freq.indexOf(Math.max(...freq))]) : null, tag: 'statistics-concept', feedback: `That is the value that appears most often (the mode). Find the ${askMean ? 'mean: total ÷ number of values' : 'median: the middle value in order'}.` },
         ]),
       }), (pr) => {
         const sum = xs.reduce((a, b) => a.add(b), Q(0));
@@ -976,6 +980,9 @@ export const genShapeOutliers: GeneratorDef = {
       return [
         spreadAsk ? numStep(`What is the ${what} of all ${n} values? Round to the nearest tenth.`, stdDev(xs).toFixed(12), h4(n), 'This is the spread with the outlier included.', [], { roundTo: 1 }) : numStep(`What is the ${what} of all ${n} values? Round to the nearest tenth if needed.`, mean(xs), h4(n), 'This is the mean with the outlier included.', [], tenth(mean(xs))),
         spreadAsk ? numStep(`Now remove $${out}$. What is the ${what} of the other ${n - 1} values? Round to the nearest tenth.`, stdDev(without).toFixed(12), h4(n - 1), 'Without the outlier the values are much closer to their mean.', [], { roundTo: 1 }) : numStep(`Now remove $${out}$. What is the mean of the other ${n - 1} values? Round to the nearest tenth if needed.`, mean(without), h4(n - 1), 'Without the outlier the total drops a lot.', [], tenth(mean(without))),
+        spreadAsk
+          ? numStep(`Now compare the IQR with and without $${out}$. By how much does the IQR change? Type 0 if it stays the same.`, iqr(xs).sub(iqr(without)).abs(), ['The IQR is Q3 − Q1.', 'Find Q1 and Q3 of all the values, then of the values without the outlier.', 'Only the middle half of the data matters for the IQR.', 'Subtract the smaller IQR from the larger.'], 'The IQR only uses the middle half of the data, so removing one extreme value barely changes it.', [{ value: Rational.parse(Math.abs(stdDev(xs) - stdDev(without)).toFixed(1)), tag: 'statistics-concept', feedback: 'That is how much σ changed. Find the IQR (Q3 − Q1) before and after.' }, { value: iqr(xs), tag: 'statistics-concept', feedback: 'That is the IQR itself. Find the IQR without the outlier too, and subtract.' }])
+          : numStep(`Now compare the median with and without $${out}$. By how much does the median change? Type 0 if it stays the same.`, median(xs).sub(median(without)).abs(), ['The median is the middle of the ordered data.', 'Order all the values and find the middle, then do the same without the outlier.', `With ${n - 1} values, the middle is at a different position than with ${n}.`, 'Subtract the smaller median from the larger.'], 'The median only depends on the middle of the ordered data, so removing one extreme value barely moves it.', [{ value: mean(xs).sub(mean(without)).abs().round(1), tag: 'statistics-concept', feedback: 'That is how much the mean changed. Find the median before and after.' }]),
         finalStep(pr, 'If the outlier is removed, which statement is true?', [spreadAsk ? 'Compare your two values of σ.' : 'Compare your two means.', spreadAsk ? 'The IQR uses only the middle half of the data.' : 'The median uses only the middle of the ordered data.', 'Removing an extreme value barely moves the middle of the data.', 'Which measure changed a lot?'], spreadAsk ? 'σ uses every value’s distance from the mean, so an outlier affects it a lot; the IQR is resistant.' : 'The mean uses every value, so an outlier affects it a lot; the median is resistant.', { feedback: spreadAsk ? { 'The IQR changes much more than the standard deviation.': 'The IQR uses only the middle half, so one extreme value barely moves it.', 'Neither the standard deviation nor the IQR changes.': 'Your two values of σ are different.', 'Both change by the same amount.': 'σ changes a lot, but the IQR barely changes.' } : { 'The median changes much more than the mean.': 'The median only depends on the middle, so one extreme value barely moves it.', 'Neither the mean nor the median changes.': 'Your two means are different.', 'Both change by the same amount.': 'The mean changes a lot, but the median barely changes.' } }),
       ];
     });
@@ -1448,7 +1455,7 @@ addStepChecks(genShapeOutliers, (pr) => {
   const out = Rational.parse(/The value \$([\d.-]+)\$ is an outlier/.exec(text)![1]);
   const idx = xs.findIndex((x) => x.eq(out));
   const without = xs.filter((_, i) => i !== idx);
-  return /standard deviation σ/.test(JSON.stringify(pr.steps![0].prompt)) ? expectSteps(pr, [Math.sqrt(vVar(xs).toNumber()), Math.sqrt(vVar(without).toNumber()), null]) : expectSteps(pr, [vMean(xs), vMean(without), null]);
+  return /standard deviation σ/.test(JSON.stringify(pr.steps![0].prompt)) ? expectSteps(pr, [Math.sqrt(vVar(xs).toNumber()), Math.sqrt(vVar(without).toNumber()), vIqr(xs).sub(vIqr(without)).abs(), null]) : expectSteps(pr, [vMean(xs), vMean(without), vQuartiles(xs)[1].sub(vQuartiles(without)[1]).abs(), null]);
 });
 
 addStepChecks(genCompare, (pr) => {
@@ -1470,5 +1477,5 @@ addStepChecks(genCompare, (pr) => {
   return [...expectSteps(pr, [null, null, null]), ...labelIs(pr, 0, a.median > b.median ? a.label! : b.label!), ...labelIs(pr, 1, a.q3 - a.q1 > b.q3 - b.q1 ? a.label! : b.label!)];
 });
 
-void iqr;
+void iqr; // also used by the outlier-removal steps
 export const U7_DATA_GENERATORS: GeneratorDef[] = [genCenter, genQuartiles, genStdDev, genShapeOutliers, genCompare];

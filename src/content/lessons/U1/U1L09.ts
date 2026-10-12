@@ -106,7 +106,7 @@ export const U1L09: LessonContent = {
       problem: [{ t: 'p', text: 'You have \\$120 saved and put away \\$35 every week from a part-time job. Write a model for your savings $S$ after $w$ weeks. After how many weeks will you have the \\$750 for a new phone?' }],
       steps: [
         { text: 'Identify the rate and the starting value.', tex: 'm = 35, \\quad b = 120', why: '\\$35 repeats every week, so it is the rate. The \\$120 is already saved at week 0.' },
-        { text: 'Write the model.', tex: 'S(w) = 35w + 120' },
+        { text: 'Write the model.', tex: 'S(w) = 35w + 120', why: 'The rate multiplies the input because it repeats every week, and the starting \\$120 is added once.' },
         { text: 'Set the model equal to the goal and solve.', tex: '35w + 120 = 750 \\;\\Rightarrow\\; 35w = 630 \\;\\Rightarrow\\; w = 18', why: 'Subtract 120, then divide by 35. Check: $35(18) = 630$ and $630 + 120 = 750$.' },
         { text: 'Think about the domain.', why: 'You save once a week, so $w$ is a whole number. The domain that matters here is $\\{0, 1, 2, \\dots, 18\\}$.' },
       ],

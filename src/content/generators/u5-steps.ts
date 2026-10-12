@@ -67,9 +67,10 @@ export function finalStep(pr: Pick<Problem, 'answer' | 'misconceptions' | 'input
   return { prompt: blocks(prompt), answer: pr.answer, ...(pr.inputHint ? { inputHint: pr.inputHint } : {}), hints, misconceptions: pr.misconceptions, explanation };
 }
 
-/** Attach steps built from the finished problem (the last one usually comes from finalStep). */
+/** Attach steps built from the finished problem (the last one usually comes from finalStep); an empty list attaches none. */
 export function withSteps(pr: Problem, build: (pr: Problem) => ProblemStep[]): Problem {
-  return { ...pr, steps: build(pr) };
+  const steps = build(pr);
+  return steps.length ? { ...pr, steps } : pr;
 }
 
 /** Text of a step's key: the number, or the label of the correct option. */

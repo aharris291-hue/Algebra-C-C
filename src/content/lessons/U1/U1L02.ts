@@ -71,6 +71,7 @@ export const U1L02: LessonContent = {
     { t: 'callout', variant: 'realworld', title: 'Sentence pattern', text: '"When **[input, with units]**, **[output, with units]**." So $T(4) = 60$ means: **When you have mowed 4 lawns, you have earned \\$60 in total.**' },
     { t: 'p', text: 'You can go the other way too. Let $B(t)$ be your phone battery level, in percent, after $t$ hours of streaming. The sentence "After 3 hours of streaming, the battery is at 55%" becomes $B(3) = 55$. The question "When will the battery be at 20%?" means solve $B(t) = 20$.' },
     { t: 'callout', variant: 'warning', title: 'Units matter', text: 'An answer like "4 and 60" is not an interpretation. Say what each number counts: 4 **lawns**, 60 **dollars**.' },
+    { t: 'p', text: '**An input of 0 means "at the start."** Zero weeks, zero hours or zero miles is the moment before anything has happened. So the output at input $0$ is the **starting value**. For a gym that charges a \\$50 sign-up fee plus \\$20 per month, $C(m) = 20m + 50$, and $C(0) = 20(0) + 50 = 50$ means: **before any months have passed, you have paid \\$50, the sign-up fee.** This works because the rate is multiplied by $0$, so only the starting amount is left.' },
   ],
   examples: [
     {
@@ -105,7 +106,7 @@ export const U1L02: LessonContent = {
         { text: 'Spot the error.', why: 'The student put $20$ in as the **input**. But in $f(x) = 20$, the $20$ is after the equals sign, so it is the **output**. The student answered a different question.' },
         { text: 'Set the rule equal to $20$.', tex: '6x - 4 = 20', why: 'We want the input whose output is $20$.' },
         { text: 'Add $4$, then divide by $6$.', tex: '6x = 24 \\quad\\Rightarrow\\quad x = 4', why: 'Inverse operations: adding undoes $-4$, dividing undoes $\\times 6$.' },
-        { text: 'Check.', tex: 'f(4) = 6(4) - 4 = 24 - 4 = 20 \\checkmark' },
+        { text: 'Check.', tex: 'f(4) = 6(4) - 4 = 24 - 4 = 20 \\checkmark', why: 'Putting the answer back in as the input gives the output $20$, so $x = 4$ really solves $f(x) = 20$.' },
       ],
       answer: '$x = 4$ (not $116$)',
     },
@@ -121,6 +122,17 @@ export const U1L02: LessonContent = {
         { text: 'Check and answer in a sentence.', tex: 'S(14) = 25(14) + 150 = 350 + 150 = 500 \\checkmark', why: 'A context question deserves a sentence with units: **after 14 weeks, you will have \\$500.**' },
       ],
       answer: '(a) After 8 weeks you have \\$350 saved. (b) $w = 14$: after 14 weeks you have \\$500.',
+    },
+    {
+      title: 'What does an input of 0 mean?',
+      kind: 'real-world',
+      problem: [{ t: 'p', text: 'A candle is 36 centimeters tall when it is lit and burns down 2 centimeters each hour. Its height after $t$ hours is $H(t) = -2t + 36$. What does the statement $H(0) = 36$ mean in this situation?' }],
+      steps: [
+        { text: 'Check that the statement is true.', tex: 'H(0) = -2(0) + 36 = 0 + 36 = 36', why: 'Any rate times $0$ is $0$, so at input $0$ only the starting amount is left.' },
+        { text: 'Name the input with its units.', tex: 't = 0 \\text{ hours}', why: 'The input is the number inside the parentheses. Zero hours means no time has passed yet: the moment the candle is lit.' },
+        { text: 'Name the output with its units and make a sentence.', why: 'The output is a height in centimeters, so: **when the candle is first lit, it is 36 centimeters tall.** That is the starting value.' },
+      ],
+      answer: 'When the candle is first lit (after 0 hours), it is 36 centimeters tall.',
     },
     {
       title: 'Find the input from a graph',

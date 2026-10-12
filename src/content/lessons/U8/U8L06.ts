@@ -109,7 +109,7 @@ export const U8L06: LessonContent = {
       '**Fencing cost** at \\$12 per meter: $260 \\times 12 = 3{,}120$, so \\$3,120.',
       '**Area:** $8 \\times 5 = 40$ square units. Each square unit is $10 \\text{ m} \\times 10 \\text{ m} = 100$ m$^2$, so the area is $40 \\times 100 = 4{,}000$ m$^2$. (Check: $80 \\times 50 = 4{,}000$.)',
     ] },
-    { t: 'callout', variant: 'warning', title: 'Areas scale by the square', text: 'If $1$ unit $= k$ meters, multiply **lengths** by $k$ but **areas** by $k^2$. Multiplying $40$ square units by $10$ gives $400$, which is wrong: it stretches the park in only one direction.' },
+    { t: 'callout', variant: 'warning', title: 'Areas scale by the square', text: 'If $1$ unit $= k$ meters, multiply **lengths** by $k$ but **areas** by $k^2$. Multiplying $40$ square units by $10$ gives $400$, which is wrong: it stretches the park in only one direction. Why $k^2$? Because each square unit is $k$ long **and** $k$ wide, so it covers $k \\times k$ square meters.' },
     { t: 'p', text: '### Parallel or perpendicular paths' },
     { t: 'p', text: 'A straight road passes through $(0, 1)$ and $(8, 5)$. The city plans a new path from $(2, 9)$ to $(6, 1)$. Does the path cross the road at a right angle?' },
     {

@@ -9,7 +9,7 @@ import type { LessonContent } from '../../../core/curriculum/types';
  */
 export const U3L03: LessonContent = {
   lessonId: 'U3L03',
-  goal: 'Add, subtract and multiply radical expressions, like $\\sqrt{12} + \\sqrt{27} = 5\\sqrt{3}$, $\\sqrt[3]{54} + 4\\sqrt[3]{2} = 7\\sqrt[3]{2}$ and $(3 + \\sqrt{2})(3 - \\sqrt{2}) = 7$, and simplify radicals that contain variables.',
+  goal: 'You will add, subtract and multiply radical expressions, like $\\sqrt{12} + \\sqrt{27} = 5\\sqrt{3}$, $\\sqrt[3]{54} + 4\\sqrt[3]{2} = 7\\sqrt[3]{2}$ and $(3 + \\sqrt{2})(3 - \\sqrt{2}) = 7$, and simplify radicals that contain variables.',
   needToKnow: [
     { t: 'p', text: 'This lesson uses three things you already know:' },
     {
@@ -47,6 +47,7 @@ export const U3L03: LessonContent = {
     { t: 'p', text: 'Like cube roots combine just like like square roots, and the product rule works for cube roots too: $\\sqrt[3]{a} \\cdot \\sqrt[3]{b} = \\sqrt[3]{ab}$. The only change is that you look for perfect **cubes** ($8, 27, 64, 125, \\ldots$) instead of perfect squares.' },
     { t: 'math', tex: '\\sqrt[3]{54} + 4\\sqrt[3]{2} = \\sqrt[3]{27}\\sqrt[3]{2} + 4\\sqrt[3]{2} = 3\\sqrt[3]{2} + 4\\sqrt[3]{2} = 7\\sqrt[3]{2}' },
     { t: 'math', tex: '\\sqrt[3]{4} \\cdot \\sqrt[3]{6} = \\sqrt[3]{24} = \\sqrt[3]{8} \\cdot \\sqrt[3]{3} = 2\\sqrt[3]{3}' },
+    { t: 'p', text: 'A cube root of a negative number is negative, because a negative number cubed is negative. So a negative radicand can still give a like radical: $\\sqrt[3]{-16} = \\sqrt[3]{-8} \\cdot \\sqrt[3]{2} = -2\\sqrt[3]{2}$, and $5\\sqrt[3]{2} + \\sqrt[3]{-16} = 5\\sqrt[3]{2} - 2\\sqrt[3]{2} = 3\\sqrt[3]{2}$.' },
     { t: 'callout', variant: 'warning', title: 'Cube roots need perfect cubes', text: '$54 = 9 \\cdot 6$, but $9$ is a perfect **square**, not a perfect cube, so it does not come out of a cube root. Use $54 = 27 \\cdot 2$ instead. Also, $\\sqrt{2}$ and $\\sqrt[3]{2}$ are **not** like radicals: they have different indexes.' },
     { t: 'p', text: '### The distributive property and FOIL' },
     { t: 'p', text: 'Distribute exactly as you would with variables:' },
@@ -54,6 +55,9 @@ export const U3L03: LessonContent = {
     { t: 'p', text: 'For two binomials, use FOIL. A special case happens with **conjugates**:' },
     { t: 'math', tex: '(3 + \\sqrt{2})(3 - \\sqrt{2}) = 9 - 3\\sqrt{2} + 3\\sqrt{2} - \\sqrt{2}\\sqrt{2} = 9 - 2 = 7' },
     { t: 'p', text: 'The middle terms cancel and $\\sqrt{2} \\cdot \\sqrt{2} = 2$, so the product is the rational number $7$.' },
+    { t: 'p', text: '**Squaring a binomial** is FOIL with the same group twice. This time the middle terms are equal, so they add instead of cancel:' },
+    { t: 'math', tex: '(5 + \\sqrt{6})^2 = (5 + \\sqrt{6})(5 + \\sqrt{6}) = 25 + 5\\sqrt{6} + 5\\sqrt{6} + 6 = 31 + 10\\sqrt{6}' },
+    { t: 'callout', variant: 'warning', title: 'Do not square each term separately', text: '$(5 + \\sqrt{6})^2$ is **not** $25 + 6$. Squaring means multiplying the whole group by itself, so the two middle products, $5\\sqrt{6}$ each, must be included: $(a + b)^2 = a^2 + 2ab + b^2$.' },
     { t: 'p', text: '### Radicals with variables' },
     { t: 'callout', variant: 'vocab', title: 'Assume variables are positive', text: 'In this lesson every variable stands for a positive number, so a root like $\\sqrt{x^2}$ is simply $x$.' },
     { t: 'p', text: 'A square root undoes squaring, so it **halves an even exponent**: $\\sqrt{x^6} = x^3$, because $x^3 \\cdot x^3 = x^6$. For an odd exponent, split off one factor, which stays inside:' },
@@ -107,8 +111,8 @@ export const U3L03: LessonContent = {
       steps: [
         { text: 'First.', tex: '2\\sqrt{3} \\cdot \\sqrt{3} = 2 \\cdot 3 = 6', why: '$\\sqrt{3} \\cdot \\sqrt{3} = \\sqrt{9} = 3$.' },
         { text: 'Outer.', tex: '2\\sqrt{3} \\cdot (-4) = -8\\sqrt{3}', why: 'Multiply the coefficients $2$ and $-4$; the $\\sqrt{3}$ stays.' },
-        { text: 'Inner.', tex: '1 \\cdot \\sqrt{3} = \\sqrt{3}' },
-        { text: 'Last.', tex: '1 \\cdot (-4) = -4' },
+        { text: 'Inner.', tex: '1 \\cdot \\sqrt{3} = \\sqrt{3}', why: 'The inner terms are the $1$ from the first group and the $\\sqrt{3}$ from the second; multiplying by $1$ leaves $\\sqrt{3}$ unchanged.' },
+        { text: 'Last.', tex: '1 \\cdot (-4) = -4', why: 'The last terms of each group, $1$ and $-4$, multiply to $-4$. Every term in the first group has now met every term in the second.' },
         { text: 'Combine like terms.', tex: '6 - 8\\sqrt{3} + \\sqrt{3} - 4 = 2 - 7\\sqrt{3}', why: 'Numbers combine with numbers ($6 - 4 = 2$) and $\\sqrt{3}$ terms with $\\sqrt{3}$ terms ($-8 + 1 = -7$).' },
         { text: 'Check with decimals.', tex: '(4.464)(-2.268) \\approx -10.12, \\quad 2 - 7(1.732) \\approx -10.12', why: 'Using $\\sqrt{3} \\approx 1.732$, both forms give the same value.' },
       ],
