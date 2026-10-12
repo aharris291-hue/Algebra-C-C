@@ -72,6 +72,12 @@ async function main() {
       res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
       return;
     }
+    // Test-only: make every save fail (on=1) or work again (on=0), portably on every OS.
+    if (process.env.HARNESS_TEST_ANSWERS === '1' && url.pathname === '/__test/disk-failure') {
+      ctx.db.simulateDiskFailure = url.searchParams.get('on') === '1';
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
+      return;
+    }
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
       const method = url.pathname.slice(5);
       let body = '';

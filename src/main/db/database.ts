@@ -292,6 +292,9 @@ export class AppDatabase {
     return this.db.export();
   }
 
+  /** Test harness only: make every save fail, as a full or unplugged disk would. */
+  simulateDiskFailure = false;
+
   /** Called after each successful save (used for the daily automatic backup check). */
   onSaved?: () => void;
 
@@ -306,6 +309,7 @@ export class AppDatabase {
     const main = this.file;
     const tmp = main + '.tmp';
     try {
+      if (this.simulateDiskFailure) throw new Error('simulated disk failure (test harness)');
       const fd = fs.openSync(tmp, 'w');
       try {
         fs.writeSync(fd, bytes);

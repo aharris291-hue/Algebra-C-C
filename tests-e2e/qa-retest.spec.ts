@@ -8,8 +8,6 @@
  *   and goes away soon after saving works again
  */
 import { test, expect, Page, APIRequestContext } from '@playwright/test';
-import fs from 'node:fs';
-import path from 'node:path';
 
 const PIN = '2580'; // the harness data is shared by every spec, so use the same Parent PIN
 
@@ -117,27 +115,14 @@ test('quiz: a refused answer keeps its text and message after moving away and ba
 
 test('the save-failure banner appears right after a failed save and clears once saving works', async ({ page, request }) => {
   const s = await newStudent(request);
-  const { dataDir } = await call(request, 'getStatus', []);
   await pick(page, s.name);
-  const tmp = path.join(dataDir, 'academy.sqlite.tmp');
-  // a directory where the temporary file goes makes every save fail
-  // (a save may be writing the temporary file right now, or Windows may have left one behind; replace it)
-  for (let i = 0; ; i++) {
-    try {
-      fs.rmSync(tmp, { recursive: true, force: true });
-      fs.mkdirSync(tmp);
-      break;
-    } catch (e) {
-      if (i >= 20) throw e;
-      await page.waitForTimeout(100);
-    }
-  }
-  fs.writeFileSync(path.join(tmp, 'x'), 'x');
+  // every save fails, as a full or unplugged disk would
+  await request.get('/__test/disk-failure?on=1');
   try {
     await page.getByRole('button', { name: /START LEARNING|CONTINUE LEARNING/ }).click();
     await expect(page.locator('.banner-error')).toBeVisible({ timeout: 5_000 });
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    await request.get('/__test/disk-failure?on=0');
   }
   await expect(page.locator('.banner-error')).toHaveCount(0, { timeout: 40_000 });
 });
