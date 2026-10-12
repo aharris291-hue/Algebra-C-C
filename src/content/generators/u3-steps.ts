@@ -100,3 +100,13 @@ export function ratStep(tex: string, rational: boolean, why: string, context = '
     explanation: `$${tex}$ is ${rational ? 'rational' : 'irrational'}. ${why}`,
   };
 }
+
+/** Misconceptions for wrong options of a choice answer, looked up by label; absent labels and the key are skipped. */
+export function optionMisList(a: ChoiceAnswer, list: Array<[string, MisconceptionTag, string]>): Array<{ answer: string; tag: MisconceptionTag; feedback: string }> {
+  const out: Array<{ answer: string; tag: MisconceptionTag; feedback: string }> = [];
+  for (const [label, tag, feedback] of list) {
+    const o = a.options.find((x) => x.label === label);
+    if (o && o.id !== a.correct && !out.some((m) => m.answer === o.id)) out.push({ answer: o.id, tag, feedback });
+  }
+  return out;
+}

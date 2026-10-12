@@ -143,3 +143,41 @@ describe('Unit 2 verify() checks every guided step', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Error-specific feedback (Lesson Quality Audit): every wrong option of these multiple-choice
+// generators carries a misconception, and choosing it returns that feedback.
+// ---------------------------------------------------------------------------
+describe('Unit 2 wrong options get error-specific feedback', () => {
+  const pairs: Array<[string, Difficulty]> = [
+    ['u2.constraint-context', 2],
+    ['u2.graph-ineq-features', 2],
+    ['u2.ineq-numberline', 2],
+    ['u2.ineq-numberline', 3],
+    ['u2.is-solution', 2],
+    ['u2.is-solution', 3],
+    ['u2.system-test', 2],
+    ['u2.system-test', 3],
+  ];
+  for (const [gid, d] of pairs) {
+    it(`${gid}|${d}: every wrong option has feedback on 60 seeds`, () => {
+      const gen = GENERATORS.get(gid)!;
+      let choices = 0;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 101 * d, d);
+        const a = problem.answer;
+        if (a.kind !== 'choice') continue;
+        choices++;
+        for (const o of a.options) {
+          if (o.id === a.correct) continue;
+          const m = problem.misconceptions.find((x) => x.answer === o.id);
+          expect(m, `${problem.id} option ${o.id} (${o.label}) has a misconception`).toBeTruthy();
+          const r = checkAnswer(a, o.id, problem.misconceptions);
+          expect(r.status).toBe('incorrect');
+          expect(r.message).toBe(m!.feedback);
+        }
+      }
+      expect(choices).toBeGreaterThan(30);
+    });
+  }
+});

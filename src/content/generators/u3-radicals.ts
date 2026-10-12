@@ -118,7 +118,12 @@ export const genSimplifySqrt: GeneratorDef = {
           prompt: [p(`Now simplify $${tex}$ completely.`)],
           answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
           inputHint: RAD_HINT,
-          hints: [`$${n} = ${k * k} \\cdot ${b}$`, `$\\sqrt{${k * k}} = ${k}$`, `Keep $${b}$ under the root.`, c > 1 ? `Multiply the ${k} by the ${c} in front.` : 'Write the whole number in front of the root.'],
+          hints: [
+            `Split $${n}$ into (the perfect square you found) $\\cdot$ (what is left).`,
+            'Use $\\sqrt{ab} = \\sqrt{a} \\cdot \\sqrt{b}$: the square root of the perfect square comes out in front as a whole number.',
+            'The factor that is left has no perfect square factor, so it stays under the root.',
+            c > 1 ? `$\\sqrt{${k * k}} = ${k}$. Multiply it by the $${c}$ already in front.` : `$\\sqrt{${k * k}} = ${k}$. Write it in front of the root, with no times sign.`,
+          ],
           misconceptions,
           explanation: `$${tex} = ${radTex(out, b)}$.`,
         },
@@ -174,7 +179,12 @@ export const genSimplifyCbrt: GeneratorDef = {
           prompt: [p(`Now simplify $${tex}$ completely.`)],
           answer: { kind: 'expression', value: answer, form: 'simplified-radical' },
           inputHint: RAD_HINT,
-          hints: [`$${Math.abs(n)} = ${k ** 3} \\cdot ${b}$`, `$\\sqrt[3]{${k ** 3}} = ${k}$`, `Keep $${b}$ under the cube root.`, sign < 0 ? 'Remember the negative sign comes out of a cube root.' : 'Write the whole number in front of the root.'],
+          hints: [
+            `Split $${Math.abs(n)}$ into (the perfect cube you found) $\\cdot$ (what is left).`,
+            'Use $\\sqrt[3]{ab} = \\sqrt[3]{a} \\cdot \\sqrt[3]{b}$: the cube root of the perfect cube comes out in front as a whole number.',
+            `The factor that is left has no perfect cube factor, so it stays under the cube root.${sign < 0 ? ' A negative number has a negative cube root, so the sign comes out too.' : ''}`,
+            `$\\sqrt[3]{${k ** 3}} = ${k}$. ${c > 1 ? `Multiply it by the $${c}$ already in front.` : 'Write it in front of the root, with no times sign.'}`,
+          ],
           misconceptions,
           explanation: `$${tex} = ${radTex(out, b, 3)}$.`,
         },
@@ -355,6 +365,49 @@ function multiplyStepErrors(pr: Parameters<GeneratorDef['verify']>[0]): string[]
   return [...errs, ...stepsFinishErrors(pr)];
 }
 
+/** Parser text for a sum of terms coef·root(rad), like radicals combined (first-appearance order), zero terms dropped. */
+function combinedPlain(parts: Array<{ coef: number; rad: number }>, index: 2 | 3): string {
+  const byRad = new Map<number, number>();
+  for (const q of parts) byRad.set(q.rad, (byRad.get(q.rad) ?? 0) + q.coef);
+  return joinTerms([...byRad.entries()].filter(([, c]) => c !== 0).map(([r, c]) => radPlain(c, r, index)));
+}
+
+/**
+ * Wrong answers for a three-term sum of radicals that must be simplified first (difficulty 3):
+ * the factor that comes out of a root not multiplied in, the perfect power itself taken out
+ * instead of its root, a lost sign, unlike radicals combined, and radicands added.
+ */
+function addRadicalsD3Misconceptions(terms: Array<{ shownCoef: number; shownRad: number; coef: number; rad: number }>, index: 2 | 3): Misconception[] {
+  const word = index === 2 ? 'square' : 'cube';
+  const out = (t: (typeof terms)[number]) => Math.round(Math.pow(Math.abs(t.shownRad) / t.rad, 1 / index));
+  const sign = (t: (typeof terms)[number]) => Math.sign(t.shownRad);
+  const rads = [...new Set(terms.map((t) => t.rad))];
+  const like = rads.find((r) => terms.filter((t) => t.rad === r).length >= 2)!;
+  const other = rads.find((r) => r !== like)!;
+  const total = terms.reduce((acc, t) => acc + t.coef, 0);
+  const likeSum = terms.filter((t) => t.rad === like).reduce((acc, t) => acc + t.coef, 0);
+  const otherSum = terms.filter((t) => t.rad === other).reduce((acc, t) => acc + t.coef, 0);
+  const rootTex = (r: number) => (index === 2 ? `\\sqrt{${r}}` : `\\sqrt[3]{${r}}`);
+  const list: Array<Misconception | null> = [
+    terms.some((t) => out(t) > 1)
+      ? { answer: combinedPlain(terms.map((t) => ({ coef: t.shownCoef * sign(t), rad: t.rad })), index), tag: 'radical-simplify', feedback: `When you simplify a root, the number that comes out multiplies the coefficient already in front of it. Check each term you simplified.` }
+      : null,
+    terms.some((t) => out(t) > 1)
+      ? { answer: combinedPlain(terms.map((t) => ({ coef: t.shownCoef * sign(t) * Math.pow(out(t), index), rad: t.rad })), index), tag: 'radical-simplify', feedback: `The number that comes out of the root is the ${word} root of the perfect ${word} factor, not the factor itself.` }
+      : null,
+    terms.some((t) => t.shownRad < 0)
+      ? { answer: combinedPlain(terms.map((t) => ({ coef: t.shownCoef * out(t), rad: t.rad })), index), tag: 'sign-error', feedback: 'The cube root of a negative number is negative, for example $\\sqrt[3]{-8} = -2$. Keep that sign when you take the factor out.' }
+      : null,
+    { answer: combinedPlain(terms.map((t) => ({ coef: Math.abs(t.coef), rad: t.rad })), index), tag: 'sign-error', feedback: `Check the signs: a minus in front of a term subtracts its coefficient${index === 3 ? ', and so does a cube root of a negative number' : ''}. Keep each sign with its term.` },
+    { answer: radPlain(total, like, index), tag: 'unlike-terms', feedback: `$${rootTex(like)}$ and $${rootTex(other)}$ are unlike radicals, so they cannot be combined into one term. Only terms with the same number under the root combine.` },
+    { answer: radPlain(total, other, index), tag: 'unlike-terms', feedback: `$${rootTex(like)}$ and $${rootTex(other)}$ are unlike radicals, so they cannot be combined into one term. Only terms with the same number under the root combine.` },
+    likeSum !== 0
+      ? { answer: joinTerms([radPlain(likeSum, 2 * like, index), radPlain(otherSum, other, index)]), tag: 'radical-simplify', feedback: 'When you combine like radicals, the number under the root stays the same, just as $3x + 2x = 5x$. Do not add the numbers under the roots.' }
+      : null,
+  ];
+  return list.filter((m): m is Misconception => m !== null && m.answer !== '0' && m.answer !== '');
+}
+
 export const genAddRadicals: GeneratorDef = {
   id: 'u3.add-radicals',
   skillId: 'S3.05',
@@ -384,6 +437,7 @@ export const genAddRadicals: GeneratorDef = {
       ...(rads.length === 1 && terms.length === 2 ? [{ answer: radPlain(byRad.get(b)!, 2 * b), tag: 'radical-simplify' as const, feedback: 'When you combine like radicals, the number under the root stays the same, just as $3x + 2x = 5x$ (not $5x^2$).' }] : []),
       ...(terms.length === 2 && terms.every((t) => t.shownCoef === 1) ? [{ answer: `sqrt(${sumShown})`, tag: 'radical-simplify' as const, feedback: 'You cannot add the numbers under the roots: $\\sqrt{a} + \\sqrt{b} \\ne \\sqrt{a + b}$. Combine like radicals the way you combine like terms.' }] : []),
       ...(difficulty === 2 ? [{ answer: radPlain(terms.reduce((s, t) => s + t.shownCoef, 0), b), tag: 'radical-simplify' as const, feedback: 'Simplify each root first. The number that comes out of the root multiplies the coefficient in front.' }] : []),
+      ...(difficulty === 3 ? addRadicalsD3Misconceptions(terms, 2) : []),
     ]);
     const simplified = terms.map((t, i) => {
       const body = radTex(Math.abs(t.coef), t.rad);
@@ -468,6 +522,7 @@ function addCubeRoots(rng: Rng, difficulty: number) {
     const sp = splitPower(Math.abs(sqWrong.shownRad), 2);
     if (sp.inside !== b && sp.inside > 1) misc.push({ answer: joinTerms(terms.map((t) => (t === sqWrong ? radPlain(t.shownCoef * sp.out * Math.sign(t.shownRad), sp.inside, 3) : radPlain(t.coef, t.rad, 3)))), tag: 'radical-simplify', feedback: 'For a **cube** root, look for a perfect **cube** factor ($8, 27, 64, \\ldots$), not a perfect square.' });
   }
+  if (difficulty === 3) misc.push(...addRadicalsD3Misconceptions(terms, 3));
   const solution: SolutionStep[] = [
     ...(difficulty >= 2 ? [{ text: 'Simplify each cube root first.', tex: `${tex} = ${simplified}`, why: `Take the largest perfect cube factor out of each root: ${terms.filter((t) => Math.abs(t.shownRad) !== t.rad).map((t) => `$${t.shownRad} = ${t.shownRad < 0 ? '-' : ''}${Math.abs(t.shownRad) / t.rad} \\cdot ${t.rad}$ and $\\sqrt[3]{${t.shownRad < 0 ? '-' : ''}${Math.abs(t.shownRad) / t.rad}} = ${Math.round(Math.cbrt(t.shownRad / t.rad))}$`).join('; ')}.` }] : []),
     { text: 'Combine like radicals by adding or subtracting their coefficients.', tex: `= ${answerTex}`, why: rads.length > 1 ? 'Cube roots with different numbers inside are unlike, so they stay separate.' : 'Like cube roots combine the way like terms do, and the number inside stays the same.' },

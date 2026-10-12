@@ -8,7 +8,7 @@ import { linearTex } from '../../core/math/format';
 import { Q, p, makeProblem, numStr, makeChoice, choiceLabel, stringMisconceptions, texValue, numberMisconceptions } from './util';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
-import { Op, OP_TEX, FLIP_OP, TOGGLE_STRICT, isStrict, isGreater, pickOp, relTexToPlain, sameOneVarSolutions, holds, stepChoice, idOf, lastStepErrors, stepLabel } from './u2-common';
+import { Op, OP_TEX, FLIP_OP, TOGGLE_STRICT, isStrict, isGreater, pickOp, relTexToPlain, sameOneVarSolutions, holds, stepChoice, idOf, lastStepErrors, stepLabel, optionMisList } from './u2-common';
 
 const ineqPlain = (v: string, op: Op, k: Rational) => `${v} ${op} ${numStr(k)}`;
 const ineqTex = (v: string, op: Op, k: Rational) => `${v} ${OP_TEX[op]} ${k.toTex()}`;
@@ -467,9 +467,12 @@ export const genIneqNumberLine: GeneratorDef = {
     }
     let promptTex: string;
     let solveSteps: Array<{ text: string; tex?: string; why?: string }> = [];
+    /** what most likely leads to shading the wrong side, for the feedback on that distractor */
+    let dirFb = 'This graph shades the wrong side. Pick a number on its shaded side and test it in the inequality: a solution makes it true.';
     if (difficulty === 2) {
       // sometimes written with the number first, e.g. 4 > x
       if (rng.bool()) {
+        dirFb = `The inequality has $x$ on the right. Read it with $x$ first: turn the whole statement around and the symbol turns with it. Then shade toward the solutions.`;
         promptTex = `${K.toTex()} ${OP_TEX[FLIP_OP[op]]} x`;
         solveSteps = [{ text: 'Read it with $x$ first.', tex: ineqTex('x', op, K), why: `"$${K.toTex()} ${OP_TEX[FLIP_OP[op]]} x$" and "$${ineqTex('x', op, K)}$" say the same thing; the symbol still points at the smaller side.` }];
       } else promptTex = ineqTex('x', op, K);
@@ -478,6 +481,7 @@ export const genIneqNumberLine: GeneratorDef = {
       if (rng.next() < 0.7) m = m.neg();
       const b = Q(rng.nonzeroInt(-9, 9));
       const rawOp = m.isNegative() ? FLIP_OP[op] : op;
+      if (m.isNegative()) dirFb = `Solving means dividing both sides by $${m.toTex()}$, a negative number, and that flips the inequality symbol. Then shade toward the solutions.`;
       promptTex = `${linearTex(m, b)} ${OP_TEX[rawOp]} ${m.mul(K).add(b).toTex()}`;
       solveSteps = [
         { text: `Undo the constant: ${b.isNegative() ? 'add' : 'subtract'} $${b.abs().toTex()}$ on both sides.`, tex: `${linearTex(m, Q(0))} ${OP_TEX[rawOp]} ${m.mul(K).toTex()}`, why: 'Adding or subtracting keeps the symbol the same.' },
@@ -486,6 +490,14 @@ export const genIneqNumberLine: GeneratorDef = {
     }
     const { correct, distractors } = allDescriptions(K, op);
     const answer = makeChoice(rng, correct, distractors);
+    const circleFb = isStrict(op)
+      ? 'This graph uses a closed circle, but the symbol has no "or equal to", so the boundary number is **not** a solution: that needs an open circle.'
+      : 'This graph uses an open circle, but the symbol includes "or equal to", so the boundary number **is** a solution: that needs a closed circle.';
+    const misconceptions = optionMisList(answer, [
+      [distractors[0], 'interval-endpoint', circleFb],
+      [distractors[1], 'inequality-direction', dirFb],
+      [distractors[2], 'inequality-direction', `Both parts need another look. ${circleFb} Also, ${dirFb[0].toLowerCase()}${dirFb.slice(1)}`],
+    ]);
     return makeProblem({
       skillId: 'S2.01',
       tags: ['graph'],
@@ -502,7 +514,7 @@ export const genIneqNumberLine: GeneratorDef = {
         { text: `The boundary is $${K.toTex()}$. ${isStrict(op) ? 'It is not included, so use an open circle.' : 'It is included, so use a closed circle.'}`, why: isStrict(op) ? '$<$ and $>$ do not include the boundary.' : '$\\le$ and $\\ge$ include the boundary.' },
         { text: `Test $x = ${k + 1}$: it ${isGreater(op) ? 'is' : 'is not'} a solution, so shade to the ${isGreater(op) ? 'right' : 'left'}.`, why: 'The shaded side is the side whose numbers make the inequality true.' },
       ],
-      misconceptions: [],
+      misconceptions,
     });
   },
   verify(pr) {

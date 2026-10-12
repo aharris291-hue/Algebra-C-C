@@ -2,6 +2,7 @@
 import type { Rng, Problem, ProblemStep } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
 import { parseRelation, relationHolds, checkAnswer } from '../../core/math/answers';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { canonicalInput } from '../../core/engine/problems';
 import { texToExpr, Q } from './util';
 
@@ -98,4 +99,24 @@ export function stepLabel(st: ProblemStep | undefined): string {
   if (!st || st.answer.kind !== 'choice') return '';
   const a = st.answer;
   return a.options.find((o) => o.id === a.correct)?.label ?? '';
+}
+
+/**
+ * Misconception for the wrong option whose label is `label` in a choice answer (null when the
+ * label is absent or is the key). Lets error-specific feedback follow the option, whatever order
+ * makeChoice shuffled it into.
+ */
+export function optionMis(a: { options: { id: string; label: string }[]; correct: string }, label: string, tag: MisconceptionTag, feedback: string): Misconception | null {
+  const o = a.options.find((x) => x.label === label);
+  return o && o.id !== a.correct ? { answer: o.id, tag, feedback } : null;
+}
+
+/** optionMis over a list of [label, tag, feedback], keeping only the options that are present and wrong. */
+export function optionMisList(a: { options: { id: string; label: string }[]; correct: string }, list: Array<[string, MisconceptionTag, string]>): Misconception[] {
+  const out: Misconception[] = [];
+  for (const [label, tag, feedback] of list) {
+    const m = optionMis(a, label, tag, feedback);
+    if (m && !out.some((x) => x.answer === m.answer)) out.push(m);
+  }
+  return out;
 }

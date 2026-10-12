@@ -147,3 +147,49 @@ describe('Unit 3 verify() checks every guided step', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Error-specific feedback (Lesson Quality Audit): every wrong option of these multiple-choice
+// generators carries a misconception, and choosing it returns that feedback. Expression answers
+// (add-radicals at difficulty 3) carry misconceptions for the common wrong answers.
+// ---------------------------------------------------------------------------
+describe('Unit 3 wrong answers get error-specific feedback', () => {
+  const pairs: Array<[string, Difficulty]> = [
+    ['u3.classify-number', 2],
+    ['u3.classify-number', 3],
+    ['u3.closure-type', 2],
+    ['u3.closure-type', 3],
+    ['u3.which-irrational', 2],
+  ];
+  for (const [gid, d] of pairs) {
+    it(`${gid}|${d}: every wrong option has feedback on 60 seeds`, () => {
+      const gen = GENERATORS.get(gid)!;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 101 * d, d);
+        const a = problem.answer;
+        expect(a.kind).toBe('choice');
+        if (a.kind !== 'choice') continue;
+        for (const o of a.options) {
+          if (o.id === a.correct) continue;
+          const m = problem.misconceptions.find((x) => x.answer === o.id);
+          expect(m, `${problem.id} option ${o.id} (${o.label}) has a misconception`).toBeTruthy();
+          const r = checkAnswer(a, o.id, problem.misconceptions);
+          expect(r.status).toBe('incorrect');
+          expect(r.message).toBe(m!.feedback);
+        }
+      }
+    });
+  }
+  it('u3.add-radicals|3: common wrong answers get their feedback on 60 seeds', () => {
+    const gen = GENERATORS.get('u3.add-radicals')!;
+    for (let s = 1; s <= 60; s++) {
+      const { problem } = produceProblem(gen, s * 7919 + 303, 3);
+      expect(problem.misconceptions.length, `${problem.id} has misconceptions`).toBeGreaterThanOrEqual(2);
+      for (const m of problem.misconceptions) {
+        const r = checkAnswer(problem.answer, m.answer, problem.misconceptions);
+        expect(r.status, `${problem.id} ${m.answer}`).toBe('incorrect');
+        expect(r.message).toBe(m.feedback);
+      }
+    }
+  });
+});

@@ -4,13 +4,13 @@
  * S2.06 model a situation with a system of inequalities and reason about it.
  */
 import type { GeneratorDef, Rng, GraphSpec, Block, ProblemStep, Problem } from '../../core/curriculum/types';
-import type { Misconception } from '../../core/math/answers';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Rational } from '../../core/math/rational';
 import { linearTex, linearPlain, coefTex } from '../../core/math/format';
 import { Q, p, makeProblem, numStr, money, makeChoice, choiceLabel, numberMisconceptions, stringMisconceptions } from './util';
-import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds, latticeSolutions, ptTex, stepChoice, lastStepErrors, stepLabel } from './u2-common';
+import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds, latticeSolutions, ptTex, stepChoice, lastStepErrors, stepLabel, optionMisList } from './u2-common';
 import { buildSystem, systemText, SysInstance, SYS_CONTEXTS, countOf, ifThereAre } from './u2-contexts';
 
 interface Line {
@@ -375,6 +375,24 @@ export const genSystemTest: GeneratorDef = {
     if (showGraph) prompt.push({ t: 'graph', spec: systemGraph(lines), caption: 'Blue shows the first inequality and orange shows the second.' });
     const all = [correct, ...distractors];
     const answer = makeChoice(rng, ptTex(correct.x, correct.y), distractors.map((d) => ptTex(d.x, d.y)));
+    const misconceptions = optionMisList(
+      answer,
+      distractors.map((q): [string, MisconceptionTag, string] => {
+        const pt = ptTex(q.x, q.y);
+        const claim = (i: number) => {
+          const l = lines[i];
+          return `$${q.y} ${OP_TEX[l.op]} ${rhsAt(l, q.x).toTex()}$`;
+        };
+        const ord = (i: number) => (i === 0 ? 'first' : 'second');
+        if (q.on1 || q.on2) {
+          const i = q.on1 ? 0 : 1;
+          return [pt, 'boundary-line', `${pt} is on the boundary line of the ${ord(i)} inequality, and that line is dashed: the symbol $${OP_TEX[lines[i].op]}$ has no "or equal to", so points on the line are not solutions of it.`];
+        }
+        if (!q.s1 && !q.s2) return [pt, 'other', `Substitute ${pt} into both inequalities: ${claim(0)} and ${claim(1)} are both false.${showGraph ? ' It is outside both shaded regions.' : ''}`];
+        const i = q.s1 ? 1 : 0;
+        return [pt, 'other', `${pt} makes the ${ord(1 - i)} inequality true, but check the ${ord(i)} one: ${claim(i)} is false. A solution of a system must make **both** inequalities true${showGraph ? ', so it must be where the two shadings overlap' : ''}.`];
+      }),
+    );
     const check = (q: { x: number; y: number }) => {
       const r = lines.map((l) => {
         const rhs = l.m.mul(Q(q.x)).add(l.b);
@@ -394,7 +412,7 @@ export const genSystemTest: GeneratorDef = {
         'Check each point in both inequalities. Only one point passes both tests.',
       ],
       solution: [...answer.options.map((o) => check(all.find((q) => ptTex(q.x, q.y) === o.label)!)), { text: `The solution is ${ptTex(correct.x, correct.y)}.`, why: 'It is the only option that makes both inequalities true.' }],
-      misconceptions: [],
+      misconceptions,
       steps: difficulty === 1 ? systemTestSteps(lines, all.find((q) => ptTex(q.x, q.y) === answer.options[0].label)!, answer) : undefined,
     });
   },
@@ -527,6 +545,12 @@ function quadrantGraphChoice(rng: Rng, difficulty: number) {
   const slotOf = (gi: number) => GRAPH_LETTERS[order.indexOf(gi)];
   const answer = { kind: 'choice' as const, options: GRAPH_LETTERS.map((L, i) => ({ id: 'abcd'[i], label: `Graph ${L}` })), correct: 'abcd'[order.indexOf(0)] };
   const lhsTex = `${coefTex(Q(A))}x + ${coefTex(Q(B))}y`;
+  const optOf = (gi: number) => `Graph ${slotOf(gi)}`;
+  const misconceptions = optionMisList(answer, [
+    [optOf(1), 'shading', `${optOf(1)} shades the wrong side of the line. Test $(0, 0)$ in the inequality: if it makes the inequality true, shade the side with the origin; if not, shade the other side.`],
+    [optOf(2), 'boundary-line', `${optOf(2)} draws the boundary line ${strict ? 'solid' : 'dashed'}. The symbol ${strict ? 'has no "or equal to", so points on the line are not solutions' : 'includes "or equal to", so points on the line are solutions'}; check the line type again.`],
+    [optOf(3), 'graph-reading', `${optOf(3)} has the intercepts switched. Set $y = 0$ to find where the line crosses the $x$-axis, and set $x = 0$ to find where it crosses the $y$-axis.`],
+  ]);
   const zeroTrue = holds(`${A}x + ${B}y ${op} ${C}`, 0, 0);
   return makeProblem({
     skillId: 'S2.05',
@@ -546,7 +570,7 @@ function quadrantGraphChoice(rng: Rng, difficulty: number) {
       { text: 'Test $(0, 0)$ to choose the side.', tex: `${A}(0) + ${B}(0) = 0 ${OP_TEX[op]} ${C}\\ \\text{is ${zeroTrue ? 'true' : 'false'}}`, why: `So shade the side of the line ${zeroTrue ? 'that contains' : 'away from'} the origin, which is ${above ? 'above' : 'below'} the line. Graph ${slotOf(1)} shades the wrong side.` },
       { text: `The answer is Graph ${slotOf(0)}.`, why: '$x \\ge 0$ and $y \\ge 0$ keep only the first quadrant, so the solution region is the part of that side of the line in the first quadrant.' },
     ],
-    misconceptions: [],
+    misconceptions,
   });
 }
 

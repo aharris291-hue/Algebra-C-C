@@ -281,7 +281,7 @@ function pickGeo(rng: Rng, difficulty: number): { a1: Rational; r: Rational } {
   return { a1, r };
 }
 
-const recLabel = (a1: Rational, rTex: string, rel: string) => `$a_1 = ${dTex(a1)}$ and $a_n = ${rel.replace('R', rTex)}$`;
+const recLabel = (a1: Rational, rTex: string, rel: string) => `$a_1 = ${dTex(a1)}$ and $a_n = ${rel.replace('R', rTex).replace('+ -', '- ')}$`;
 
 
 /** verify() for the applied, graphed and explicit-to-recursive geometric items; null when not one of them. */

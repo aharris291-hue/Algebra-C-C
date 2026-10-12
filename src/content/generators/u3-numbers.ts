@@ -6,7 +6,8 @@ import type { GeneratorDef, Rng, Difficulty, SolutionStep, ProblemStep } from '.
 import { p, makeProblem, makeChoice, choiceLabel, numberMisconceptions } from './util';
 import { texSurd, SQUAREFREE, CUBEFREE, radTex } from './u3-common';
 import { Rational } from '../../core/math/rational';
-import { ChoiceAnswer, rotChoice, idOf, stepLabel, stepsFinishErrors, numForm, ratStep, wrongGroupFeedback, RAT, IRR } from './u3-steps';
+import { ChoiceAnswer, rotChoice, idOf, stepLabel, stepsFinishErrors, numForm, ratStep, wrongGroupFeedback, RAT, IRR, optionMisList } from './u3-steps';
+import type { MisconceptionTag } from '../../core/math/answers';
 
 // ---------------------------------------------------------------------------
 // Number pool
@@ -187,6 +188,36 @@ const CLASSIFY_HINTS: [string, string, string, string] = [
   'A calculator rounds every number to a few digits, so the screen alone cannot tell you whether the decimal stops or repeats.',
 ];
 
+/**
+ * A question that leads back to the right group, for a number put in the wrong one. It points at
+ * the check that decides (read from the number's own form) without naming the group.
+ */
+function classifyNudge(tex: string): string {
+  if (tex.includes('\\pi')) return '$3.14$ is only a rounded value of $\\pi$. What do you know about the digits of $\\pi$, and does multiplying or dividing it by a whole number change that?';
+  if (tex.includes('\\ldots')) return 'Look closely at the digits: does one fixed block of digits repeat forever, or does the pattern keep changing?';
+  if (tex.includes('\\overline')) return 'The bar means the digits under it repeat forever. Which kind of number has a decimal that repeats?';
+  const cube = /^\\sqrt\[3\]\{(-?\d+)\}$/.exec(tex);
+  if (cube) return `Is $${Math.abs(Number(cube[1]))}$ a perfect cube, a whole number times itself three times? Compare it with $8, 27, 64, 125$.`;
+  if (tex.includes('\\frac') && tex.startsWith('\\sqrt')) return 'Take the square root of the top and of the bottom separately. Is each one a whole number?';
+  if (/^\d+ \+ \\sqrt\{\d+\}$/.test(tex)) return 'First decide what kind of number the square root is. Then use the rule for a rational number plus an irrational number.';
+  if (/\\sqrt\{\d+\} - \\sqrt/.test(tex)) return 'Simplify first: what do the two square roots do when you add one and subtract the other?';
+  if (/^\\sqrt\{(\d+)\} \+ \\sqrt\{\1\}$/.test(tex)) return 'Simplify first: combine the like radicals, then ask whether the result can be a fraction of two integers.';
+  if (tex.includes('\\cdot')) return 'Simplify first: multiply under one root with $\\sqrt{a} \\cdot \\sqrt{b} = \\sqrt{ab}$, then check whether the number under the root is a perfect square.';
+  const sq = /\\sqrt\{(\d+)\}/.exec(tex);
+  if (sq) return `Is $${sq[1]}$ a perfect square? Compare it with the perfect squares $4, 9, 16, 25, 36, \\ldots$`;
+  if (tex.includes('.')) return 'Can you write this decimal as a fraction over $10$, $100$ or $1000$?';
+  return 'Can you write it as a fraction of two integers?';
+}
+
+/** Feedback for each wrong option of "is it rational or irrational, and why?". */
+function classifyMisconceptions(item: NumItem, answer: ChoiceAnswer) {
+  return optionMisList(answer, [
+    [item.rational ? IRRATIONAL_LABEL : RATIONAL_LABEL, 'other', `Check the classification of $${item.tex}$ again. ${classifyNudge(item.tex)}`],
+    [WRONG_ROOT, 'radical-simplify', 'That reason is false: not every square root is irrational, for example $\\sqrt{9} = 3$. Choose a reason that is always true.'],
+    [WRONG_DECIMAL, 'other', 'That reason is false: a calculator shows every number as a decimal, even irrational ones like $\\sqrt{2}$, and it rounds them. Choose a reason that is always true.'],
+  ]);
+}
+
 // ---------------------------------------------------------------------------
 // Guided steps for classifying one number (difficulty 1)
 // ---------------------------------------------------------------------------
@@ -358,7 +389,7 @@ export const genClassifyNumber: GeneratorDef = {
       answer,
       hints: CLASSIFY_HINTS,
       solution,
-      misconceptions: [],
+      misconceptions: classifyMisconceptions(item, answer),
       steps: difficulty === 1 ? classifySteps(item, answer) : undefined,
     });
   },
@@ -433,7 +464,10 @@ export const genWhichIrrational: GeneratorDef = {
         ...all.map((i) => ({ text: `$${i.tex}$ is ${i.rational ? 'rational' : 'irrational'}.`, why: i.why })),
         { text: `The ${word} number is $${odd.tex}$.` },
       ],
-      misconceptions: [],
+      misconceptions: optionMisList(
+        answer,
+        rest.map((it): [string, MisconceptionTag, string] => [lab(it.tex), it.tex.includes('\\sqrt') ? 'radical-simplify' : 'other', `$${it.tex}$ is ${it.rational ? 'rational' : 'irrational'}, not ${word}. ${it.why}`]),
+      ),
       steps: difficulty === 1 ? whichSteps(all, answer) : undefined,
     });
   },
@@ -480,6 +514,19 @@ const RULES: Rule[] = [
   { a: 'irrational', b: 'irrational', op: 'sum', result: 'sometimes', why: '$\\sqrt{2} + \\sqrt{3}$ is irrational, but $\\sqrt{2} + (-\\sqrt{2}) = 0$ is rational.' },
   { a: 'irrational', b: 'irrational', op: 'product', result: 'sometimes', why: '$\\sqrt{2} \\cdot \\sqrt{3} = \\sqrt{6}$ is irrational, but $\\sqrt{2} \\cdot \\sqrt{8} = 4$ is rational.' },
 ];
+
+/**
+ * A rational and an irrational example result for each rule, used to refute a wrong closure claim.
+ * Only the example that exists for a rule is ever shown (a claim is refuted only when it is false).
+ */
+const COUNTEREXAMPLES: Record<string, { rational: string; irrational: string }> = {
+  'rational|rational|sum': { rational: '$\\frac{1}{2} + \\frac{1}{2} = 1$', irrational: '' },
+  'rational|rational|product': { rational: '$2 \\cdot \\frac{1}{2} = 1$', irrational: '' },
+  'rational|irrational|sum': { rational: '', irrational: '$1 + \\sqrt{2}$' },
+  'nonzero rational|irrational|product': { rational: '', irrational: '$2 \\cdot \\sqrt{3} = 2\\sqrt{3}$' },
+  'irrational|irrational|sum': { rational: '$\\sqrt{2} + (-\\sqrt{2}) = 0$', irrational: '$\\sqrt{2} + \\sqrt{3}$' },
+  'irrational|irrational|product': { rational: '$\\sqrt{2} \\cdot \\sqrt{8} = 4$', irrational: '$\\sqrt{2} \\cdot \\sqrt{3} = \\sqrt{6}$' },
+};
 
 const RESULT_LABEL = { 'always rational': 'Always rational', 'always irrational': 'Always irrational', sometimes: 'Sometimes rational and sometimes irrational' } as const;
 
@@ -530,7 +577,6 @@ function combineTex(op: Op, q: Pair): string {
 
 /** Guided steps for one specific sum or product (difficulty 1): classify the parts, work out what is needed, decide. */
 function closureSteps(op: Op, kind: number, q: Pair, expr: string, b: number, rational: boolean, why: string, answer: ChoiceAnswer): ProblemStep[] {
-  const sym = op === 'sum' ? '+' : '\\cdot';
   const num = (prompt: string, v: number, hints: [string, string, string, string], misc: Array<{ value: number; feedback: string }>, explanation: string): ProblemStep => ({
     prompt: [p(prompt)],
     answer: { kind: 'number', value: String(v) },
@@ -561,7 +607,13 @@ function closureSteps(op: Op, kind: number, q: Pair, expr: string, b: number, ra
     answer,
     hints: [
       'Use what you found in the steps so far.',
-      `Rational $${sym}$ rational is rational. ${op === 'sum' ? 'Rational + irrational is irrational.' : 'Nonzero rational $\\cdot$ irrational is irrational.'}`,
+      kind === 0
+        ? op === 'sum'
+          ? `Suppose the sum were a fraction of integers. Subtracting $${q.x}$ would leave $${q.y}$ as a fraction of integers too. Is that possible?`
+          : `Suppose the product were a fraction of integers. Dividing by $${q.x}$ would leave $${q.y}$ as a fraction of integers too. Is that possible?`
+        : kind === 1
+          ? `Both parts are fractions of integers. What kind of number do you get when you ${op === 'sum' ? 'add' : 'multiply'} two fractions?`
+          : `Both parts are irrational, so no rule decides it: you need the ${op} itself. Does it simplify to a whole number, or does a root remain?`,
       'When both parts are irrational, look at the simplified result.',
       'A whole number, or $0$, is rational.',
     ],
@@ -659,6 +711,7 @@ export const genClosureType: GeneratorDef = {
     if (difficulty === 2) {
       const rule = rng.pick(RULES);
       const answer = makeChoice(rng, RESULT_LABEL[rule.result], Object.values(RESULT_LABEL).filter((l) => l !== RESULT_LABEL[rule.result]));
+      const ex = COUNTEREXAMPLES[`${rule.a}|${rule.b}|${rule.op}`];
       return makeProblem({
         skillId: 'S3.02',
         tags: [],
@@ -674,7 +727,11 @@ export const genClosureType: GeneratorDef = {
           { text: `Think about ${ruleText(rule)}.`, why: rule.why },
           { text: `The answer is: ${RESULT_LABEL[rule.result].toLowerCase()}.` },
         ],
-        misconceptions: [],
+        misconceptions: optionMisList(answer, [
+          [RESULT_LABEL['always rational'], 'other', `One example is enough to rule this out: ${ex.irrational} is irrational, so ${ruleText(rule)} is not always rational.`],
+          [RESULT_LABEL['always irrational'], 'other', `One example is enough to rule this out: ${ex.rational} is rational, so ${ruleText(rule)} is not always irrational.`],
+          [RESULT_LABEL.sometimes, 'other', `"Sometimes" needs one example with a rational result **and** one with an irrational result. Try several examples of ${ruleText(rule)}: can you really find both kinds?`],
+        ]),
       });
     }
     // difficulty 3: choose the counterexample showing two irrationals can give a rational result
@@ -701,6 +758,14 @@ export const genClosureType: GeneratorDef = {
     const answer = makeChoice(rng, pairLabel(op, correct), distractors.map((q) => pairLabel(op, q)));
     const all = [correct, ...distractors];
     const ordered = answer.options.map((o) => all.find((q) => pairLabel(op, q) === o.label)!);
+    const pairMisconceptions = optionMisList(
+      answer,
+      distractors.map((q): [string, MisconceptionTag, string] => {
+        const v = texSurd(combineTex(op, q))!;
+        const work = v.toTex() === combineTex(op, q) ? `$${combineTex(op, q)}$ does not simplify: the roots are unlike, so they cannot combine.` : `Work out the ${op}: $${combineTex(op, q)} = ${v.toTex()}$.`;
+        return [pairLabel(op, q), 'radical-simplify', `${work} A root of a number that is not a perfect square is left, so this ${op} is irrational and does not show what the question asks.`];
+      }),
+    );
     return makeProblem({
       skillId: 'S3.02',
       tags: ['multi-step'],
@@ -719,7 +784,7 @@ export const genClosureType: GeneratorDef = {
         }),
         { text: `So ${pairLabel(op, correct)} is the pair that works.` },
       ],
-      misconceptions: [],
+      misconceptions: pairMisconceptions,
     });
   },
   verify(pr) {
@@ -831,6 +896,17 @@ function measurementClosure(rng: Rng) {
     rational ? `Irrational: the side lengths are irrational, so the ${what} must be irrational too.` : `Rational: a length you can measure with a ruler is always rational.`,
   ];
   const answer = makeChoice(rng, correct, distractors);
+  const misconceptions = optionMisList(answer, [
+    [distractors[0], 'other', 'Check the verdict against the value in this choice. A value with no root left over is a fraction of integers; a value that still has the root of a number that is not a perfect square never ends and never repeats.'],
+    [distractors[1], 'formula-error', askPerimeter ? 'That value is the area (length times width). The perimeter is the sum of all four sides.' : 'That value is the perimeter (the sum of all four sides). The area is length times width.'],
+    [
+      distractors[2],
+      'other',
+      rational
+        ? 'That reason is false: irrational lengths can give a rational result, for example $\\sqrt{2} \\cdot \\sqrt{8} = 4$. Work out the exact value before you decide.'
+        : 'That reason is false: a ruler only gives a rounded measurement, and an exact length like $\\sqrt{2}$ is still irrational. Work out the exact value before you decide.',
+    ],
+  ]);
   const formula = askPerimeter ? (shape === 0 ? `P = 4 \\cdot ${L}` : `P = 2\\left(${L} + ${W}\\right)`) : shape === 0 ? `A = ${L} \\cdot ${L}` : `A = ${L} \\cdot ${W}`;
   return makeProblem({
     skillId: 'S3.02',
@@ -848,7 +924,7 @@ function measurementClosure(rng: Rng) {
       { text: `So the ${what} is **${rational ? 'rational' : 'irrational'}**.`, why: rational ? 'The roots multiplied to a perfect square, so no root is left: the result is a fraction of integers.' : 'A root of a number that is not a perfect square is left over, so the decimal never ends and never repeats.' },
       { text: 'Check the reasoning in the other choices.', why: rational ? 'Irrational side lengths can still give a rational result, so "the sides are irrational" is not a valid reason.' : 'A ruler gives a rounded measurement. The exact length can still be irrational.' },
     ],
-    misconceptions: [],
+    misconceptions,
   });
 }
 
@@ -918,6 +994,17 @@ function explainIrrational(rng: Rng) {
   }
   const correct = `If $${expr}$ were a rational number $q$, then $\\sqrt{${b}} = ${isolate}$ would be rational too, because ${because}. But $\\sqrt{${b}}$ is irrational, so $${expr}$ cannot be rational.`;
   const answer = makeChoice(rng, correct, [CALCULATOR_REASON, EVERY_ROOT_REASON, wrongIdentity]);
+  const misconceptions = optionMisList(answer, [
+    [CALCULATOR_REASON, 'other', 'A calculator rounds to a few digits, so its screen can never show whether the digits go on forever without repeating. That cannot prove anything.'],
+    [EVERY_ROOT_REASON, 'radical-simplify', 'That claim is false: $\\sqrt{9} = 3$ has a square root sign and is rational. An argument built on a false claim does not work.'],
+    [
+      wrongIdentity,
+      'radical-simplify',
+      kind === 2
+        ? 'Check the equation in that argument: a number in front of a root cannot just move under it. For example, $2\\sqrt{4} = 4$, but $\\sqrt{8}$ is not $4$.'
+        : `Check the equation in that argument: square roots do not ${kind === 0 ? 'add' : 'subtract'} that way. For example, ${kind === 0 ? '$1 + \\sqrt{4} = 3$, but $\\sqrt{5}$ is not $3$' : '$\\sqrt{9} - 1 = 2$, but $\\sqrt{8}$ is not $2$'}.`,
+    ],
+  ]);
   return makeProblem({
     skillId: 'S3.02',
     tags: ['multi-step'],
@@ -935,7 +1022,7 @@ function explainIrrational(rng: Rng) {
       { text: 'That is impossible.', why: `$${b}$ is not a perfect square, so $\\sqrt{${b}}$ is irrational. The pretend statement must be false, so $${expr}$ is irrational.` },
       { text: 'Why the other arguments fail.', why: `A calculator rounds to a few digits, so its screen cannot show a pattern that goes on forever. $\\sqrt{9} = 3$ has a root sign and is rational. ${wrongIdentity.split(',')[0]} is false: square roots do not ${kind === 2 ? 'absorb a coefficient that way ($k\\sqrt{b} = \\sqrt{k^2 b}$)' : 'add or subtract that way'}.` },
     ],
-    misconceptions: [],
+    misconceptions,
   });
 }
 

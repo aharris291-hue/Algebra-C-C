@@ -3,13 +3,14 @@
  * Test points in an inequality, and decide what is possible in a situation.
  */
 import type { GeneratorDef, Rng, Difficulty, SolutionStep, ProblemStep } from '../../core/curriculum/types';
+import type { MisconceptionTag } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
 import { linearTex, linearPlain } from '../../core/math/format';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, numStr, money, makeChoice, choiceLabel, numberMisconceptions, decimalOrFraction } from './util';
 import { coefTex } from '../../core/math/format';
-import { Op, OP_TEX, isStrict, isGreater, relTexToPlain, holds, ptTex, stepChoice, lastStepErrors, stepLabel } from './u2-common';
+import { Op, OP_TEX, isStrict, isGreater, relTexToPlain, holds, ptTex, stepChoice, lastStepErrors, stepLabel, optionMisList } from './u2-common';
 import { SYS_CONTEXTS, buildSystem, countOf, ifThereAre } from './u2-contexts';
 
 /** Both sides of a plain relation evaluated at (x, y). */
@@ -49,6 +50,13 @@ function pickInequality(rng: Rng, d: Difficulty): { tex: string; plain: string; 
   const C = rng.int(-12, 12);
   const lhs = `${linearTex(Q(A), Q(0))} ${B < 0 ? '-' : '+'} ${Math.abs(B) === 1 ? '' : Math.abs(B)}y`;
   return { tex: `${lhs} ${OP_TEX[op]} ${C}`, plain: `${A}x + ${B}y ${op} ${C}`, op };
+}
+
+/** The sign hint, only when a negative number is in play (in the inequality or in a choice); otherwise a hint about order of work. */
+function signHint(ineqTex: string, labels: string[]): string {
+  return /-/.test(ineqTex) || labels.some((l) => l.includes('-'))
+    ? 'Be careful with negative numbers: put them in parentheses when you substitute.'
+    : 'Work out each side completely (multiply before you add) before you compare the two sides.';
 }
 
 const SOL_YES = (pt: string) => `Yes: the statement is true, so ${pt} is a solution.`;
@@ -101,7 +109,7 @@ function isSolutionSteps(ineq: { tex: string; plain: string; op: Op }, first: { 
       hints: [
         'Substitute each point: $x$ into the right side, then compare with its $y$-value.',
         'Only one choice makes the inequality true.',
-        'Be careful with negative numbers: use parentheses when you substitute.',
+        signHint(ineq.tex, answer.options.map((o) => o.label)),
         `If a point makes the two sides equal, it is on the boundary line. ${isStrict(ineq.op) ? 'Here that point would not be a solution.' : 'Here that point would be a solution.'}`,
       ],
       misconceptions: answer.options.filter((o) => o.id !== answer.correct).map((o) => ({ answer: o.id, tag: 'other' as const, feedback: `Substitute ${o.label} again: it makes the inequality false.` })),
@@ -149,6 +157,17 @@ export const genIsSolution: GeneratorDef = {
     const opts = [correct, ...distractors];
     const answer = makeChoice(rng, ptTex(correct.x, correct.y), distractors.map((d) => ptTex(d.x, d.y)));
     const ordered = answer.options.map((o) => opts.find((q) => ptTex(q.x, q.y) === o.label)!);
+    const misconceptions = optionMisList(
+      answer,
+      distractors.map((q): [string, MisconceptionTag, string] => {
+        const pt = ptTex(q.x, q.y);
+        const [l, r] = sides(ineq.plain, Q(q.x), Q(q.y));
+        const cmp = `$${l.toTex()} ${OP_TEX[ineq.op]} ${r.toTex()}$`;
+        if (askNot) return [pt, 'other', `Substitute ${pt}: ${cmp} is true, so ${pt} **is** a solution. The question asks for a point that is **not** a solution.`];
+        if (l.eq(r)) return [pt, 'boundary-line', `${pt} is on the boundary line: it makes the two sides equal ($${l.toTex()} = ${r.toTex()}$). The symbol $${OP_TEX[ineq.op]}$ has no "or equal to", so a point on the boundary is not a solution.`];
+        return [pt, 'arithmetic-error', `Substitute ${pt} again${/-/.test(ineq.tex) || q.x < 0 || q.y < 0 ? ', using parentheses for negatives' : ''}: ${cmp} is false, so ${pt} is not a solution.`];
+      }),
+    );
     return makeProblem({
       skillId: 'S2.04',
       tags: [],
@@ -157,14 +176,14 @@ export const genIsSolution: GeneratorDef = {
       hints: [
         'A point is a solution when substituting it makes the inequality a **true** statement.',
         'Substitute the $x$-value and the $y$-value of each point, then compare the two sides.',
-        'Be careful with negative numbers: put them in parentheses when you substitute.',
+        signHint(ineq.tex, answer.options.map((o) => o.label)),
         `If a point makes the two sides exactly equal, it is on the boundary line. ${isStrict(ineq.op) ? 'Here the symbol has no "or equal to", so a boundary point is not a solution.' : 'Here the symbol includes "or equal to", so a boundary point is a solution.'}`,
       ],
       solution: [
         ...ordered.map((q) => substitution(ineq.plain, ineq.op, Q(q.x), Q(q.y))),
         { text: `So ${ptTex(correct.x, correct.y)} is the point that is ${askNot ? 'not ' : ''}a solution.`, why: askNot ? 'It is the only one that makes the inequality false.' : 'It is the only one that makes the inequality true.' },
       ],
-      misconceptions: [],
+      misconceptions,
       steps: difficulty === 1 ? isSolutionSteps(ineq, ordered[0], answer) : undefined,
     });
   },
@@ -323,17 +342,32 @@ export const genConstraintContext: GeneratorDef = {
     const swapped = `$${b.toTex()}(${D(c.x)}) + ${a.toTex()}(${D(c.y)}) = ${D(swappedTot)}$`;
     let correct: string;
     let distractors: string[];
+    /** feedback for each distractor, in the same order */
+    let wrongFb: Array<[MisconceptionTag, string]>;
+    const swapFb: [MisconceptionTag, string] = ['equation-setup', `This choice multiplies each price by the wrong count: ${money(a)} goes with the ${ctx.xNoun} ($x$) and ${money(b)} goes with the ${ctx.yNoun} ($y$).`];
     if (c.reason === 'fraction' || c.reason === 'negative') {
       const why = c.reason === 'fraction' ? `there cannot be $${D(c.x)}$ ${ctx.xNoun}; it has to be a whole number` : `there cannot be a negative number of ${ctx.yNoun}`;
       correct = `No. It makes the inequality true, but ${why}.`;
       distractors = [`Yes. ${sub}, and ${cmp(tot)}, so it works.`, `No. ${sub}, so it makes the inequality false.`, 'Yes. Every point that makes the inequality true is possible.'];
+      wrongFb = [
+        ['other', `You checked the inequality, but not whether the numbers make sense in the situation. Look at each number: could it really be a number of ${ctx.xNoun} or ${ctx.yNoun}?`],
+        ['other', `Compare again: ${cmp(tot)} is a true statement, so the inequality is not false. This reason does not hold.`],
+        ['other', 'Not every solution of the inequality fits the situation. The numbers also have to make sense in real life, so check each one.'],
+      ];
     } else {
       correct = `${verdict(ok)}. ${sub}, and ${cmp(tot)}.`;
       distractors = [`${verdict(!ok)}. ${sub}, and ${cmp(tot)}.`];
-      if (!swappedTot.eq(tot)) distractors.push(`${verdict(holds(rel, c.y, c.x))}. ${swapped}, and ${cmp(swappedTot)}.`, `${verdict(!holds(rel, c.y, c.x))}. ${swapped}, and ${cmp(swappedTot)}.`);
-      else distractors.push(`${verdict(!ok)}. Only whole numbers can be tested.`, `${verdict(ok)}. The total does not matter here.`);
+      wrongFb = [['other', 'Read the comparison in this choice again. A true comparison means the combination meets the condition, and a false one means it does not. Does the Yes or No match it?']];
+      if (!swappedTot.eq(tot)) {
+        distractors.push(`${verdict(holds(rel, c.y, c.x))}. ${swapped}, and ${cmp(swappedTot)}.`, `${verdict(!holds(rel, c.y, c.x))}. ${swapped}, and ${cmp(swappedTot)}.`);
+        wrongFb.push(swapFb, swapFb);
+      } else {
+        distractors.push(`${verdict(!ok)}. Only whole numbers can be tested.`, `${verdict(ok)}. The total does not matter here.`);
+        wrongFb.push(['other', `Any combination of counts can be tested: substitute the numbers and compare the total with ${money(t)}.`], ['other', `The total is exactly what the condition is about. Substitute the numbers and compare the total with ${money(t)}.`]);
+      }
     }
     const answer = makeChoice(rng, correct, distractors);
+    const misconceptions = optionMisList(answer, distractors.map((d, i): [string, MisconceptionTag, string] => [d, wrongFb[i][0], wrongFb[i][1]]));
     const qText = `Is it possible to have ${countOf(ctx, 'x', decimalOrFraction(c.x))} and ${countOf(ctx, 'y', decimalOrFraction(c.y))}?`;
     return makeProblem({
       skillId: 'S2.04',
@@ -352,7 +386,7 @@ export const genConstraintContext: GeneratorDef = {
         { text: 'Substitute into the inequality.', tex: `${a.toTex()}(${decimalOrFraction(c.x)}) + ${b.toTex()}(${decimalOrFraction(c.y)}) = ${decimalOrFraction(tot)}`, why: `Then compare: is $${decimalOrFraction(tot)} ${OP_TEX[op]} ${t.toTex()}$? It is ${TRUTH_WORD(holds(rel, c.x, c.y))}.` },
         { text: `So the answer is: ${correct}`, why: c.reason === 'fraction' || c.reason === 'negative' ? 'A solution of the inequality still has to make sense in the situation.' : ok ? 'It is a solution and it makes sense, so it is possible.' : 'It is not a solution, so it is not possible.' },
       ],
-      misconceptions: [],
+      misconceptions,
     });
   },
   verify(pr) {

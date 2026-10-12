@@ -9,7 +9,7 @@ import { linearTex, linearPlain } from '../../core/math/format';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, numStr, money, makeChoice, choiceLabel, stringMisconceptions, numberMisconceptions } from './util';
-import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds, stepChoice, lastStepErrors, stepLabel } from './u2-common';
+import { Op, OP_TEX, FLIP_OP, isStrict, isGreater, relTexToPlain, holds, stepChoice, lastStepErrors, stepLabel, optionMisList } from './u2-common';
 
 // ---------------------------------------------------------------------------
 // Phrases
@@ -332,11 +332,14 @@ export const genWriteIneq2Var: GeneratorDef = {
     while (b.eq(a)) b = Q(rng.int(ctx.b[0], ctx.b[1]));
     const unitTotal = ctx.money ? 10 : ctx.key === 'storage' ? 100 : 50;
     const total = Q(rng.int(6, 20) * unitTotal);
+    // a coefficient of 1 is not written: "y", not "1y"
+    const cP = (v: Rational) => (v.eq(Q(1)) ? '' : numStr(v));
+    const cT = (v: Rational) => (v.eq(Q(1)) ? '' : v.toTex());
     const fmt = (v: Rational) => (ctx.money ? money(v) : `$${v.toTex()}$`);
     const extra = difficulty === 3 && ctx.extra ? Q(ctx.money ? rng.int(2, 8) * 5 : rng.int(1, 4) * (unitTotal / 2)) : null;
-    const lhs = `${numStr(a)}x + ${numStr(b)}y${extra ? ` + ${numStr(extra)}` : ''}`;
+    const lhs = `${cP(a)}x + ${cP(b)}y${extra ? ` + ${numStr(extra)}` : ''}`;
     const answer = `${lhs} ${op} ${numStr(total)}`;
-    const lhsTex = `${a.toTex()}x + ${b.toTex()}y${extra ? ` + ${extra.toTex()}` : ''}`;
+    const lhsTex = `${cT(a)}x + ${cT(b)}y${extra ? ` + ${extra.toTex()}` : ''}`;
     const prompt = [
       p(`${ctx.text(fmt(a), fmt(b), `**${ph}**`, fmt(total))}${extra && ctx.extra ? ' ' + ctx.extra(fmt(extra)) : ''}`),
       p(`Let $x$ be the number of ${ctx.xNoun} and $y$ the number of ${ctx.yNoun}. Write an inequality for this situation.`),
@@ -348,31 +351,31 @@ export const genWriteIneq2Var: GeneratorDef = {
       answer: { kind: 'inequality', value: answer },
       inputHint: 'Type an inequality using x and y, like 3x + 5y <= 60.',
       hints: [
-        `Start with the total. Each of the ${ctx.xNoun} adds ${fmt(a)}, so $x$ of them add $${a.toTex()}x$.`,
-        `Do the same for the ${ctx.yNoun}: $${b.toTex()}y$.${extra ? ` Then add the ${fmt(extra)} that is already counted.` : ''}`,
+        `Start with the total. Each of the ${ctx.xNoun} adds ${fmt(a)}, so $x$ of them add $${cT(a)}x$.`,
+        `Do the same for the ${ctx.yNoun}: $${b.eq(Q(1)) ? '1 \\cdot y = y' : `${cT(b)}y`}$.${extra ? ` Then add the ${fmt(extra)} that is already counted.` : ''}`,
         PHRASE_HELP[op],
         `The total is $${lhsTex}$. Compare it with ${fmt(total)}.`,
       ],
       solution: [
-        { text: `Amount from the ${ctx.xNoun}: $${a.toTex()}x$. Amount from the ${ctx.yNoun}: $${b.toTex()}y$.`, why: 'Amount for each one times how many.' },
+        { text: `Amount from the ${ctx.xNoun}: $${cT(a)}x$. Amount from the ${ctx.yNoun}: $${cT(b)}y$.`, why: 'Amount for each one times how many.' },
         ...(extra ? [{ text: `Add the amount already counted: $${extra.toTex()}$.`, why: 'It is part of the same total, so it goes on the same side.' }] : []),
         { text: `"${ph}" means $${OP_TEX[op]}$.`, why: PHRASE_HELP[op] },
-        { text: 'Write the inequality.', tex: `${lhsTex} ${OP_TEX[op]} ${total.toTex()}`, why: extra ? `Subtracting $${extra.toTex()}$ from both sides gives the same inequality, $${a.toTex()}x + ${b.toTex()}y ${OP_TEX[op]} ${total.sub(extra).toTex()}$.` : 'Any combination that makes this true fits the situation.' },
+        { text: 'Write the inequality.', tex: `${lhsTex} ${OP_TEX[op]} ${total.toTex()}`, why: extra ? `Subtracting $${extra.toTex()}$ from both sides gives the same inequality, $${cT(a)}x + ${cT(b)}y ${OP_TEX[op]} ${total.sub(extra).toTex()}$.` : 'Any combination that makes this true fits the situation.' },
       ],
       misconceptions: stringMisconceptions(answer, [
-        { answer: `${numStr(b)}x + ${numStr(a)}y${extra ? ` + ${numStr(extra)}` : ''} ${op} ${numStr(total)}`, tag: 'equation-setup', feedback: `Match each amount with its own variable: $x$ counts the ${ctx.xNoun}, so it goes with ${fmt(a)}.` },
-        ...(extra ? [{ answer: `${numStr(a)}x + ${numStr(b)}y ${op} ${numStr(total)}`, tag: 'equation-setup' as const, feedback: `Don't forget the ${fmt(extra)} that is already part of the total.` }] : []),
-        ...(extra ? [{ answer: `${numStr(a)}x + ${numStr(b)}y ${op} ${numStr(total.add(extra))}`, tag: 'equation-setup' as const, feedback: `The ${fmt(extra)} is already part of the total, so it uses up (or counts toward) the goal. It should make the right side smaller, not bigger.` }] : []),
+        { answer: `${cP(b)}x + ${cP(a)}y${extra ? ` + ${numStr(extra)}` : ''} ${op} ${numStr(total)}`, tag: 'equation-setup', feedback: `Match each amount with its own variable: $x$ counts the ${ctx.xNoun}, so it goes with ${fmt(a)}.` },
+        ...(extra ? [{ answer: `${cP(a)}x + ${cP(b)}y ${op} ${numStr(total)}`, tag: 'equation-setup' as const, feedback: `Don't forget the ${fmt(extra)} that is already part of the total.` }] : []),
+        ...(extra ? [{ answer: `${cP(a)}x + ${cP(b)}y ${op} ${numStr(total.add(extra))}`, tag: 'equation-setup' as const, feedback: `The ${fmt(extra)} is already part of the total, so it uses up (or counts toward) the goal. It should make the right side smaller, not bigger.` }] : []),
       ]),
       steps: [
         {
           prompt: [...prompt.slice(0, 1), p(`First write an expression for the total${ctx.money ? ' in dollars' : ''} using $x$ and $y$.`)],
-          answer: { kind: 'expression', value: `${numStr(a)}x + ${numStr(b)}y${extra ? ` + ${numStr(extra)}` : ''}`, variables: ['x', 'y'] },
-          hints: ['Amount for each item times how many of that item.', `$x$ ${ctx.xNoun} give $${a.toTex()}x$.`, `$y$ ${ctx.yNoun} give $${b.toTex()}y$.`, extra ? `Add both parts and the ${fmt(extra)} already counted.` : 'Add the two parts.'],
-          misconceptions: stringMisconceptions(`${numStr(a)}x + ${numStr(b)}y${extra ? ` + ${numStr(extra)}` : ''}`, [
-            { answer: `${numStr(b)}x + ${numStr(a)}y${extra ? ` + ${numStr(extra)}` : ''}`, tag: 'equation-setup', feedback: `Match each amount with its own variable: $x$ counts the ${ctx.xNoun}, so it goes with ${fmt(a)}.` },
+          answer: { kind: 'expression', value: `${cP(a)}x + ${cP(b)}y${extra ? ` + ${numStr(extra)}` : ''}`, variables: ['x', 'y'] },
+          hints: ['Amount for each item times how many of that item.', `$x$ ${ctx.xNoun} give $${cT(a)}x$.`, `$y$ ${ctx.yNoun} give $${b.eq(Q(1)) ? '1 \\cdot y = y' : `${cT(b)}y`}$.`, extra ? `Add both parts and the ${fmt(extra)} already counted.` : 'Add the two parts.'],
+          misconceptions: stringMisconceptions(`${cP(a)}x + ${cP(b)}y${extra ? ` + ${numStr(extra)}` : ''}`, [
+            { answer: `${cP(b)}x + ${cP(a)}y${extra ? ` + ${numStr(extra)}` : ''}`, tag: 'equation-setup', feedback: `Match each amount with its own variable: $x$ counts the ${ctx.xNoun}, so it goes with ${fmt(a)}.` },
             { answer: `${numStr(a.add(b))}xy${extra ? ` + ${numStr(extra)}` : ''}`, tag: 'equation-setup', feedback: 'The two kinds are separate terms: multiply each amount by its own variable, then add.' },
-            ...(extra ? [{ answer: `${numStr(a)}x + ${numStr(b)}y`, tag: 'equation-setup' as const, feedback: `Don't forget the ${fmt(extra)} that is already part of the total.` }] : []),
+            ...(extra ? [{ answer: `${cP(a)}x + ${cP(b)}y`, tag: 'equation-setup' as const, feedback: `Don't forget the ${fmt(extra)} that is already part of the total.` }] : []),
           ]),
           explanation: `The total is $${lhsTex}$.`,
         },
@@ -535,6 +538,22 @@ export const genGraphIneqFeatures: GeneratorDef = {
     const above = isGreater(solved);
     const correct = featureLabel(strict, above);
     const answer = makeChoice(rng, correct, [featureLabel(!strict, above), featureLabel(strict, !above), featureLabel(!strict, !above)]);
+    const lineFb = strict
+      ? `This choice uses a solid line, but $${OP_TEX[op]}$ has no "or equal to", so points on the boundary line are **not** solutions. That calls for a dashed line.`
+      : `This choice uses a dashed line, but $${OP_TEX[op]}$ includes "or equal to", so points on the boundary line **are** solutions. That calls for a solid line.`;
+    const sideFb =
+      difficulty === 3
+        ? solved !== op
+          ? 'This choice shades the wrong side. Solving for $y$ means dividing by a negative number, which flips the symbol. Flip it before you decide which side to shade.'
+          : 'This choice shades the wrong side. Solve for $y$ first; then $y >$ or $y \\ge$ shades above the line, and $y <$ or $y \\le$ shades below.'
+        : solved !== op
+          ? 'This choice shades the wrong side. Here $y$ is on the right, so turn the inequality around first, with $y$ on the left; the symbol turns with it. Then decide which side to shade.'
+          : 'This choice shades the wrong side. With $y$ alone on the left, $y >$ or $y \\ge$ shades above the line, and $y <$ or $y \\le$ shades below. A test point like $(0, 0)$ can confirm it.';
+    const misconceptions = optionMisList(answer, [
+      [featureLabel(!strict, above), 'boundary-line', lineFb],
+      [featureLabel(strict, !above), 'shading', sideFb],
+      [featureLabel(!strict, !above), 'shading', `Both the line and the shading need another look. ${lineFb} For the shading: ${sideFb.replace('This choice shades the wrong side. ', '').replace(/^./, (ch) => ch.toLowerCase())}`],
+    ]);
     const solution = [
       ...pre,
       { text: `The symbol is $${OP_TEX[solved]}$${strict ? ', with no "or equal to"' : ', which includes "or equal to"'}, so the boundary line is ${strict ? 'dashed' : 'solid'}.`, why: strict ? 'Points on the line make the two sides equal, and $<$ or $>$ does not allow equal, so the line is not part of the solution.' : 'Points on the line make the two sides equal, which $\\le$ and $\\ge$ allow, so the line is part of the solution.' },
@@ -553,7 +572,7 @@ export const genGraphIneqFeatures: GeneratorDef = {
         'Check with a test point such as $(0, 0)$ if it is not on the line: if it makes the inequality true, shade the side it is on.',
       ],
       solution,
-      misconceptions: [],
+      misconceptions,
       steps: difficulty === 1
         ? featureSteps(m, b, solved, answer, correct)
         : stepAnswer
