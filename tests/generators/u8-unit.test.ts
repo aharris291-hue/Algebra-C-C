@@ -5,7 +5,7 @@ import { createRng } from '../../src/core/engine/rng';
 import { Rational } from '../../src/core/math/rational';
 import { produceProblem, validateStep, canonicalInput } from '../../src/core/engine/problems';
 import { ALL_GENERATORS, GENERATORS, LESSON_CONTENT } from '../../src/content';
-import { checkAnswer } from '../../src/core/math/answers';
+import { checkAnswer, answerToText } from '../../src/core/math/answers';
 import type { Difficulty, Problem } from '../../src/core/curriculum/types';
 
 describe('Unit 8 generators', () => {
@@ -142,5 +142,30 @@ describe('Unit 8 guided practice is step by step', () => {
         }
     expect(tried).toBeGreaterThan(100);
     expect(caught).toBe(tried);
+  });
+});
+
+describe('answerToText units', () => {
+  const show = (value: string, unit: string) => answerToText({ kind: 'number', value, unit });
+  it('uses the singular unit for exactly 1', () => {
+    expect(show('1', 'miles')).toBe('1 mile');
+    expect(show('1', 'feet')).toBe('1 foot');
+    expect(show('1', 'units')).toBe('1 unit');
+    expect(show('1', 'dollars')).toBe('1 dollar');
+    expect(show('1', 'hours')).toBe('1 hour');
+    expect(show('1', 'square feet')).toBe('1 square foot');
+    expect(show('1', 'inches')).toBe('1 inch');
+    expect(show('1', 'people')).toBe('1 person');
+    expect(show('1', 'milligrams per hour')).toBe('1 milligram per hour');
+  });
+  it('keeps the plural for other values and leaves non-plural units alone', () => {
+    expect(show('2', 'miles')).toBe('2 miles');
+    expect(show('0', 'feet')).toBe('0 feet');
+    expect(show('1.5', 'hours')).toBe('1.5 hours');
+    expect(show('-1', 'dollars')).toBe('-1 dollars');
+    expect(show('1', '%')).toBe('1 %');
+    expect(show('1', 'percent')).toBe('1 percent');
+    expect(show('1', 'thousand dollars')).toBe('1 thousand dollars');
+    expect(answerToText({ kind: 'number', value: '1', unit: 'miles', roundTo: 1 })).toBe('1.0 miles');
   });
 });

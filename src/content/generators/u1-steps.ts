@@ -9,6 +9,7 @@ import type { AnswerSpec, Misconception, MisconceptionTag } from '../../core/mat
 import { checkAnswer } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
 import { p, numStr, numberMisconceptions } from './util';
+import { realMistakes } from './u7-steps';
 
 type Hints = [string, string, string, string];
 
@@ -58,9 +59,9 @@ export function choiceStep(
   };
 }
 
-/** The last step: it asks for the problem's own answer (same spec, so it is graded the same way). */
+/** The last step: it asks for the problem's own answer (same spec, so it is graded the same way). Misconceptions equal to the key are dropped. */
 export function finalStep(prompt: string | Block[], answer: AnswerSpec, hints: Hints, explanation: string, misconceptions: Misconception[] = [], inputHint?: string): ProblemStep {
-  return { prompt: blocks(prompt), answer, ...(inputHint ? { inputHint } : {}), hints, misconceptions, explanation };
+  return { prompt: blocks(prompt), answer, ...(inputHint ? { inputHint } : {}), hints, misconceptions: realMistakes(answer, misconceptions), explanation };
 }
 
 /** "+ 5" or "- 5" for TeX after a term. */
@@ -125,4 +126,36 @@ export function choiceMisc(answer: { options: { id: string; label: string }[]; c
     if (o && o.id !== answer.correct && !out.some((x) => x.answer === o.id)) out.push({ answer: o.id, tag: m.tag, feedback: m.feedback });
   }
   return out;
+}
+
+
+/**
+ * A sign hint for computing a - b that fits the actual numbers: it talks about subtracting a
+ * negative only when b is negative, and about a negative result only when there is one.
+ */
+export function minusHint(a: Rational | number, b: Rational | number): string {
+  const A = Rational.from(a);
+  const B = Rational.from(b);
+  if (B.isNegative()) return `Subtracting a negative means adding: $${A.toTex()} - (${B.toTex()})$ is the same as $${A.toTex()} + ${B.abs().toTex()}$.`;
+  if (B.isZero()) return 'Subtracting 0 leaves the first number unchanged.';
+  if (A.isNegative()) return 'You start below zero and take away more, so the result is further below zero.';
+  if (A.eq(B)) return 'The two numbers are equal, so the result is 0.';
+  if (A.lt(B)) return 'You take away more than you start with, so the result is negative.';
+  return 'Neither number is negative and the first is larger, so the result is positive.';
+}
+
+/** A sign hint for computing a + b that mentions negatives only when one is involved. */
+export function plusHint(a: Rational | number, b: Rational | number): string {
+  const A = Rational.from(a);
+  const B = Rational.from(b);
+  if (B.isNegative()) return `Adding a negative is the same as subtracting: $${A.toTex()} + (${B.toTex()})$ is $${A.toTex()} - ${B.abs().toTex()}$.`;
+  if (A.isNegative()) return `Start at $${A.toTex()}$ on a number line and move $${B.toTex()}$ to the right.`;
+  return `Neither number is negative, so this is ordinary addition: $${A.toTex()} + ${B.toTex()}$.`;
+}
+
+/** "Use a number line" when a negative is involved; otherwise a check by counting up. */
+export function checkMinusHint(a: Rational | number, b: Rational | number): string {
+  const A = Rational.from(a);
+  const B = Rational.from(b);
+  return A.isNegative() || B.isNegative() || A.lt(B) ? 'Use a number line if the signs are tricky.' : `Check: count up from $${B.toTex()}$ to $${A.toTex()}$.`;
 }

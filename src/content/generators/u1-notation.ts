@@ -500,7 +500,7 @@ export const genInterpretNotation: GeneratorDef = {
         ],
         solution: [
           { text: `The input is $0$: zero ${ctx.inUnits}.`, why: 'Inside the parentheses is always the input.' },
-          { text: `The output is ${ctx.outWord(b)}.`, tex: `${f}(0) = ${decTex(ctx.m)}(0)${b.isNegative() ? ' - ' + decTex(b.abs()) : ' + ' + decTex(b)} = ${decTex(b)}`, why: `This is ${ctx.startMeaning}.` },
+          { text: `The output is ${ctx.outWord(b)}.`, tex: `${f}(0) = ${decTex(ctx.m)}(0)${b.isNegative() ? ' - ' + decTex(b.abs()) : ' + ' + decTex(b)} = ${decTex(b)}`, why: `This means ${ctx.startMeaning}.` },
           { text: 'So the statement describes the starting value.' },
         ],
         misconceptions: choiceMisc(answer, [

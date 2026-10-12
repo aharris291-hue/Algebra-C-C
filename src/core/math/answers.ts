@@ -1216,12 +1216,42 @@ export function fixedPlaces(v: Rational, places: number): string {
 }
 
 /** Plain-text rendering of the correct answer (for review screens, never shown before help is exhausted). */
+const IRREGULAR_SINGULAR: Record<string, string> = { feet: 'foot', people: 'person', children: 'child', men: 'man', women: 'woman', teeth: 'tooth', mice: 'mouse', bacteria: 'bacterium' };
+/** Singular of one plural word: a few irregulars, then -ies, -ches/-shes/-xes/-sses, then a final s. Other words come back unchanged. */
+function singularWord(w: string): string {
+  const lower = w.toLowerCase();
+  if (IRREGULAR_SINGULAR[lower]) return IRREGULAR_SINGULAR[lower];
+  if (/^(series|species|news)$/.test(lower)) return w;
+  if (/[^aeiou]ies$/.test(lower)) return w.slice(0, -3) + 'y';
+  if (/(ch|sh|x|ss)es$/.test(lower)) return w.slice(0, -2);
+  if (/[^sui]s$/.test(lower)) return w.slice(0, -1);
+  return w;
+}
+/**
+ * Unit for a quantity of exactly 1: the first plural word before any "per" becomes singular, so
+ * "miles" -> "mile", "square feet" -> "square foot", "dollars per hour" -> "dollar per hour" and
+ * "electric cars registered" -> "electric car registered". "thousand dollars" stays plural.
+ */
+function singularUnit(unit: string): string {
+  if (/^(hundred|thousand|million|billion|trillion)\b/i.test(unit)) return unit;
+  const [head, ...rest] = unit.split(' per ');
+  const words = head.split(' ');
+  for (let i = 0; i < words.length; i++) {
+    const one = singularWord(words[i]);
+    if (one !== words[i]) {
+      words[i] = one;
+      break;
+    }
+  }
+  return [words.join(' '), ...rest].join(' per ');
+}
+
 export function answerToText(spec: AnswerSpec): string {
   switch (spec.kind) {
     case 'number': {
       const v = exactValue(spec.value)!.rationalPart();
       const base = spec.roundTo !== undefined ? fixedPlaces(v, spec.roundTo) : v.isInteger() || v.isTerminatingDecimal() ? v.toDecimalString(8) : v.toString();
-      return spec.unit ? `${base} ${spec.unit}` : base;
+      return spec.unit ? `${base} ${base === '1' ? singularUnit(spec.unit) : spec.unit}` : base;
     }
     case 'expression':
       return spec.value;

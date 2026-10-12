@@ -445,7 +445,7 @@ export const genQuartiles: GeneratorDef = {
         if (ask === 'q1' || ask === 'median' || ask === 'q3')
           return [
             choiceStep(`Which part of the box plot shows the ${name}?`, parts[ask], allParts.filter((x) => x !== parts[ask]), ['A box plot has five marks: two whisker ends, two box edges and a line inside the box.', 'The box holds the middle half of the data.', 'The box runs from Q1 to Q3.', 'The median splits the box into two parts.'], `${parts[ask]} is the ${name}.`, partFb),
-            finalStep(pr, `Read the ${name} from the axis.`, readHints, `The ${name} is the value under that mark.`),
+            finalStep(pr, `Read the ${name}${ask === 'median' ? '' : ','} from the axis.`, readHints, `The ${name} is the value under that mark.`),
           ];
         if (ask === 'iqr' || ask === 'range') {
           const [lo, hi] = ask === 'iqr' ? [f.q1, f.q3] : [f.min, f.max];
@@ -1055,6 +1055,7 @@ const GROUPS = [
 const plural = (who: string) => /s$/.test(who);
 const has = (who: string) => (plural(who) ? 'have' : 'has');
 const is = (who: string) => (plural(who) ? 'are' : 'is');
+const its = (who: string) => (plural(who) ? 'their' : 'its');
 const poss = (who: string) => (plural(who) ? `${who}'` : `${who}'s`);
 const centerPhrase = (ma: number, mb: number, a: string, b: string) => (ma === mb ? `${a} and ${b} have the same mean` : `${ma > mb ? a : b} ${has(ma > mb ? a : b)} the greater mean`);
 const spreadPhrase = (who: string) => `${who} ${is(who)} more consistent (smaller standard deviation)`;
@@ -1091,8 +1092,8 @@ function summaryCompare(rng: Rng) {
   }), (pr) => {
     const greater = ma === mb ? 'Neither: the means are equal' : ma > mb ? g.a : g.b;
     return [
-      choiceStep('Which group has the greater mean?', greater, [g.a, g.b, 'Neither: the means are equal'].filter((o) => o !== greater), ['Find the Mean column.', `Compare ${ma} and ${mb}.`, 'The greater mean is the higher typical value.', 'If the numbers match, neither is greater.'], ma === mb ? 'The means are equal.' : `${ma > mb ? g.a : g.b} has the greater mean.`, { [g.a]: 'Compare the two numbers in the Mean column again.', [g.b]: 'Compare the two numbers in the Mean column again.', 'Neither: the means are equal': 'The two means are different numbers.' }),
-      choiceStep('Which group has the smaller standard deviation?', tight, [loose], ['Find the Standard deviation column.', `Compare ${sa} and ${sb}.`, 'A smaller standard deviation means the values stay closer to the mean.', 'Pick the smaller number.'], `${tight} has the smaller standard deviation, so its values stay closer to its mean.`, { [loose]: 'That group has the larger standard deviation.' }),
+      choiceStep('Which group has the greater mean?', greater, [g.a, g.b, 'Neither: the means are equal'].filter((o) => o !== greater), ['Find the Mean column.', `Compare ${ma} and ${mb}.`, 'The greater mean is the higher typical value.', 'If the numbers match, neither is greater.'], ma === mb ? 'The means are equal.' : `${ma > mb ? g.a : g.b} ${has(ma > mb ? g.a : g.b)} the greater mean.`, { [g.a]: 'Compare the two numbers in the Mean column again.', [g.b]: 'Compare the two numbers in the Mean column again.', 'Neither: the means are equal': 'The two means are different numbers.' }),
+      choiceStep('Which group has the smaller standard deviation?', tight, [loose], ['Find the Standard deviation column.', `Compare ${sa} and ${sb}.`, 'A smaller standard deviation means the values stay closer to the mean.', 'Pick the smaller number.'], `${tight} ${has(tight)} the smaller standard deviation, so ${its(tight)} values stay closer to ${its(tight)} mean.`, { [loose]: 'That group has the larger standard deviation.' }),
       finalStep(pr, 'Which conclusion is supported by the summaries?', ['Use your answers from the last two steps.', 'Center comes from the means.', 'Smaller standard deviation means more consistent.', 'Check both parts of each statement.'], 'A comparison uses the means for center and the standard deviations for spread.', { feedback: { [`${center}, and ${loose} ${is(loose)} more consistent (larger standard deviation).`]: 'A larger standard deviation means less consistent, not more.', [`${wrongCenter}, and ${spreadPhrase(tight)}.`]: 'Check the means again.', [`${lowerMean} ${has(lowerMean)} the greater mean, because ${plural(lowerMean) ? 'their' : 'its'} standard deviation is larger.`]: 'The standard deviation says nothing about which mean is greater.' } }),
     ];
   });
@@ -1139,12 +1140,12 @@ function threeBoxes(rng: Rng) {
       hints: ['The IQR is $Q_3 - Q_1$: the width of the box.', 'Do not use the whiskers. They show the whole range, not the middle half.', 'Read $Q_1$ and $Q_3$ for each group from the axis.', 'Subtract for each group and compare.'],
       solution: [
         { text: 'Find each IQR.', tex: boxes.map((b) => `\\text{${b.label}: } ${b.q3} - ${b.q1} = ${b.q3 - b.q1}`).join(',\\quad '), why: 'The IQR is the spread of the middle half of the data.' },
-        { text: `${correct} has the greatest IQR.`, why: `${g.names[wide]} has the longest whiskers (the greatest range), but its box is narrower. Range and IQR measure different spreads.` },
+        { text: `${correct} ${has(correct)} the greatest IQR.`, why: `${g.names[wide]} ${has(g.names[wide])} the longest whiskers (the greatest range), but ${its(g.names[wide])} box is narrower. Range and IQR measure different spreads.` },
       ],
       misconceptions: [],
     }), (pr) => [
       ...boxes.map((b) => numStep(`What is the IQR of ${b.label}?`, Q(b.q3 - b.q1), ['The IQR is the width of the box.', 'Read Q1 (left edge of the box) and Q3 (right edge).', 'Subtract Q1 from Q3.', 'Do not use the whiskers.'], `${b.label}: $${b.q3} - ${b.q1} = ${b.q3 - b.q1}$.`, [{ value: Q(b.max - b.min), tag: 'statistics-concept', feedback: 'That is the range, whisker to whisker. The IQR is the width of the box.' }])),
-      finalStep(pr, 'Which group has the greatest IQR?', ['Use your three IQRs.', 'Pick the largest one.', 'The whiskers show the range, not the IQR.', 'The widest box has the greatest IQR.'], 'The IQR is the width of the box, so the widest box wins.', { feedback: { [g.names[wide]]: `${g.names[wide]} has the longest whiskers (greatest range), but its box is narrower.`, 'They all have the same IQR': 'Your three IQRs are different.' } }),
+      finalStep(pr, 'Which group has the greatest IQR?', ['Use your three IQRs.', 'Pick the largest one.', 'The whiskers show the range, not the IQR.', 'The widest box has the greatest IQR.'], 'The IQR is the width of the box, so the widest box wins.', { feedback: { [g.names[wide]]: `${g.names[wide]} ${has(g.names[wide])} the longest whiskers (greatest range), but ${its(g.names[wide])} box is narrower.`, 'They all have the same IQR': 'Your three IQRs are different.' } }),
     ]);
   }
   throw new Error('threeBoxes');
@@ -1213,7 +1214,7 @@ export const genCompare: GeneratorDef = {
         hints: [kind === 'median' ? 'The median is the line inside each box.' : 'The IQR is the width of each box.', 'Read the values from the axis.', 'Compare the two values.', kind === 'median' ? 'A greater median means a higher typical value.' : 'A wider box means more spread in the middle half.'],
         solution: [
           { text: kind === 'median' ? 'Read the medians.' : 'Find each IQR.', tex: kind === 'median' ? `\\text{${g.a}: } ${fmt(fa.median)},\\quad \\text{${g.b}: } ${fmt(fb.median)}` : `${fmt(fa.q3)} - ${fmt(fa.q1)} = ${fmt(ia)},\\quad ${fmt(fb.q3)} - ${fmt(fb.q1)} = ${fmt(ib)}` },
-          { text: `${correct} has the greater ${kind === 'median' ? 'median' : 'IQR'}.` },
+          { text: `${correct} ${has(correct)} the greater ${kind === 'median' ? 'median' : 'IQR'}.` },
         ],
         misconceptions: [],
       }), (pr) => {
@@ -1278,18 +1279,18 @@ export const genCompare: GeneratorDef = {
       const fa2 = fiveNumber(A2);
       const oa = outliers(A2);
       if (oa.length !== 1 || oa[0].gt(g.hi)) return genCompare.generate(rng, 2);
-      const box2: DataPlotSpec = { kind: 'box', ...axisFor(Math.min(fa2.min.toNumber(), fb.min.toNumber()), Math.max(fa2.max.toNumber(), fb.max.toNumber())), axisLabel: g.what, boxes: [{ ...boxOf(A2, g.a), max: Math.max(...A2.filter((x) => !oa.some((o) => o.eq(x))).map((x) => x.toNumber())), outliers: oa.map((x) => x.toNumber()) }, boxOf(B, g.b)], ariaLabel: `Two box plots. ${g.a} has an outlier at ${oa.map(fmt).join(', ')}.` };
+      const box2: DataPlotSpec = { kind: 'box', ...axisFor(Math.min(fa2.min.toNumber(), fb.min.toNumber()), Math.max(fa2.max.toNumber(), fb.max.toNumber())), axisLabel: g.what, boxes: [{ ...boxOf(A2, g.a), max: Math.max(...A2.filter((x) => !oa.some((o) => o.eq(x))).map((x) => x.toNumber())), outliers: oa.map((x) => x.toNumber()) }, boxOf(B, g.b)], ariaLabel: `Two box plots. ${g.a} ${has(g.a)} an outlier at ${oa.map(fmt).join(', ')}.` };
       return withSteps(makeProblem({
         skillId: 'S7.05',
         tags: ['graph', 'real-world'],
         prompt: [p(`The box plots compare the ${g.what} for ${g.a} and ${g.b}. The dot is an outlier. Which measures of center and spread are best for comparing the two groups?`), { t: 'dataplot', spec: box2 }],
         answer: makeChoice(rng, correct, ['Mean and standard deviation, because both groups are roughly symmetric with no outliers', 'Mean and IQR, because the groups have different sizes', 'Median and standard deviation, because the median ignores outliers']),
         hints: ['Check each plot for outliers or a long tail.', 'Outliers pull the mean and the standard deviation.', 'The median and IQR are resistant to outliers.', 'Use the same pair of measures for both groups.'],
-        solution: [{ text: `${g.a} has an outlier.` }, { text: correct + '.', why: 'The median and IQR are not pulled by extreme values, so they describe both groups fairly.' }],
+        solution: [{ text: `${g.a} ${has(g.a)} an outlier.` }, { text: correct + '.', why: 'The median and IQR are not pulled by extreme values, so they describe both groups fairly.' }],
         misconceptions: [],
       }), (pr) => [
-        choiceStep('Look at the shape of each box plot. What do you see?', 'One group has an outlier', ['Both are roughly symmetric with no outliers', 'Both are strongly skewed'], ['Check each plot for a separate dot.', 'A dot past a whisker is an outlier.', 'Look at both plots.', 'One extreme value is enough to matter.'], `${g.a} has an outlier, drawn as a dot.`, { 'Both are roughly symmetric with no outliers': 'Look again for a separate dot past a whisker.', 'Both are strongly skewed': 'Look for a separate dot past a whisker.' }),
-        finalStep(pr, 'Which measures of center and spread are best for comparing the two groups?', ['Use your answer from the last step.', 'Outliers pull the mean and standard deviation.', 'The median and IQR are resistant to outliers.', 'Use one pair of measures for both groups.'], 'The median and IQR are not pulled by extreme values, so they describe both groups fairly.', { feedback: { 'Mean and standard deviation, because both groups are roughly symmetric with no outliers': `${g.a} has an outlier, which pulls the mean and standard deviation.`, 'Mean and IQR, because the groups have different sizes': 'Use a matching pair: median with IQR, or mean with standard deviation.', 'Median and standard deviation, because the median ignores outliers': 'The standard deviation is pulled by outliers. Use a matching resistant pair.' } }),
+        choiceStep('Look at the shape of each box plot. What do you see?', 'One group has an outlier', ['Both are roughly symmetric with no outliers', 'Both are strongly skewed'], ['Check each plot for a separate dot.', 'A dot past a whisker is an outlier.', 'Look at both plots.', 'One extreme value is enough to matter.'], `${g.a} ${has(g.a)} an outlier, drawn as a dot.`, { 'Both are roughly symmetric with no outliers': 'Look again for a separate dot past a whisker.', 'Both are strongly skewed': 'Look for a separate dot past a whisker.' }),
+        finalStep(pr, 'Which measures of center and spread are best for comparing the two groups?', ['Use your answer from the last step.', 'Outliers pull the mean and standard deviation.', 'The median and IQR are resistant to outliers.', 'Use one pair of measures for both groups.'], 'The median and IQR are not pulled by extreme values, so they describe both groups fairly.', { feedback: { 'Mean and standard deviation, because both groups are roughly symmetric with no outliers': `${g.a} ${has(g.a)} an outlier, which pulls the mean and standard deviation.`, 'Mean and IQR, because the groups have different sizes': 'Use a matching pair: median with IQR, or mean with standard deviation.', 'Median and standard deviation, because the median ignores outliers': 'The standard deviation is pulled by outliers. Use a matching resistant pair.' } }),
       ]);
     }
     // full comparison

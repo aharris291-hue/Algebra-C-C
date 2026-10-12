@@ -268,7 +268,7 @@ export const genDomainRange: GeneratorDef = {
               'Follow the ray away from its endpoint. Do the $y$-values go up forever or down forever?',
               [UP_FOREVER, DOWN_FOREVER],
               up ? 0 : 1,
-              ['Start at the dot and trace along the ray.', 'Watch the height of the ray, not how far left or right it goes.', `The ray goes to the ${toRight ? 'right' : 'left'} and the line ${m.isNegative() ? 'falls' : 'rises'} from left to right.`, 'Does the ray run off the top or the bottom of the grid?'],
+              ['Start at the dot and trace along the ray.', 'Watch the height of the ray, not how far left or right it goes.', `Pick a point on the ray a few units ${toRight ? 'right' : 'left'} of the dot. Is it higher or lower than the dot's height, $y = ${y0.toTex()}$?`, 'Does the ray run off the top or the bottom of the grid?'],
               up ? 'The ray climbs without end, so the outputs have no upper limit.' : 'The ray drops without end, so the outputs have no lower limit.',
               [{ index: up ? 1 : 0, tag: 'inequality-direction', feedback: 'Trace the ray from its dot: does it run off the top or the bottom of the grid?' }],
             ),

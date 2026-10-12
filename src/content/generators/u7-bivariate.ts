@@ -424,16 +424,18 @@ interface LCtx {
   meaningful: boolean;
   why?: string;
   xr: [number, number];
+  /** yName already names the unit ("hours of sleep"), so "in hours" is not added after it */
+  unitInName?: boolean;
 }
 const LM: LCtx[] = [
   { xDef: 'the number of hours a student studies', xOne: 'hour studied', yName: 'test score', yUnit: 'points', as: [3, 4, 5, 6], bs: [52, 55, 58, 60], zero: 'a student studies 0 hours', meaningful: true, xr: [1, 7] },
   { xDef: 'the age of a car in years', xOne: 'year of age', yName: 'value of the car', yUnit: 'thousand dollars', as: [-1.5, -2, -2.5, -3], bs: [30, 32, 34], zero: 'the car is 0 years old (new)', meaningful: true, xr: [1, 9] },
   { xDef: 'the temperature in degrees Fahrenheit', xOne: 'degree Fahrenheit', yName: 'ice cream sales', yUnit: 'dollars', as: [8, 10, 12, 15], bs: [-300, -350, -400, -450], zero: 'the temperature is 0°F', meaningful: false, why: 'sales cannot be negative, and 0°F is far outside the data', xr: [60, 95] },
-  { xDef: 'a person’s height in inches', xOne: 'inch of height', yName: 'shoe size', yUnit: 'sizes', as: [0.45, 0.5], bs: [-20, -22, -24], zero: 'a person is 0 inches tall', meaningful: false, why: 'no person is 0 inches tall, and a shoe size cannot be negative', xr: [60, 74] },
-  { xDef: 'the number of minutes a player practices each day', xOne: 'minute of practice', yName: 'number of free throws made out of 20', yUnit: 'free throws', as: [0.1, 0.15, 0.2], bs: [5, 6, 7], zero: 'a player practices 0 minutes a day', meaningful: true, xr: [10, 60] },
-  { xDef: 'the hours of phone use per day', xOne: 'hour of phone use per day', yName: 'hours of sleep', yUnit: 'hours', as: [-0.3, -0.4, -0.5], bs: [8.5, 9, 9.5], zero: 'a student uses a phone 0 hours a day', meaningful: true, xr: [1, 8] },
-  { xDef: 'the number of miles driven since filling up', xOne: 'mile driven', yName: 'gallons of gas left in the tank', yUnit: 'gallons', as: [-0.03, -0.04, -0.05], bs: [12, 14, 15], zero: '0 miles have been driven since filling up', meaningful: true, xr: [20, 200] },
-  { xDef: 'the number of games a player has played this season', xOne: 'game played', yName: 'total points scored', yUnit: 'points', as: [14, 18, 22], bs: [-5, -8], zero: '0 games have been played', meaningful: false, why: 'a player who has played 0 games has 0 points, not a negative number', xr: [2, 20] },
+  { xDef: 'a person’s height in inches', xOne: 'inch of height', yName: 'shoe size', yUnit: 'sizes', unitInName: true, as: [0.45, 0.5], bs: [-20, -22, -24], zero: 'a person is 0 inches tall', meaningful: false, why: 'no person is 0 inches tall, and a shoe size cannot be negative', xr: [60, 74] },
+  { xDef: 'the number of minutes a player practices each day', xOne: 'minute of practice', yName: 'number of free throws made out of 20', yUnit: 'free throws', unitInName: true, as: [0.1, 0.15, 0.2], bs: [5, 6, 7], zero: 'a player practices 0 minutes a day', meaningful: true, xr: [10, 60] },
+  { xDef: 'the hours of phone use per day', xOne: 'hour of phone use per day', yName: 'hours of sleep', yUnit: 'hours', unitInName: true, as: [-0.3, -0.4, -0.5], bs: [8.5, 9, 9.5], zero: 'a student uses a phone 0 hours a day', meaningful: true, xr: [1, 8] },
+  { xDef: 'the number of miles driven since filling up', xOne: 'mile driven', yName: 'gallons of gas left in the tank', yUnit: 'gallons', unitInName: true, as: [-0.03, -0.04, -0.05], bs: [12, 14, 15], zero: '0 miles have been driven since filling up', meaningful: true, xr: [20, 200] },
+  { xDef: 'the number of games a player has played this season', xOne: 'game played', yName: 'total points scored', yUnit: 'points', unitInName: true, as: [14, 18, 22], bs: [-5, -8], zero: '0 games have been played', meaningful: false, why: 'a player who has played 0 games has 0 points, not a negative number', xr: [2, 20] },
 ];
 const modelTex = (a: Rational, b: Rational) => `\\hat{y} = ${numStr(a)}x ${b.isNegative() ? '-' : '+'} ${numStr(b.abs())}`;
 function readModel(pr: Pick<Problem, 'prompt'>): { a: Rational; b: Rational } | null {
@@ -456,7 +458,7 @@ export const genLinearModel: GeneratorDef = {
     const a = Q(String(rng.pick(c.as)));
     const b = Q(String(rng.pick(c.bs)));
     if (a.abs().eq(b.abs())) return genLinearModel.generate(rng, difficulty);
-    const intro = p(`A linear model for ${c.yName} is shown below, where $x$ is ${c.xDef} and $\\hat{y}$ is the predicted ${c.yName} in ${c.yUnit}. The model was made from data with $x$ from $${c.xr[0]}$ to $${c.xr[1]}$.`);
+    const intro = p(`A linear model for the ${c.yName} is shown below, where $x$ is ${c.xDef} and $\\hat{y}$ is the predicted ${c.yName}${c.unitInName ? '' : ` in ${c.yUnit}`}. The model was made from data with $x$ from $${c.xr[0]}$ to $${c.xr[1]}$.`);
     const model: Block = { t: 'math', tex: modelTex(a, b) };
     if (difficulty === 1) {
       const correct = slopeSentence(c, a);
@@ -545,7 +547,7 @@ export const genLinearModel: GeneratorDef = {
         { value: Q(x0).sub(b).div(a).round(2), tag: 'equation-setup', feedback: `$x$ is ${c.xDef}. Substitute ${x0} for $x$; do not solve for $x$.` },
       ]),
     }), (pr) => [
-        numStep(`Substitute $x = ${x0}$. What is $${numStr(a)} \\cdot ${x0}$?`, a.mul(x0), ['Replace $x$ with the given value.', 'Multiply the slope by that value.', 'Watch the sign of the slope.', 'Multiply as with whole numbers, then place the decimal point.'], `$${numStr(a)} \\cdot ${x0} = ${numStr(a.mul(x0))}$.`, [{ value: a.mul(x0).neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }]),
+        numStep(`Substitute $x = ${x0}$. What is $${numStr(a)} \\cdot ${x0}$?`, a.mul(x0), ['Replace $x$ with the given value.', 'Multiply the slope by that value.', a.isNegative() ? 'The slope is negative, so the product is negative.' : 'The slope and the value are both positive, so the product is positive.', 'Multiply as with whole numbers, then place the decimal point.'], `$${numStr(a)} \\cdot ${x0} = ${numStr(a.mul(x0))}$.`, [{ value: a.mul(x0).neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }]),
         finalStep(pr, `Now add the y-intercept, $${numStr(b)}$${b.isNegative() ? ` (adding a negative number means subtracting ${numStr(b.abs())})` : ''}. What is the predicted ${c.yName}?`, ['The model is slope times x plus the y-intercept.', 'Use your product from the last step.', b.isNegative() ? `Subtract ${numStr(b.abs())}.` : `Add ${numStr(b)}.`, 'Check that your prediction is a sensible value.'], 'The model gives the predicted y for any x.'),
       ]);
   },
@@ -663,7 +665,7 @@ export const genRegression: GeneratorDef = {
           { value: Q(x0).sub(out.b).div(out.a).round(1), tag: 'equation-setup', feedback: `Substitute ${x0} for $x$; do not solve for $x$.` },
         ]),
       }), (pr) => [
-          numStep(`Substitute $x = ${x0}$. What is $${numStr(out.a)} \\cdot ${x0}$?`, out.a.mul(x0), ['Use the slope exactly as the calculator shows it.', `Multiply it by ${x0}.`, 'Do not round yet.', 'Watch the sign of the slope.'], `$${numStr(out.a)} \\cdot ${x0} = ${numStr(out.a.mul(x0))}$.`, [{ value: out.a.mul(x0).neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }]),
+          numStep(`Substitute $x = ${x0}$. What is $${numStr(out.a)} \\cdot ${x0}$?`, out.a.mul(x0), ['Use the slope exactly as the calculator shows it.', `Multiply it by ${x0}.`, 'Do not round yet.', out.a.isNegative() ? 'The slope is negative, so the product is negative.' : 'The slope and the value are both positive, so the product is positive.'], `$${numStr(out.a)} \\cdot ${x0} = ${numStr(out.a.mul(x0))}$.`, [{ value: out.a.mul(x0).neg(), tag: 'sign-error', feedback: 'Check the sign of the product.' }]),
           finalStep(pr, `Now add the intercept, $${numStr(out.b)}$${out.b.isNegative() ? ` (adding a negative number means subtracting ${numStr(out.b.abs())})` : ''}. What is the predicted value? Round to the nearest tenth.`, ['The line is slope times x plus the intercept.', 'Use your product from the last step.', out.b.isNegative() ? `Subtract ${numStr(out.b.abs())}.` : `Add ${numStr(out.b)}.`, 'Round only the final answer.'], 'The line gives a predicted value; real data points scatter around it.'),
         ]);
     }

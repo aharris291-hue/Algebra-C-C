@@ -12,7 +12,7 @@ import { Poly, toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr, numberMisconceptions } from './util';
 import { buildContext, DECREASING_KEYS, type LinearContext } from './u1-contexts';
-import { numStep, choiceStep, finalStep, stepErrors, choiceMisc } from './u1-steps';
+import { numStep, choiceStep, finalStep, stepErrors, choiceMisc, minusHint } from './u1-steps';
 
 /** "y = mx + b" in parser syntax */
 const yEq = (m: Rational, b: Rational) => `y = ${linearPlain(m, b)}`;
@@ -101,7 +101,7 @@ export const genWriteSlopePoint: GeneratorDef = {
             `The equation becomes $${y1.toTex()} = ${m.toTex()}\\cdot${sub(x1)} + b$.`,
             `Multiply: $${m.toTex()}\\cdot${sub(x1)}$.`,
             `Then subtract that product from $${y1.toTex()}$.`,
-            'Be careful subtracting a negative: it is the same as adding.',
+            minusHint(y1, mx1),
           ],
           misconceptions: numberMisconceptions(b, [
             { value: y1.add(mx1), tag: 'sign-error', feedback: 'Subtract the product from both sides, do not add it.' },
@@ -200,7 +200,7 @@ export const genWriteTwoPoints: GeneratorDef = {
             `The equation becomes $${y1.toTex()} = ${m.toTex()}\\cdot${sub(x1)} + b$.`,
             `Multiply first: $${m.toTex()}\\cdot${sub(x1)}$.`,
             'Then subtract that product from both sides.',
-            'Subtracting a negative is the same as adding.',
+            minusHint(y1, m.mul(x1)),
           ],
           'The point is on the line, so its coordinates make the equation true, and that leaves only $b$ unknown.',
           [
@@ -496,8 +496,8 @@ export const genWriteContext: GeneratorDef = {
         numStep(
           `What is the starting value: the output when $${v} = 0$?`,
           b,
-          [`The starting value is the amount at the very start, before any ${ctx.inUnits} pass.`, 'It happens only once, so it is not multiplied by the input.', 'Look for a one-time fee or a starting amount.', 'A cost you pay at the start makes the starting value negative.'],
-          `When $${v} = 0$, ${ctx.startMeaning}.`,
+          [`The starting value is the amount at the very start, before any ${ctx.inUnits} pass.`, 'It happens only once, so it is not multiplied by the input.', 'Look for a one-time fee or a starting amount.', b.isNegative() ? 'In a profit rule, money spent at the start counts against you, so the starting value is negative.' : `Nothing here starts below zero: ${ctx.outputDesc.replace(/,? (in|after|for a) .*/, '')} begins at a positive amount, so the starting value is positive.`],
+          `When $${v} = 0$, ${ctx.startMeaning}, so the starting value is ${decTex(b)}.`,
           [
             { value: b.neg(), tag: 'sign-error', feedback: 'Check the sign of the starting value.' },
             { value: m, tag: 'equation-setup', feedback: `That amount repeats every ${ctx.inUnit}, so it is the rate, not the starting value.` },
@@ -559,6 +559,10 @@ export const genWriteContext: GeneratorDef = {
 function standardTex(A: Rational, B: Rational, C: Rational): string {
   return `${polyTex(Poly.fromCoeffs('x', [Q(0), A]).add(Poly.fromCoeffs('y', [Q(0), B])), ['x', 'y'])} = ${C.toTex()}`;
 }
+/** A coefficient times x as TeX, writing 1x and -1x as x and -x. */
+function xTerm(c: Rational): string {
+  return c.eq(1) ? 'x' : c.eq(-1) ? '-x' : `${c.toTex()}x`;
+}
 function standardPlain(A: Rational, B: Rational, C: Rational): string {
   return `${A.toString()}x + ${B.toString()}y = ${C.toString()}`.replace(/\+ -/g, '- ');
 }
@@ -591,12 +595,12 @@ export const genConvertForms: GeneratorDef = {
         inputHint: SI_HINT,
         hints: [
           'Slope-intercept form has $y$ by itself on one side.',
-          `Move the $x$-term: ${A.isNegative() ? 'add' : 'subtract'} $${A.abs().toTex()}x$ ${A.isNegative() ? 'to' : 'from'} both sides.`,
+          `Move the $x$-term: ${A.isNegative() ? 'add' : 'subtract'} $${xTerm(A.abs())}$ ${A.isNegative() ? 'to' : 'from'} both sides.`,
           `You should have $${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = ${yTerm}$. Now divide every term by $${B.toTex()}$.`,
           'Divide both the $x$-term and the constant by the coefficient of $y$, then write the $x$-term first.',
         ],
         solution: [
-          { text: `${A.isNegative() ? 'Add' : 'Subtract'} $${A.abs().toTex()}x$ on both sides.`, tex: `${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = ${yTerm}`, why: 'Get the $y$-term alone on one side.' },
+          { text: `${A.isNegative() ? 'Add' : 'Subtract'} $${xTerm(A.abs())}$ on both sides.`, tex: `${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = ${yTerm}`, why: 'Get the $y$-term alone on one side.' },
           { text: `Divide every term by $${B.toTex()}$.`, tex: yEqTex(m, b), why: 'Dividing both sides by the same nonzero number keeps the equation balanced. Every term must be divided.' },
         ],
         misconceptions: lineMisconceptions({ m, b }, [
@@ -606,12 +610,12 @@ export const genConvertForms: GeneratorDef = {
         ]),
         steps: [
           {
-            prompt: [p(`First get the $y$-term alone: ${A.isNegative() ? 'add' : 'subtract'} $${A.abs().toTex()}x$ ${A.isNegative() ? 'to' : 'from'} both sides. The equation becomes $${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = \\;?$ Type the right side.`)],
+            prompt: [p(`First get the $y$-term alone: ${A.isNegative() ? 'add' : 'subtract'} $${xTerm(A.abs())}$ ${A.isNegative() ? 'to' : 'from'} both sides. The equation becomes $${B.eq(1) ? '' : B.eq(-1) ? '-' : B.toTex()}y = \\;?$ Type the right side.`)],
             answer: { kind: 'expression', value: linearPlain(A.neg(), C), variables: ['x'] },
             inputHint: 'Type an expression in x, like -2x + 6.',
             hints: [
               'Slope-intercept form has $y$ by itself, so the $x$-term has to move to the right side.',
-              `To move $${A.toTex()}x$, do the opposite on both sides.`,
+              `To move $${xTerm(A)}$, do the opposite on both sides.`,
               'When a term moves to the other side of the equals sign, its sign changes.',
               `The right side keeps $${C.toTex()}$ and gains the $x$-term with the opposite sign.`,
             ],
@@ -667,7 +671,7 @@ export const genConvertForms: GeneratorDef = {
         ],
         solution: [
           { text: `Multiply every term by $${den}$.`, tex: `${den}y = ${linearTex(Q(num), b.mul(den))}`, why: 'This clears the fraction so all coefficients are integers.' },
-          { text: `${num > 0 ? 'Subtract' : 'Add'} $${Math.abs(num)}x$ on both sides.`, tex: standardTex(Q(-num), Q(den), b.mul(den)), why: 'Standard form keeps both variable terms on the left.' },
+          { text: `${num > 0 ? 'Subtract' : 'Add'} $${xTerm(Q(Math.abs(num)))}$ on both sides.`, tex: standardTex(Q(-num), Q(den), b.mul(den)), why: 'Standard form keeps both variable terms on the left.' },
           ...(A.eq(-num) ? [] : [{ text: 'Make $A$ positive (and divide out any common factor).', tex: standardTex(A, B, C), why: 'Multiplying or dividing every term by the same nonzero number gives an equivalent equation.' }]),
         ],
         misconceptions: [
@@ -700,7 +704,7 @@ export const genConvertForms: GeneratorDef = {
             { kind: 'equation', value: standardPlain(A, B, C), form: 'standard' },
             [
               'Standard form is $Ax + By = C$: both variable terms on the left, the constant on the right.',
-              `${m.isNegative() ? 'Add' : 'Subtract'} $${Q(m.num).abs().toTex()}x$ on both sides.`,
+              `${m.isNegative() ? 'Add' : 'Subtract'} $${xTerm(Q(m.num).abs())}$ on both sides.`,
               'If the $x$ coefficient is negative, multiply every term by $-1$.',
               'If all three numbers share a factor, divide it out.',
             ],
@@ -775,11 +779,11 @@ export const genConvertForms: GeneratorDef = {
         'Point-slope form uses one point $(x_1, y_1)$ and the slope $m$.',
         `Here $x_1 = ${x1.toTex()}$, $y_1 = ${y1.toTex()}$ and $m = ${m.toTex()}$.`,
         `Substitute: $y - ${sub(y1)} = ${m.toTex()}(x - ${sub(x1)})$.`,
-        'Subtracting a negative becomes adding, so clean up the signs.',
+        x1.isNegative() || y1.isNegative() ? 'Subtracting a negative becomes adding, so clean up the signs.' : 'Both coordinates are positive, so both parentheses show subtraction.',
       ],
       solution: [
         { text: 'Substitute the point and slope into point-slope form.', tex: `y - ${sub(y1)} = ${m.toTex()}(x - ${sub(x1)})`, why: 'Point-slope form is built directly from a point and a slope.' },
-        { text: 'Simplify the signs.', tex: pointSlopeTex, why: 'Subtracting a negative is the same as adding.' },
+        { text: 'Simplify the signs.', tex: pointSlopeTex, why: x1.isNegative() || y1.isNegative() ? 'Subtracting a negative is the same as adding.' : 'Both coordinates are positive, so the subtractions stay as they are.' },
       ],
       misconceptions: [
         { answer: `y - (${x1.toString()}) = (${m.toString()})(x - (${y1.toString()}))`, tag: 'graph-reading' as const, feedback: 'The $y$-coordinate goes with $y$, and the $x$-coordinate goes with $x$.' },

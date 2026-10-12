@@ -11,7 +11,7 @@ import { linearPlain, linearTex } from '../../core/math/format';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, math, makeProblem, numberMisconceptions, numStr, sub, makeChoice, choiceLabel, texToExpr } from './util';
-import { numStep, choiceStep, finalStep, stepErrors, choiceMisc } from './u1-steps';
+import { numStep, choiceStep, finalStep, stepErrors, choiceMisc, minusHint } from './u1-steps';
 
 /** Step: read the first term. */
 function firstTermStep(prompt: string, a1: Rational, second: Rational): ProblemStep {
@@ -56,6 +56,8 @@ function pickSeq(rng: Rng, d: Difficulty): { a1: Rational; d: Rational } {
   return { a1: Q(rng.int(-20, 30)), d: rng.bool() ? Q(rng.nonzeroInt(-12, -2)) : Q(rng.pick([1, 3, 5, -1, -3]), 2) };
 }
 
+const SEQ_UP = 'They go up: each term is larger than the one before';
+const SEQ_DOWN = 'They go down: each term is smaller than the one before';
 const term = (a1: Rational, d: Rational, n: number) => a1.add(d.mul(n - 1));
 const listTex = (a1: Rational, d: Rational, k: number) => `${Array.from({ length: k }, (_, i) => term(a1, d, i + 1).toTex()).join(',\\ ')},\\ \\dots`;
 /** explicit formula a_1 + (n - 1)d simplified, in n */
@@ -265,18 +267,19 @@ export const genSeqExplicit: GeneratorDef = {
           { value: a1, tag: 'sequence-index', feedback: 'That is the first term. The common difference is the change from one term to the next.' },
         ]),
         steps: [
-          numStep(
-            `Subtract the first term from the second term: $${term(a1, d, 2).toTex()} - ${sub(a1)}$. What do you get?`,
-            d,
-            ['The common difference is what you add to one term to get the next.', 'Second term minus first term tells you what was added.', 'Subtracting a negative number is the same as adding.', 'If the terms go down, the result is negative.'],
-            `Going from the first term to the second adds $${d.toTex()}$.`,
-            [{ value: d.neg(), tag: 'sign-error', feedback: 'Subtract in the order given: the second term minus the first term.' }],
+          choiceStep(
+            'Look from each term to the next one. Do the terms go up or go down?',
+            [SEQ_UP, SEQ_DOWN],
+            d.isNegative() ? 1 : 0,
+            ['Compare the first term with the second term.', 'Then compare the second term with the third.', 'If each term is bigger than the one before, the terms go up.', 'Going up means the common difference is positive; going down means it is negative.'],
+            `Each term is ${d.isNegative() ? 'smaller' : 'larger'} than the one before, so the common difference is ${d.isNegative() ? 'negative' : 'positive'}.`,
+            [{ index: d.isNegative() ? 0 : 1, tag: 'sign-error', feedback: 'Compare the first two terms: is the second one bigger or smaller?' }],
           ),
           finalStep(
-            `Check another pair: $${term(a1, d, 3).toTex()} - ${sub(term(a1, d, 2))}$. So what is the common difference?`,
+            `Subtract the first term from the second term: $${term(a1, d, 2).toTex()} - ${sub(a1)}$. What is the common difference?`,
             { kind: 'number', value: numStr(d) },
-            ['Subtract the second term from the third term.', 'In an arithmetic sequence every pair of neighbours gives the same difference.', 'If you get the same number as before, that number is the common difference.', 'Keep the sign: a sequence that goes down has a negative difference.'],
-            'Every neighbouring pair differs by the same amount, which is what makes the sequence arithmetic.',
+            ['The common difference is what you add to one term to get the next.', 'Second term minus first term tells you what was added.', minusHint(term(a1, d, 2), a1), `Check with the next pair: $${term(a1, d, 3).toTex()} - ${sub(term(a1, d, 2))}$ should give the same number.`],
+            `Going from one term to the next always adds $${d.toTex()}$, and the same difference for every pair is what makes the sequence arithmetic.`,
             numberMisconceptions(d, [
               { value: d.neg(), tag: 'sign-error', feedback: 'Subtract in order: a term minus the term **before** it.' },
               { value: a1, tag: 'sequence-index', feedback: 'That is the first term. The common difference is the change from one term to the next.' },
@@ -421,7 +424,8 @@ export const genSeqExplicit: GeneratorDef = {
     const a = pr.answer;
     if (/common difference/.test(ask)) {
       if (!(a.kind === 'number' && Rational.parse(a.value).eq(d))) return ['difference mismatch'];
-      return stepErrors(pr, [ts[1].sub(ts[0]), ts[2].sub(ts[1])]);
+      // steps: the direction read from the first two terms, then their difference
+      return stepErrors(pr, [ts[1].gt(ts[0]) ? SEQ_UP : SEQ_DOWN, ts[1].sub(ts[0])]);
     }
     const tm = /Find the (\d+)(?:st|nd|rd|th) term/.exec(ask);
     if (tm) {

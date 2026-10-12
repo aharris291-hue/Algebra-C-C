@@ -9,7 +9,7 @@ import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, makeProblem, numberMisconceptions, numStr, sub, pickDistinct, makeChoice, choiceLabel, texToExpr } from './util';
 import { buildContext, ctxStory, type LinearContext } from './u1-contexts';
-import { numStep, finalStep, stepErrors, choiceMisc } from './u1-steps';
+import { numStep, finalStep, stepErrors, choiceMisc, minusHint, checkMinusHint } from './u1-steps';
 
 const frac = (num: Rational, den: Rational) => `\\frac{${num.toTex()}}{${den.toTex()}}`;
 
@@ -72,7 +72,7 @@ export const genSlopePoints: GeneratorDef = {
       solution: [
         { text: 'Write the slope formula.', tex: 'm = \\dfrac{y_2 - y_1}{x_2 - x_1}', why: 'Slope is the change in $y$ divided by the change in $x$.' },
         { text: 'Substitute, keeping the same order on top and bottom.', tex: `m = \\dfrac{${y2} - ${sub(Q(y1))}}{${x2} - ${sub(Q(x1))}}`, why: `$${P2}$ is used first in both the numerator and the denominator.` },
-        { text: 'Subtract.', tex: `m = ${frac(dy, dx)}`, why: 'Subtracting a negative is the same as adding its opposite.' },
+        { text: 'Subtract.', tex: `m = ${frac(dy, dx)}`, why: y1 < 0 || x1 < 0 ? 'Subtracting a negative is the same as adding its opposite.' : 'Work out the top and the bottom separately.' },
         { text: 'Simplify.', tex: `m = ${m.toTex()}`, why: m.isZero() ? 'The rise is 0, so the line is horizontal and its slope is 0.' : m.isNegative() ? 'A negative slope means the line falls from left to right.' : 'A positive slope means the line rises from left to right.' },
       ],
       misconceptions: slopeMisconceptions(dy, dx),
@@ -80,21 +80,21 @@ export const genSlopePoints: GeneratorDef = {
         {
           prompt: [p(`Find the rise (change in $y$) from $${P1}$ to $${P2}$: $${y2} - ${sub(Q(y1))}$.`)],
           answer: { kind: 'number', value: numStr(dy) },
-          hints: ['The rise is the second $y$-value minus the first $y$-value.', `Compute $${y2} - ${sub(Q(y1))}$.`, 'Subtracting a negative means adding.', 'Use a number line if the signs are tricky.'],
+          hints: ['The rise is the second $y$-value minus the first $y$-value.', `Compute $${y2} - ${sub(Q(y1))}$.`, minusHint(y2, y1), checkMinusHint(y2, y1)],
           misconceptions: numberMisconceptions(dy, [{ value: dy.neg(), tag: 'sign-error', feedback: 'Subtract in the order shown: second minus first.' }]),
           explanation: `The rise is the change in $y$, second minus first, so it is $${dy.toTex()}$${dy.isNegative() ? ': the line goes down' : ''}.`,
         },
         {
           prompt: [p(`Find the run (change in $x$) in the same order: $${x2} - ${sub(Q(x1))}$.`)],
           answer: { kind: 'number', value: numStr(dx) },
-          hints: ['The run uses the $x$-values, in the same order as the rise.', `Compute $${x2} - ${sub(Q(x1))}$.`, 'Subtracting a negative means adding.', 'Use a number line if the signs are tricky.'],
+          hints: ['The run uses the $x$-values, in the same order as the rise.', `Compute $${x2} - ${sub(Q(x1))}$.`, minusHint(x2, x1), checkMinusHint(x2, x1)],
           misconceptions: numberMisconceptions(dx, [{ value: dx.neg(), tag: 'sign-error', feedback: 'Keep the same order you used for the rise.' }]),
           explanation: `Subtracting the $x$-values in the same order as the $y$-values keeps the slope's sign right: the run is $${dx.toTex()}$.`,
         },
         {
           prompt: [p(`Divide: slope $= \\dfrac{\\text{rise}}{\\text{run}} = ${frac(dy, dx)}$. Simplify.`)],
           answer: { kind: 'number', value: numStr(m) },
-          hints: ['Divide the rise by the run.', 'A negative divided by a positive is negative; a negative divided by a negative is positive.', 'Simplify the fraction by dividing top and bottom by a common factor.', 'If it does not divide evenly, a simplified fraction is fine.'],
+          hints: ['Divide the rise by the run.', dy.isZero() ? 'A rise of 0 divided by any run is 0.' : dy.isNegative() || dx.isNegative() ? 'A negative divided by a positive is negative; a negative divided by a negative is positive.' : 'The rise and the run are both positive, so the slope is positive.', 'Simplify the fraction by dividing top and bottom by a common factor.', 'If it does not divide evenly, a simplified fraction is fine.'],
           misconceptions: slopeMisconceptions(dy, dx),
           explanation: `Rise over run is the change in $y$ for each 1-unit change in $x$, so the slope is $${m.toTex()}$.`,
         },
@@ -176,7 +176,7 @@ export const genSlopeTable: GeneratorDef = {
         numStep(
           `Use the first two rows, $x = ${xs[0]}$ and $x = ${xs[1]}$. What is the change in $x$?`,
           dx,
-          ['The change in $x$ is how far you move from one input to the next.', 'Subtract in order: the second $x$-value minus the first.', `Compute $${xs[1]} - ${sub(Q(xs[0]))}$.`, 'Subtracting a negative is the same as adding.'],
+          ['The change in $x$ is how far you move from one input to the next.', 'Subtract in order: the second $x$-value minus the first.', `Compute $${xs[1]} - ${sub(Q(xs[0]))}$.`, minusHint(xs[1], xs[0])],
           `The change in $x$ is the second input minus the first, so it is $${dx.toTex()}$.`,
           [{ value: dx.neg(), tag: 'sign-error', feedback: 'Subtract in order: the second $x$-value minus the first.' }],
         ),

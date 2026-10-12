@@ -21,14 +21,30 @@ export interface StepMis {
 }
 const blocks = (x: string | Block[]): Block[] => (typeof x === 'string' ? [p(x)] : x);
 
-/** Keep only misconceptions the checker really grades as wrong (and drop repeats). */
-function realMistakes(spec: AnswerSpec, list: Misconception[]): Misconception[] {
+/** A misconception's answer as text a student could type: points and lists are stored as "a|b". */
+function misText(spec: AnswerSpec, answer: string): string {
+  switch (spec.kind) {
+    case 'point':
+    case 'region-point': {
+      const [x, y] = answer.split('|');
+      return `(${x}, ${y})`;
+    }
+    case 'solutions':
+      return answer === '' ? 'no real solutions' : answer.split('|').join(', ');
+    case 'sequence-terms':
+      return answer.split('|').join(', ');
+    default:
+      return answer;
+  }
+}
+
+/** Keep only misconceptions the checker really grades as wrong: drop repeats and any that equal the key. */
+export function realMistakes(spec: AnswerSpec, list: Misconception[]): Misconception[] {
   const out: Misconception[] = [];
   for (const m of list) {
     if (out.some((o) => o.answer === m.answer)) continue;
     try {
-      // misconceptions for points and lists are written "a|b" (not typeable input), so only a key match is excluded
-      const r = checkAnswer(spec, m.answer);
+      const r = checkAnswer(spec, misText(spec, m.answer));
       if (r.status !== 'correct' && r.status !== 'wrong-form') out.push(m);
     } catch {
       /* unreadable misconception: skip */
@@ -83,7 +99,8 @@ export function withSteps(pr: Problem, build: (pr: Problem) => ProblemStep[]): P
   // a choice problem without its own error feedback borrows the last step's (same options, same ids)
   const last = steps[steps.length - 1];
   const borrow = pr.answer.kind === 'choice' && pr.misconceptions.length === 0 && last && last.answer === pr.answer && last.misconceptions?.length;
-  return { ...pr, steps, ...(borrow ? { misconceptions: last.misconceptions! } : {}) };
+  // the problem's own misconceptions get the same filter as the steps' (none may equal the key)
+  return { ...pr, steps, misconceptions: borrow ? last.misconceptions! : realMistakes(pr.answer, pr.misconceptions) };
 }
 
 /** Generic step checks: 2-4 steps, and the last step's key answers the problem. */

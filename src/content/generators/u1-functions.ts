@@ -8,7 +8,7 @@ import { linearTex, linearPlain, linearTexDec, decTex } from '../../core/math/fo
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Q, p, math, makeProblem, numberMisconceptions, numStr, sub, money, pickDistinct, FUNC_NAMES } from './util';
-import { numStep, choiceStep, finalStep, stepErrors } from './u1-steps';
+import { numStep, choiceStep, finalStep, stepErrors, minusHint, plusHint } from './u1-steps';
 
 // ---------------------------------------------------------------------------
 // S1.01: Is this relation a function?
@@ -342,7 +342,7 @@ export const genEvalLinear: GeneratorDef = {
           hints: [
             'Combine the two numbers.',
             b.isNegative() ? `Subtract $${b.abs().toTex()}$ from $${product.toTex()}$.` : `Add $${b.toTex()}$ to $${product.toTex()}$.`,
-            'Use a number line if the signs are tricky.',
+            product.isNegative() || b.isNegative() ? 'Use a number line if the signs are tricky.' : 'Neither number is negative, so this is ordinary addition.',
             `Start at $${product.toTex()}$ and move ${b.abs().toTex()} ${b.isNegative() ? 'left' : 'right'}.`,
           ],
           misconceptions: numberMisconceptions(value, [{ value: product.sub(b), tag: 'sign-error', feedback: 'Check the sign of the constant term.' }]),
@@ -597,8 +597,8 @@ export const genNotationTable: GeneratorDef = {
           [
             'Function values are just numbers, so use ordinary arithmetic.',
             k === 1 ? 'There is only one operation to do.' : 'Multiply first, then add or subtract.',
-            op === '-' ? 'Subtracting a negative number is the same as adding its opposite.' : 'Adding a negative number is the same as subtracting.',
-            'Use a number line if the signs are tricky.',
+            op === '-' ? minusHint(Q(k).mul(ys[i]), ys[j]) : plusHint(Q(k).mul(ys[i]), ys[j]),
+            ys[i] < 0 || ys[j] < 0 || (op === '-' && k * ys[i] < ys[j]) ? 'Use a number line if the signs are tricky.' : 'Check your arithmetic by working it out a second time.',
           ],
           'Once each function value is replaced by a number, the expression is ordinary arithmetic.',
           [{ value: op === '-' ? Q(k).mul(ys[i]).add(ys[j]) : null, tag: 'sign-error', feedback: 'Check the operation between the two numbers.' }],
