@@ -20,7 +20,7 @@ import { deriveSeed } from '../../core/engine/rng';
 import type { DiagnosticSkillResult, DiagnosticSummary, DiagnosticVerdict, DiagnosticView, OnboardingState } from '../../shared/api';
 import { ServiceContext, UserFacingError } from './context';
 import { requireProfile } from './profiles';
-import { PracticeState, ProblemState, newPractice, realize, getProblem, problemView, practiceView, submitImmediate, hint, reveal, advance, allResolved } from './practice';
+import { PracticeState, ProblemState, newPractice, realize, getProblem, problemView, practiceView, submitImmediate, hint, reveal, advance, allResolved, deferredSaveProblem, elapsedFor } from './practice';
 import { awardXp, logActivity, recomputeSkill, recordAttempt, recentAnswers, bumpDay } from './records';
 import { lessonStatuses } from './lessons';
 
@@ -256,12 +256,16 @@ export function diagnosticSubmit(ctx: ServiceContext, profileId: number, key: st
     const p = getProblem(s.generatorId, s.seed, s.difficulty);
     const r = checkAnswer(p.answer, response, p.misconceptions);
     s.lastResponse = response;
-    if (r.status === 'invalid') {
-      s.lastFeedback = { status: 'invalid', message: r.message ?? 'That answer could not be read.' };
+    // An unreadable answer, or one not in the form the question asks for, is not scored: the
+    // student is told what to fix (a neutral message that does not say whether the value is
+    // right) and the question stays open. A correct value in the wrong form is never a miss.
+    const problem = deferredSaveProblem(p.answer, response, r);
+    if (problem) {
+      s.lastFeedback = { status: problem.status, message: problem.message };
       return;
     }
     const correct = r.status === 'correct';
-    const elapsed = Math.min(30 * 60_000, Math.max(0, elapsedMs || ctx.now() - s.shownAt));
+    const elapsed = elapsedFor(ctx, s, elapsedMs);
     const xpRes = correct
       ? xpForAnswer({ activity: 'diagnostic', correct, difficulty: s.difficulty, maxHintLevel: 0, attemptNumber: 1, isChoice: p.answer.kind === 'choice', elapsedMs: elapsed, recent: recentAnswers(ctx, profileId, ctx.now() - 30_000), now: ctx.now() })
       : { xp: 0, guessingSuspected: false };
@@ -337,11 +341,11 @@ function reviewSet(run: DiagnosticRun): PracticeState {
   return run.review;
 }
 
-export function diagnosticReviewSubmit(ctx: ServiceContext, profileId: number, key: string, response: string, elapsedMs: number): DiagnosticView {
+export function diagnosticReviewSubmit(ctx: ServiceContext, profileId: number, key: string, response: string, elapsedMs: number, stepIndex?: number): DiagnosticView {
   if (typeof response !== 'string' || response.length > 300) throw new UserFacingError('That answer is too long.');
   return withRun(ctx, profileId, (_o, run) => {
     const ps = reviewSet(run);
-    submitImmediate(ctx, profileId, null, ps, key, response, elapsedMs);
+    submitImmediate(ctx, profileId, null, ps, key, response, elapsedMs, stepIndex);
     if (allResolved(ps)) ps.complete = true;
   });
 }

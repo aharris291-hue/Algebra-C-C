@@ -177,9 +177,19 @@ export function skillStates(ctx: ServiceContext, profileId: number): Map<string,
   return new Map(rows.map((r) => [r.skill_id, { stage: r.stage, score: r.score, evidence: r.evidence_count, nextReviewAt: r.next_review_at }]));
 }
 
-/** Recent answers (for anti-guessing). */
+/** Activities whose answers are graded all at once at the end (their misses share one timestamp). */
+const DEFERRED_ACTIVITIES = ['quiz', 'assessment', 'testout'];
+
+/**
+ * Recent answers for the anti-guessing rule ("3 wrong in 30 s"). Deferred quiz, assessment and
+ * test-out answers are left out: they are all recorded at the same instant when the set is graded,
+ * so they say nothing about how fast the student is answering now.
+ */
 export function recentAnswers(ctx: ServiceContext, profileId: number, sinceMs: number): Array<{ at: number; correct: boolean }> {
   return ctx.db
-    .all<{ created_at: number; correct: number }>("SELECT created_at, correct FROM attempts WHERE profile_id = ? AND created_at >= ? AND status IN ('correct','incorrect') ORDER BY created_at", [profileId, sinceMs])
+    .all<{ created_at: number; correct: number }>(
+      `SELECT created_at, correct FROM attempts WHERE profile_id = ? AND created_at >= ? AND status IN ('correct','incorrect') AND activity NOT IN (${DEFERRED_ACTIVITIES.map(() => '?').join(',')}) ORDER BY created_at`,
+      [profileId, sinceMs, ...DEFERRED_ACTIVITIES],
+    )
     .map((r) => ({ at: r.created_at, correct: !!r.correct }));
 }

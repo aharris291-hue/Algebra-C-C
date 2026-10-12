@@ -11,7 +11,7 @@ import { xpForAnswer, XpActivity } from '../../core/engine/xp';
 import { GENERATORS, SKILL_BY_ID, generatorsForSkill } from '../../content';
 import type { ActivityKind, FeedbackView, PracticeView, ProblemView, AnswerKind } from '../../shared/api';
 import { ServiceContext, UserFacingError } from './context';
-import { recordAttempt, recordHint, recomputeSkill, awardXp } from './records';
+import { recordAttempt, recordHint, recomputeSkill, awardXp, recentAnswers } from './records';
 
 export interface ProblemState {
   key: string;
@@ -194,29 +194,15 @@ function xpActivity(a: ActivityKind): XpActivity {
   return a as XpActivity;
 }
 
-/** Activities whose answers are graded all at once at the end (their misses share one timestamp). */
-const DEFERRED_ACTIVITIES = ['quiz', 'assessment', 'testout'];
-
-/**
- * Recent answers for the anti-guessing rule ("3 wrong in 30 s"). Deferred quiz, assessment and
- * test-out answers are left out: they are all recorded at the same instant when the set is graded,
- * so they say nothing about how fast the student is answering now.
- */
-export function recentPracticeAnswers(ctx: ServiceContext, profileId: number, sinceMs: number): Array<{ at: number; correct: boolean }> {
-  return ctx.db
-    .all<{ created_at: number; correct: number }>(
-      `SELECT created_at, correct FROM attempts WHERE profile_id = ? AND created_at >= ? AND status IN ('correct','incorrect') AND activity NOT IN (${DEFERRED_ACTIVITIES.map(() => '?').join(',')}) ORDER BY created_at`,
-      [profileId, sinceMs, ...DEFERRED_ACTIVITIES],
-    )
-    .map((r) => ({ at: r.created_at, correct: !!r.correct }));
-}
+/** Recent answers for the anti-guessing rule ("3 wrong in 30 s"); deferred quiz/assessment/test-out answers are left out. */
+export const recentPracticeAnswers = recentAnswers;
 
 /**
  * Time on the current try, measured by the main process from when the problem (or the step, or the
  * previous wrong try) was shown. The renderer's figure only caps it from above (it can be shorter
  * after the app was reopened), so a quick retry is always seen as quick.
  */
-function elapsedFor(ctx: ServiceContext, s: ProblemState, clientMs: number): number {
+export function elapsedFor(ctx: ServiceContext, s: ProblemState, clientMs: number): number {
   const server = Number.isFinite(s.shownAt) ? ctx.now() - s.shownAt : NaN;
   const client = Number.isFinite(clientMs) && clientMs > 0 ? clientMs : NaN;
   const e = Number.isNaN(server) ? client : Number.isNaN(client) ? server : Math.min(server, client);

@@ -13,11 +13,12 @@ import { setupParent } from '../../src/main/services/parent';
 import { createProfile, getProfile, setOnboarding } from '../../src/main/services/profiles';
 import * as G from '../../src/main/services/diagnostic';
 import { getCourse } from '../../src/main/services/lessons';
-import { getProblem } from '../../src/main/services/practice';
-import { skillStates } from '../../src/main/services/records';
+import { getProblem, deferredSaveProblem } from '../../src/main/services/practice';
+import { checkAnswer } from '../../src/core/math/answers';
+import { skillStates, recordAttempt } from '../../src/main/services/records';
 import { createApi } from '../../src/main/services/api';
 import { canonicalInput } from '../../src/core/engine/problems';
-import { LESSONS, PREREQ_SKILLS, generatorsForSkill } from '../../src/content';
+import { GENERATORS, LESSONS, PREREQ_SKILLS, generatorsForSkill } from '../../src/content';
 import type { DiagnosticView } from '../../src/shared/api';
 
 async function makeCtx(): Promise<ServiceContext> {
@@ -49,6 +50,17 @@ function wrongAnswer(kind: string, right: string): string {
   return wrong[kind] ?? right.replace(/(=|<=|>=|<|>)/, '$1 987654 +');
 }
 
+/** A readable wrong answer in the form the question asks for (an answer in another form is not scored). */
+function wrongFor(ctx: ServiceContext, pid: number, key: string, kind: string): string {
+  const s = runState(ctx, pid).ps.items.find((i) => i.key === key)!;
+  const spec = getProblem(s.generatorId, s.seed, s.difficulty).answer;
+  const right = canonicalInput(spec);
+  const bump = (re: RegExp) => right.replace(re, (n) => String(Number(n) + 1));
+  const candidates = [wrongAnswer(kind, right), bump(/(\d+)(?!.*\d)/), bump(/\d+/), bump(/(\d+)(?!.*\d)/).replace(/(\d+)/, (n) => String(Number(n) + 1))];
+  for (const c of candidates) if (c !== right && checkAnswer(spec, c).status === 'incorrect' && !deferredSaveProblem(spec, c)) return c;
+  throw new Error(`no readable wrong answer for ${right}`);
+}
+
 /** Answer until the diagnostic ends; `pattern(skillId, k)` says whether the k-th answer on a skill is right. */
 function play(ctx: ServiceContext, pid: number, pattern: (skillId: string, k: number) => boolean | 'not-learned'): { view: DiagnosticView; asked: Map<string, number> } {
   let v = G.startDiagnostic(ctx, pid);
@@ -67,7 +79,7 @@ function play(ctx: ServiceContext, pid: number, pattern: (skillId: string, k: nu
     }
     const right = rightAnswer(ctx, pid, p.key);
     const before = st.ps.items.length;
-    v = G.diagnosticSubmit(ctx, pid, p.key, want ? right : wrongAnswer(p.answerKind, right), 20_000);
+    v = G.diagnosticSubmit(ctx, pid, p.key, want ? right : wrongFor(ctx, pid, p.key, p.answerKind), 20_000);
     // every readable answer moves on (no feedback, no second try on the same question)
     if (v.phase === 'questions') expect(runState(ctx, pid).ps.items.length, `${p.answerKind}: ${v.problem?.lastFeedback?.message}`).toBe(before + 1);
   }
@@ -135,7 +147,7 @@ describe('taking the diagnostic', () => {
     expect(v.problem!.key).toBe(p.key);
     expect(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM attempts WHERE profile_id = ? AND activity = 'diagnostic'", [pid])!.n).toBe(0);
     // a wrong answer gives no right/wrong signal, just the next question
-    v = G.diagnosticSubmit(ctx, pid, p.key, wrongAnswer(p.answerKind, rightAnswer(ctx, pid, p.key)), 20_000);
+    v = G.diagnosticSubmit(ctx, pid, p.key, wrongFor(ctx, pid, p.key, p.answerKind), 20_000);
     expect(v.problem!.key).not.toBe(p.key);
     expect(v.problem!.lastFeedback).toBeUndefined();
     // the old question is gone; only the current one can be answered
@@ -263,5 +275,83 @@ describe('taking the diagnostic', () => {
     expect(view.summary!.testOutLessonIds.length).toBeGreaterThan(0);
     // both runs' answers stay in the record
     expect(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM attempts WHERE profile_id = ? AND activity = 'diagnostic'", [pid])!.n).toBeGreaterThan(G.diagnosticPlan().length * 2);
+  });
+
+  it('a correct value in the wrong form is not scored as a miss: a neutral message keeps the question open', () => {
+    let v = G.startDiagnostic(ctx, pid);
+    // answer correctly until a plain-number question comes up
+    for (let g = 0; v.phase === 'questions' && v.problem!.answerKind !== 'number'; g++) {
+      expect(g).toBeLessThan(40);
+      v = G.diagnosticSubmit(ctx, pid, v.problem!.key, rightAnswer(ctx, pid, v.problem!.key), 20_000);
+    }
+    const p = v.problem!;
+    const right = rightAnswer(ctx, pid, p.key);
+    const count = () => ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM attempts WHERE profile_id = ? AND activity = 'diagnostic'", [pid])!.n;
+    const before = count();
+    v = G.diagnosticSubmit(ctx, pid, p.key, `${right} + 0`, 20_000);
+    expect(v.problem!.key).toBe(p.key);
+    expect(count()).toBe(before);
+    const rightMsg = v.problem!.lastFeedback?.message;
+    expect(rightMsg).toBeTruthy();
+    // the same message for a wrong value in the wrong form: it gives nothing away
+    v = G.diagnosticSubmit(ctx, pid, p.key, `${wrongAnswer('number', right)} + 0`, 20_000);
+    expect(v.problem!.key).toBe(p.key);
+    expect(v.problem!.lastFeedback?.message).toBe(rightMsg);
+    expect(rightMsg).not.toMatch(/correct|wrong|right/i);
+    expect(count()).toBe(before);
+    // rewritten as asked, it is scored as correct
+    v = G.diagnosticSubmit(ctx, pid, p.key, right, 20_000);
+    expect(v.problem?.key).not.toBe(p.key);
+    expect(ctx.db.get<{ correct: number }>("SELECT correct FROM attempts WHERE profile_id = ? AND problem_key = ? AND activity = 'diagnostic'", [pid, p.key])!.correct).toBe(1);
+  });
+
+  it('times an answer by the main process clock; the client figure only caps it', () => {
+    const v = G.startDiagnostic(ctx, pid);
+    const p = v.problem!;
+    G.diagnosticSubmit(ctx, pid, p.key, rightAnswer(ctx, pid, p.key), 10 * 60_000); // client claims 10 minutes
+    const e = ctx.db.get<{ elapsed_ms: number }>("SELECT elapsed_ms FROM attempts WHERE profile_id = ? AND problem_key = ?", [pid, p.key])!.elapsed_ms;
+    expect(e).toBeLessThanOrEqual(60_000); // the test clock moves 20 s per call
+  });
+
+  it('deferred quiz misses do not make a following diagnostic answer look like guessing', () => {
+    const v = G.startDiagnostic(ctx, pid);
+    const p = v.problem!;
+    // a quiz just graded: its misses all share one timestamp
+    const tick = ctx.now;
+    const at = tick() + 60_000; // inside the 30 s window of the answer below (the test clock moves 20 s per reading)
+    ctx.now = () => at;
+    for (let i = 0; i < 4; i++)
+      recordAttempt(ctx, { profileId: pid, lessonId: 'U1L01', activity: 'quiz', skillId: 'S1.01', generatorId: 'x', seed: i, difficulty: 1, problemKey: `quiz:${i}`, response: '1', status: 'incorrect', correct: false, attemptNumber: 1, hintsUsed: 0, maxHintLevel: 0, elapsedMs: 0, counted: true, xp: 0, guessing: false });
+    ctx.now = tick;
+    G.diagnosticSubmit(ctx, pid, p.key, rightAnswer(ctx, pid, p.key), 20_000);
+    const row = ctx.db.get<{ guessing: number; xp: number }>('SELECT guessing, xp FROM attempts WHERE profile_id = ? AND problem_key = ?', [pid, p.key])!;
+    expect(row.guessing).toBe(0);
+    expect(row.xp).toBeGreaterThan(0);
+  });
+
+  it('warm-up practice passes the guided step index through, so a repeated submit for a done step is ignored', async () => {
+    play(ctx, pid, (skill) => skill !== 'P.FRAC' && skill !== 'P.SLOPE');
+    const api = createApi(ctx);
+    await api.startDiagnosticReview(pid);
+    // the warm-up generators have no guided steps today: put a stepped problem in the first slot
+    let gen = '';
+    for (const [id] of GENERATORS) {
+      try {
+        const q = getProblem(id, 1, 1);
+        if (q.steps && q.steps.length >= 2 && q.steps[1].answer.kind === 'number') { gen = id; break; }
+      } catch { /* next */ }
+    }
+    expect(gen).not.toBe('');
+    const ob = JSON.parse(ctx.db.get<{ onboarding_json: string }>('SELECT onboarding_json FROM profiles WHERE id = ?', [pid])!.onboarding_json);
+    Object.assign(ob.diagnosticRun.review.items[0], { generatorId: gen, seed: 1, difficulty: 1, stepIndex: 0, stepAttempts: 0, state: 'open' });
+    ctx.db.run('UPDATE profiles SET onboarding_json = ? WHERE id = ?', [JSON.stringify(ob), pid]);
+    const key = ob.diagnosticRun.review.items[0].key as string;
+    const prob = getProblem(gen, 1, 1);
+    let v = await api.diagnosticReviewSubmit(pid, key, canonicalInput(prob.steps![0].answer), 20_000, 0);
+    expect(v.review!.problems[0].step!.index).toBe(1);
+    // a stale submit for step 0 (another answer, so the same-text fallback cannot catch it) is ignored
+    v = await api.diagnosticReviewSubmit(pid, key, '987654321', 20_000, 0);
+    expect(v.review!.problems[0].step!.index).toBe(1);
+    expect(ctx.db.all<{ status: string }>('SELECT status FROM attempts WHERE profile_id = ? AND problem_key = ?', [pid, key]).map((r) => r.status)).toEqual(['correct']);
   });
 });

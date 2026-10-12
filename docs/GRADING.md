@@ -43,7 +43,7 @@ Each skill's state is replayed from all counted answers in time order (determini
 Offered after the first profile is created and on the home screen until it is taken; a parent can skip it (or offer it again) with the Parent PIN.
 
 - Part 1 checks the 12 earlier-grade prerequisite skills; Part 2 probes 8 key course skills (S1.02, S1.05, S1.07, S1.09, S1.12, S2.01, S3.03, S5.01).
-- One question at a time, no hints, no right/wrong feedback. "I haven't learned this yet" marks the skill not learned and records no wrong answer.
+- One question at a time, no hints, no right/wrong feedback. "I haven't learned this yet" marks the skill not learned and records no wrong answer. An answer that cannot be read or is not in the requested form is not scored: a neutral message says what to fix and the question stays open.
 - Evidence rule (one slip never decides a skill): a prerequisite is shown by a first correct answer; after a miss, two misses mean it needs a refresh, and a miss then a correct answer goes to a third question. A course skill needs two correct answers; two misses mean it is still to learn; a split goes to a third question. At most 3 questions per skill.
 - Starting mastery: the answers count as diagnostic evidence, so a course skill shown with two correct answers starts at Proficient (never Mastered, which needs quiz/assessment work on more than one day), and a skill with two misses stays Learning. A stage set by the diagnostic alone gives no milestone XP; that is earned in lessons.
 - Results: each skill's verdict, a starting lesson (the first open lesson), Show What You Know suggestions for lessons whose course skill was shown (marked on the course map), and optional warm-up practice (hints, worked solutions) on prerequisites that need a refresh.

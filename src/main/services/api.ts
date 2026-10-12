@@ -80,8 +80,8 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async startDiagnosticReview(id) {
       return diagnostic.startDiagnosticReview(ctx, id);
     },
-    async diagnosticReviewSubmit(id, key, response, elapsed) {
-      return diagnostic.diagnosticReviewSubmit(ctx, id, key, response, elapsed);
+    async diagnosticReviewSubmit(id, key, response, elapsed, stepIndex) {
+      return diagnostic.diagnosticReviewSubmit(ctx, id, key, response, elapsed, stepIndex ?? undefined);
     },
     async diagnosticReviewHint(id, key) {
       return diagnostic.diagnosticReviewHint(ctx, id, key);
@@ -119,8 +119,8 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async selectProblem(id, lessonId, index) {
       return lessons.selectProblem(ctx, id, lessonId, index);
     },
-    async submitAnswer(id, lessonId, key, response, elapsedMs) {
-      return lessons.submitAnswer(ctx, id, lessonId, key, response, elapsedMs);
+    async submitAnswer(id, lessonId, key, response, elapsedMs, stepIndex) {
+      return lessons.submitAnswer(ctx, id, lessonId, key, response, elapsedMs, stepIndex ?? undefined);
     },
     async requestHint(id, lessonId, key) {
       return lessons.requestHint(ctx, id, lessonId, key);
@@ -152,8 +152,8 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async startDay(id, lessonId) {
       return days.startDay(ctx, id, lessonId);
     },
-    async daySubmit(id, lessonId, key, response, elapsed) {
-      return days.daySubmit(ctx, id, lessonId, key, response, elapsed);
+    async daySubmit(id, lessonId, key, response, elapsed, stepIndex) {
+      return days.daySubmit(ctx, id, lessonId, key, response, elapsed, stepIndex ?? undefined);
     },
     async dayHint(id, lessonId, key) {
       return days.dayHint(ctx, id, lessonId, key);

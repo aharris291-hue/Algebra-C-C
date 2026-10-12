@@ -427,7 +427,7 @@ export interface AcademyApi {
   /** "I haven't learned this yet": no answer is recorded, the skill is marked not learned */
   diagnosticNotLearned(profileId: number, problemKey: string): Promise<DiagnosticView>;
   startDiagnosticReview(profileId: number): Promise<DiagnosticView>;
-  diagnosticReviewSubmit(profileId: number, problemKey: string, response: string, elapsedMs: number): Promise<DiagnosticView>;
+  diagnosticReviewSubmit(profileId: number, problemKey: string, response: string, elapsedMs: number, stepIndex?: number): Promise<DiagnosticView>;
   diagnosticReviewHint(profileId: number, problemKey: string): Promise<DiagnosticView>;
   diagnosticReviewReveal(profileId: number, problemKey: string): Promise<DiagnosticView>;
   diagnosticReviewNext(profileId: number): Promise<DiagnosticView>;
@@ -441,7 +441,7 @@ export interface AcademyApi {
   goToSection(profileId: number, lessonId: string, section: SectionId): Promise<LessonView>;
   advanceSection(profileId: number, lessonId: string): Promise<LessonView>;
   selectProblem(profileId: number, lessonId: string, index: number): Promise<LessonView>;
-  submitAnswer(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number): Promise<LessonView>;
+  submitAnswer(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number, stepIndex?: number): Promise<LessonView>;
   requestHint(profileId: number, lessonId: string, problemKey: string): Promise<LessonView>;
   revealSolution(profileId: number, lessonId: string, problemKey: string): Promise<LessonView>;
   nextProblem(profileId: number, lessonId: string): Promise<LessonView>;
@@ -452,7 +452,7 @@ export interface AcademyApi {
   teachMeAgain(profileId: number, lessonId: string, approach?: string): Promise<TeachAgainView>;
   openDay(profileId: number, lessonId: string): Promise<DayView>;
   startDay(profileId: number, lessonId: string): Promise<DayView>;
-  daySubmit(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number): Promise<DayView>;
+  daySubmit(profileId: number, lessonId: string, problemKey: string, response: string, elapsedMs: number, stepIndex?: number): Promise<DayView>;
   dayHint(profileId: number, lessonId: string, problemKey: string): Promise<DayView>;
   dayReveal(profileId: number, lessonId: string, problemKey: string): Promise<DayView>;
   dayNext(profileId: number, lessonId: string): Promise<DayView>;

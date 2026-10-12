@@ -524,7 +524,7 @@ function activePractice(st: LessonState, key: string): PracticeState {
   return ps;
 }
 
-export function submitAnswer(ctx: ServiceContext, profileId: number, lessonId: string, key: string, response: string, elapsedMs: number): LessonView {
+export function submitAnswer(ctx: ServiceContext, profileId: number, lessonId: string, key: string, response: string, elapsedMs: number, stepIndex?: number): LessonView {
   if (typeof response !== 'string' || response.length > 300) throw new UserFacingError('That answer is too long.');
   return withState(ctx, profileId, lessonId, (st) => {
     const ps = activePractice(st, key);
@@ -536,7 +536,7 @@ export function submitAnswer(ctx: ServiceContext, profileId: number, lessonId: s
     const support = ps.activity === 'remediation' || ps.activity === 'corrections';
     const prior = support ? supportXp(ctx, profileId, lessonId) : 0;
     const sinceId = support ? lastXpId(ctx, profileId) : 0;
-    const out = submitImmediate(ctx, profileId, lessonId, ps, key, response, elapsedMs);
+    const out = submitImmediate(ctx, profileId, lessonId, ps, key, response, elapsedMs, stepIndex);
     if (support) {
       const cut = capSupportXp(ctx, profileId, lessonId, prior, sinceId);
       if (cut) {

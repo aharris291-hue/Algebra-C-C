@@ -240,7 +240,7 @@ function currentSet(st: DayState): PracticeState | null {
   return null;
 }
 
-export function daySubmit(ctx: ServiceContext, profileId: number, id: string, key: string, response: string, elapsedMs: number): DayView {
+export function daySubmit(ctx: ServiceContext, profileId: number, id: string, key: string, response: string, elapsedMs: number, stepIndex?: number): DayView {
   if (typeof response !== 'string' || response.length > 300) throw new UserFacingError('That answer is too long.');
   return withDay(ctx, profileId, id, (st) => {
     const ps = activeSet(st, key);
@@ -252,7 +252,7 @@ export function daySubmit(ctx: ServiceContext, profileId: number, id: string, ke
     const support = ps === st.corrections;
     const prior = support ? supportXp(ctx, profileId, id) : 0;
     const sinceId = support ? lastXpId(ctx, profileId) : 0;
-    const out = submitImmediate(ctx, profileId, id, ps, key, response, elapsedMs);
+    const out = submitImmediate(ctx, profileId, id, ps, key, response, elapsedMs, stepIndex);
     if (support) {
       // correction XP is capped per day so failing and retaking an assessment cannot farm XP
       const cut = capSupportXp(ctx, profileId, id, prior, sinceId);

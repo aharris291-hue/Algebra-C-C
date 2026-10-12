@@ -174,7 +174,7 @@ export function DiagnosticPlayer(props: { profileId: number; onExit: () => void;
               busy={busy}
               intro="Short practice on the earlier-grade skills that need a refresh. Hints and worked solutions are here whenever you need them."
               actions={{
-                submit: async (key, response, elapsed) => void (await run(() => api.diagnosticReviewSubmit(profileId, key, response, elapsed))),
+                submit: async (key, response, elapsed, stepIndex) => void (await run(() => api.diagnosticReviewSubmit(profileId, key, response, elapsed, stepIndex))),
                 hint: async (key) => void (await run(() => api.diagnosticReviewHint(profileId, key))),
                 reveal: async (key) => void (await run(() => api.diagnosticReviewReveal(profileId, key))),
                 next: async () => void (await run(() => api.diagnosticReviewNext(profileId))),
