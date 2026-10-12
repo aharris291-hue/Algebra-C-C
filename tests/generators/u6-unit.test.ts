@@ -134,3 +134,32 @@ describe('Unit 6 guided practice is step by step', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Error-specific feedback (Lesson Quality Audit): every wrong option of a multiple-choice problem
+// names its mistake, and choosing it returns that feedback.
+// ---------------------------------------------------------------------------
+describe('Unit 6 multiple-choice distractors carry error-specific feedback', () => {
+  for (const pair of ['u6.compare-families|2', 'u6.compare-families|3', 'u6.exp-model|3', 'u6.geo-function|3', 'u6.geometric|3', 'u6.linear-or-exp|3']) {
+    it(`${pair} gives feedback for every wrong option on 60 seeds`, () => {
+      const [gid, d] = pair.split('|');
+      const gen = GENERATORS.get(gid)!;
+      let choices = 0;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 17 * Number(d), Number(d) as Difficulty);
+        const a = problem.answer;
+        if (a.kind !== 'choice') continue;
+        choices++;
+        for (const o of a.options) {
+          if (o.id === a.correct) continue;
+          const m = problem.misconceptions.find((x) => x.answer === o.id);
+          expect(m, `${problem.id} option "${o.label}"`).toBeDefined();
+          const r = checkAnswer(a, o.id, problem.misconceptions);
+          expect(r.status).toBe('incorrect');
+          expect(r.message).toBe(m!.feedback);
+        }
+      }
+      expect(choices).toBeGreaterThan(10);
+    });
+  }
+});

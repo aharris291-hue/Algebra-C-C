@@ -11,7 +11,7 @@ import { parseExpression } from '../../core/math/parser';
 import { evalNumeric } from '../../core/math/evaluate';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
-import { texToParser, exactRational, expPlain, expTex, dTex, commas, pct, textOf } from './u5-common';
+import { texToParser, exactRational, expPlain, expTex, dTex, commas, pct, textOf, choiceMisconceptions } from './u5-common';
 import { mathBlocks, graphOf } from './u4-common';
 import { numStep, specStep, choiceStep, finalStep, withSteps, stepErrors } from './u5-steps';
 
@@ -195,7 +195,7 @@ export const genInterpretExponential: GeneratorDef = {
           { value: r, tag: 'percent-rate', feedback: 'That is the rate as a decimal. Write it as a percent.' },
         ]),
       }), (pr) => [
-          numStep(growth ? `For growth, $b = 1 + r$. Solve $1 + r = ${dTex(b)}$. What is $r$ as a decimal?` : `For decay, $b = 1 - r$. Solve $1 - r = ${dTex(b)}$. What is $r$ as a decimal?`, r, [growth ? 'The 1 stands for keeping all of the amount.' : 'The factor is the part that remains.', growth ? `Subtract 1 from both sides.` : `Rearrange: $r = 1 - ${dTex(b)}$.`, growth ? `Find $${dTex(b)} - 1$.` : `Find $1 - ${dTex(b)}$.`, 'The rate is a positive decimal less than 1 here.'], `$r = ${growth ? `${dTex(b)} - 1` : `1 - ${dTex(b)}`} = ${dTex(r)}$.`, [{ value: b, tag: 'percent-rate', feedback: 'That is the factor. The rate is how far the factor is from 1.' }, { value: growth ? null : b.sub(1), tag: 'sign-error', feedback: 'For decay, the rate is $1 - b$, which is positive.' }, { value: r.mul(100), tag: 'percent-rate', feedback: 'This step asks for the decimal. You will change it to a percent next.' }]),
+          numStep(growth ? `For growth, $b = 1 + r$. Solve $1 + r = ${dTex(b)}$. What is $r$ as a decimal?` : `For decay, $b = 1 - r$. Solve $1 - r = ${dTex(b)}$. What is $r$ as a decimal?`, r, [growth ? 'The 1 stands for keeping all of the amount.' : 'The factor is the part that remains.', growth ? `Subtract 1 from both sides.` : `Rearrange: $r = 1 - ${dTex(b)}$.`, growth ? `Find $${dTex(b)} - 1$.` : `Find $1 - ${dTex(b)}$.`, growth ? 'The rate is positive: it is how far the factor is above 1.' : 'The rate is a positive decimal less than 1 here.'], `$r = ${growth ? `${dTex(b)} - 1` : `1 - ${dTex(b)}`} = ${dTex(r)}$.`, [{ value: b, tag: 'percent-rate', feedback: 'That is the factor. The rate is how far the factor is from 1.' }, { value: growth ? null : b.sub(1), tag: 'sign-error', feedback: 'For decay, the rate is $1 - b$, which is positive.' }, { value: r.mul(100), tag: 'percent-rate', feedback: 'This step asks for the decimal. You will change it to a percent next.' }]),
           finalStep(pr, `Write $r$ as a percent. By what percent does $y$ ${growth ? 'increase' : 'decrease'} each time $x$ increases by 1?`, ['A percent is a number out of 100.', 'Multiply the decimal by 100.', 'Move the decimal point two places to the right.', 'Type just the number of percent.'], `$${dTex(r)} = ${pct(r)}\\%$.`),
         ]);
     }
@@ -614,7 +614,7 @@ export const genExponentialConstraints: GeneratorDef = {
       }), (pr) => [
         numStep(`Find the starting value: what is $${c.fn}(0)$?`, a, [`Substitute $${c.v} = 0$.`, 'Any nonzero number to the zero power is 1.', 'So the power part equals 1.', 'Multiply the number in front by 1.'], `$${c.fn}(0) = ${c.a}(1) = ${c.a}$, the ${c.unitNoun} at the start.`, [{ value: Q(0), tag: 'exponent-rule', feedback: 'The zero power is 1, not 0.' }, { value: a.mul(b), tag: 'exponent-rule', feedback: `That is the value after 1 ${c.per}. Use $${c.v} = 0$.` }, { value: b, tag: 'growth-decay', feedback: 'That is the factor. Substitute 0 for the input.' }]),
         choiceStep(`The factor is $${dTex(b)}$. What happens to the ${c.unitNoun} after the start?`, [`It grows: every value after the start is greater than ${c.a}.`, `It decays: every value is less than ${c.a}, but it stays above 0.`], growth ? 0 : 1, [`Compare $${dTex(b)}$ with 1.`, 'Multiplying a positive number by more than 1 makes it bigger.', 'Multiplying a positive number by a number between 0 and 1 makes it smaller, but still positive.', `Is $${dTex(b)}$ greater than 1?`], growth ? `$${dTex(b)} > 1$, so each ${c.per} the ${c.unitNoun} is multiplied by more than 1 and only goes up.` : `$0 < ${dTex(b)} < 1$, so each ${c.per} the ${c.unitNoun} gets smaller, but a positive number times a positive factor is never 0 or negative.`, [{ index: growth ? 1 : 0, tag: 'growth-decay', feedback: `Compare the factor $${dTex(b)}$ with 1.` }]),
-        finalStep(pr, `Compare $${commas(V)}$ with the starting value and with 0. Could the ${c.unitNoun} ever be $${commas(V)}$?`, ['Outputs of this model are always positive.', growth ? 'A growth model never goes below its starting value after it starts.' : 'A decay model never goes above its starting value after it starts.', 'Every value on the allowed side is reached at some time.', `Is $${commas(V)}$ on the allowed side?`], correct),
+        finalStep(pr, V.isZero() ? `Could the ${c.unitNoun} ever be $0$? Think about what you get when you multiply a positive starting value by a positive factor again and again.` : `Compare $${commas(V)}$ with the starting value and with 0. Could the ${c.unitNoun} ever be $${commas(V)}$?`, [V.le(0) ? 'What sign does a positive number times a positive number have?' : 'Outputs of this model are always positive.', growth ? 'A growth model never goes below its starting value after it starts.' : 'A decay model never goes above its starting value after it starts.', 'Every value on the allowed side is reached at some time.', `Is $${commas(V)}$ on the allowed side?`], correct),
       ]);
     }
     // difficulty 3: whole-number outputs, or does a table fit an exponential model
@@ -633,17 +633,24 @@ export const genExponentialConstraints: GeneratorDef = {
         const s = `$${commas(v)}$`;
         if (v.gt(0) && v.isInteger() && !isPow(v) && !wrongs.includes(s)) wrongs.push(s);
       }
+      // why each candidate is tempting: a near miss by adding, or multiplying by the number of hours
+      const candWhy = ['near', 'times', 'near', 'near', 'times', 'near'] as const;
+      const cellMis = cands.map((v, i) => {
+        const why = candWhy[i] === 'times' ? `Multiplying by ${base} and by a number of hours is linear thinking. The model multiplies by ${base} once for every hour.` : `Being close to a possible count is not enough: each hour multiplies the count by ${base}, so the counts jump and skip the numbers in between.`;
+        return { label: `$${commas(v)}$`, tag: (candWhy[i] === 'times' ? 'exponent-rule' : 'growth-decay') as MisconceptionTag, feedback: `$${commas(v)} \\div ${a0} = ${commas(v.div(a0))}$, which is not a power of ${base}, so no whole number of hours gives this count. ${why}` };
+      });
+      const cellAnswer = makeChoice(rng, `$${commas(good)}$`, wrongs.slice(0, 3));
       return makeProblem({
         skillId: 'S5.05',
         tags: ['real-world'],
         prompt: [p(`A biologist models the number of cells in a sample with $C(h) = ${a0}\\left(${base}\\right)^{h}$, where $h$ is the number of whole hours since the start. The cells are counted only on the hour. Which count is possible under this model?`)],
-        answer: makeChoice(rng, `$${commas(good)}$`, wrongs.slice(0, 3)),
+        answer: cellAnswer,
         hints: ['$h$ must be a whole number: 0, 1, 2, 3, ...', `List the outputs: $C(0) = ${a0}$, then multiply by ${base} each hour.`, `A possible count is $${a0}$ times a power of ${base}.`, `Divide each option by $${a0}$ and see whether you get a power of ${base}.`],
         solution: [
           { text: 'List the outputs for whole-number inputs.', tex: [0, 1, 2, 3, 4, 5, 6].slice(0, n + 2).map((h) => `C(${h}) = ${commas(Q(a0 * base ** h))}`).join(',\\ '), why: 'The count only exists at whole hours, so only these outputs are viable.' },
           { text: `Only $${commas(good)}$ is on the list.`, tex: `${commas(good)} = ${a0} \\cdot ${base}^{${n}}`, why: 'The other numbers are not $' + a0 + '$ times a power of ' + base + ', so they are not viable.' },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisconceptions(cellAnswer, cellMis),
       });
     }
     const kind = rng.pick(['exp', 'exp', 'linear', 'neither'] as const);
@@ -662,17 +669,30 @@ export const genExponentialConstraints: GeneratorDef = {
     const distract = constant
       ? ['No. The differences between outputs are not constant, so it cannot be exponential.', `Yes. The difference between outputs is always $${ys[1] - ys[0]}$.`, 'No. Exponential data must decrease.']
       : [`Yes. The outputs change in the same direction every time, so $y = ${ys[0]}(${dTex(ratios[0])})^{x}$ fits.`, 'Yes. Any data that always increases or always decreases can be modeled exactly by an exponential function.', 'No. Exponential data must decrease.'];
+    const mustDecrease = { label: 'No. Exponential data must decrease.', tag: 'growth-decay' as MisconceptionTag, feedback: 'Exponential data can grow (factor greater than 1) or decay (factor between 0 and 1), so the direction does not rule it out. Check the ratios of consecutive outputs instead.' };
+    const tableMis = constant
+      ? [
+          { label: distract[0], tag: 'growth-decay' as MisconceptionTag, feedback: 'Constant differences are the test for a linear model. For an exponential model, check whether the ratios of consecutive outputs are all the same.' },
+          { label: distract[1], tag: 'arithmetic-error' as MisconceptionTag, feedback: `Check every difference, not just the first one: they are not all $${ys[1] - ys[0]}$. Also, a constant difference would mean linear; an exponential model needs a constant ratio.` },
+          mustDecrease,
+        ]
+      : [
+          { label: distract[0], tag: 'growth-decay' as MisconceptionTag, feedback: 'Changing in the same direction is not enough. Find every ratio of consecutive outputs (each $y$ divided by the one before it) and check whether they all match.' },
+          { label: distract[1], tag: 'growth-decay' as MisconceptionTag, feedback: 'Lots of data always increases or always decreases (linear data does too). An exponential model fits exactly only when each output is the one before it times the same number.' },
+          mustDecrease,
+        ];
+    const tableAnswer = makeChoice(rng, correct, distract);
     return makeProblem({
       skillId: 'S5.05',
       tags: [],
       prompt: [p('A student says an exponential model $y = a(b)^{x}$ fits this data exactly. Is that possible?'), { t: 'table', headers: ['$x$', '$y$'], rows: ys.map((y, x) => [String(x), String(y)]) }],
-      answer: makeChoice(rng, correct, distract),
+      answer: tableAnswer,
       hints: ['Exponential data has a constant ratio: each output is the one before it times $b$.', 'Divide each $y$-value by the one before it.', `$\\frac{${ys[1]}}{${ys[0]}}$, $\\frac{${ys[2]}}{${ys[1]}}$, $\\frac{${ys[3]}}{${ys[2]}}$`, 'If every ratio is the same, an exponential model fits.'],
       solution: [
         { text: 'Find the ratios of consecutive outputs.', tex: ratios.map((r, i) => `\\frac{${ys[i + 1]}}{${ys[i]}} = ${dTex(r)}`).join(',\\quad '), why: 'An exponential function multiplies by the same factor $b$ for each step of 1 in $x$.' },
         { text: constant ? 'The ratios match, so an exponential model fits.' : 'The ratios do not all match, so an exponential model is not viable.' },
       ],
-      misconceptions: [],
+      misconceptions: choiceMisconceptions(tableAnswer, tableMis),
     });
   },
   verify(pr) {
@@ -949,18 +969,29 @@ export const genCompoundInterest: GeneratorDef = {
       const A1 = amount(P, r1, o1.n, t);
       const A2 = amount(P, r2, o2.n, t);
       const correct = A1.gt(A2) ? 'Account A' : 'Account B';
+      const loser = correct === 'Account A' ? 'Account B' : 'Account A';
+      const [rL, nL, rW, nW] = correct === 'Account A' ? [r2, o2.n, r1, o1.n] : [r1, o1.n, r2, o2.n];
+      const loserWhy = rL.gt(rW)
+        ? `${loser} has the higher rate, but the rate alone does not decide it: the other account compounds more often. Compute both amounts with the formula and compare.`
+        : nL > nW
+          ? `Compounding more often helps, but ${loser} also has a lower rate, so you cannot tell from the compounding alone. Compute both amounts with the formula and compare.`
+          : `${loser} has the lower rate and does not compound more often. Check each rate and the value of $n$ for each account, then compute both amounts.`;
+      const compareAnswer = makeChoice(rng, correct, [loser, 'They end with the same amount']);
       return makeProblem({
         skillId: 'S5.06',
         tags: ['real-world', 'multi-step'],
         prompt: [p(`${name} has ${moneyText(P)} to deposit for ${t} years. Account A pays ${pct(r1)}% interest compounded ${o1.word}. Account B pays ${pct(r2)}% interest compounded ${o2.word}. Which account will have more money after ${t} years?`), { t: 'math', tex: formula }],
-        answer: makeChoice(rng, correct, [correct === 'Account A' ? 'Account B' : 'Account A', 'They end with the same amount']),
+        answer: compareAnswer,
         hints: ['Use the formula for each account.', 'Write each rate as a decimal and match $n$ to the compounding: annually 1, semiannually 2, quarterly 4, monthly 12.', 'Compute both amounts with a calculator, rounding only at the end.', 'Compare the two amounts.'],
         solution: [
           { text: 'Account A.', tex: `A = ${numStr(P)}\\left(1 + \\frac{${dTex(r1)}}{${o1.n}}\\right)^{${o1.n}(${t})} \\approx ${fixedPlaces(A1, 2)}` },
           { text: 'Account B.', tex: `A = ${numStr(P)}\\left(1 + \\frac{${dTex(r2)}}{${o2.n}}\\right)^{${o2.n}(${t})} \\approx ${fixedPlaces(A2, 2)}`, why: 'A higher rate and more frequent compounding both help, so you have to compute to see which matters more here.' },
           { text: `${correct} ends with more.` },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisconceptions(compareAnswer, [
+          { label: loser, tag: 'formula-error', feedback: loserWhy },
+          { label: 'They end with the same amount', tag: 'formula-error', feedback: 'Different rates and compounding give different amounts. Compute each account with $A = P\\left(1 + \\frac{r}{n}\\right)^{nt}$, rounding only at the end, and compare.' },
+        ]),
       });
     }
     const o = difficulty === 1 ? COMPOUND[0] : rng.pick(COMPOUND.slice(1));

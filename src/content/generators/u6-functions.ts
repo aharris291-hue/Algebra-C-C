@@ -962,8 +962,11 @@ export const genExpRate: GeneratorDef = {
 // S6.06: transformations f(x) + k and k·f(x)
 // ---------------------------------------------------------------------------
 
+/** "1 unit", "3 units". */
+const unitsOf = (v: Rational) => (v.eq(1) ? 'unit' : 'units');
+
 function describe(kind: 'add' | 'mul', k: Rational): string {
-  if (kind === 'add') return k.isNegative() ? `The graph shifts down ${dTex(k.abs())} units.` : `The graph shifts up ${dTex(k)} units.`;
+  if (kind === 'add') return k.isNegative() ? `The graph shifts down ${dTex(k.abs())} ${unitsOf(k.abs())}.` : `The graph shifts up ${dTex(k)} ${unitsOf(k)}.`;
   if (k.eq(-1)) return 'The graph is reflected across the $x$-axis.';
   if (k.isNegative()) return `The graph is reflected across the $x$-axis and vertically ${k.abs().gt(1) ? 'stretched' : 'compressed'} by a factor of $${dTex(k.abs())}$.`;
   return k.gt(1) ? `The graph is vertically stretched by a factor of $${dTex(k)}$.` : `The graph is vertically compressed by a factor of $${dTex(k)}$.`;
@@ -985,8 +988,8 @@ export const genExpTransform: GeneratorDef = {
     if (difficulty === 1) {
       const correct = describe(kind, k);
       const wrongs = kind === 'add'
-        ? [describe('add', k.neg()), `The graph shifts ${k.isNegative() ? 'right' : 'left'} ${dTex(k.abs())} units.`, `The graph is vertically stretched by a factor of $${dTex(k.abs())}$.`]
-        : [describe('mul', k.isNegative() ? k.abs().eq(1) ? Q(2) : k.abs() : k.neg()), `The graph shifts up $${dTex(k.abs())}$ units.`, k.abs().eq(1) ? 'The graph is reflected across the $y$-axis.' : describe('mul', k.abs().inv())];
+        ? [describe('add', k.neg()), `The graph shifts ${k.isNegative() ? 'right' : 'left'} ${dTex(k.abs())} ${unitsOf(k.abs())}.`, `The graph is vertically stretched by a factor of $${dTex(k.abs())}$.`]
+        : [describe('mul', k.isNegative() ? k.abs().eq(1) ? Q(2) : k.abs() : k.neg()), `The graph shifts up $${dTex(k.abs())}$ ${unitsOf(k.abs())}.`, k.abs().eq(1) ? 'The graph is reflected across the $y$-axis.' : describe('mul', k.abs().inv())];
       return withSteps(makeProblem({
         skillId: 'S6.06',
         tags: [],
@@ -1026,7 +1029,7 @@ export const genExpTransform: GeneratorDef = {
         misconceptions: numberMisconceptions(k, [
           { value: kind === 'add' ? null : valueAt(g, 0).sub(valueAt(f, 0)), tag: 'other', feedback: 'For $k \\cdot f(x)$, divide the outputs instead of subtracting.' },
           { value: kind === 'add' ? (valueAt(f, 0).isZero() ? null : valueAt(g, 0).div(valueAt(f, 0))) : null, tag: 'other', feedback: 'For $f(x) + k$, subtract the outputs instead of dividing.' },
-          { value: k.neg(), tag: 'sign-error', feedback: 'Subtract (or divide) $g$ by $f$, in that order.' },
+          { value: k.neg(), tag: 'sign-error', feedback: kind === 'add' ? 'Find $g(0) - f(0)$, in that order: $g$ first, then $f$.' : 'Check the sign: find $g(0) \\div f(0)$ and keep the sign of the result.' },
         ]),
       }), (pr) => [
         numStep('Read the blue graph. What is $f(0)$?', valueAt(f, 0), ['$f$ is the blue curve.', 'Find its labeled point with $x = 0$.', 'The second coordinate is the output.', 'Give just the $y$-value.'], `$f(0) = ${valueAt(f, 0).toTex()}$.`, [{ value: valueAt(g, 0), tag: 'graph-reading', feedback: 'That point is on the orange graph, $g$. Use the blue graph.' }]),

@@ -13,7 +13,7 @@ import { evalNumeric } from '../../core/math/evaluate';
 import { Rational } from '../../core/math/rational';
 import { p, math, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
 import { moneyText as money } from './u5-models';
-import { dTex, commas, pct, texExact } from './u5-common';
+import { dTex, commas, pct, texExact, choiceMisconceptions } from './u5-common';
 import { textAll } from './u6-common';
 import { numStep, specStep, choiceStep, finalStep, withSteps, stepErrors } from './u5-steps';
 
@@ -183,17 +183,24 @@ export const genLinearOrExp: GeneratorDef = {
       const pool = rng.shuffle(all.filter((s) => s.exp === wantExp));
       const others = rng.shuffle(all.filter((s) => s.exp !== wantExp)).slice(0, 3);
       const correct = pool[0].text;
+      const sitAnswer = makeChoice(rng, correct, others.map((s) => s.text));
+      const sitWhy = (t: string) =>
+        wantExp
+          ? 'This amount changes by adding or subtracting the same number each time, so it is linear. An exponential situation multiplies by the same factor each time.'
+          : /%/.test(t)
+            ? 'A change of the same percent is not a fixed amount: it multiplies by the same factor each time, so it is exponential. A linear situation adds or subtracts the same amount each time.'
+            : 'Doubling, tripling or halving multiplies by the same factor each time, so it is exponential. A linear situation adds or subtracts the same amount each time.';
       return makeProblem({
         skillId: 'S6.04',
         tags: ['real-world'],
         prompt: [p(`Which situation is best modeled by ${wantExp ? 'an exponential' : 'a linear'} function?`)],
-        answer: makeChoice(rng, correct, others.map((s) => s.text)),
+        answer: sitAnswer,
         hints: ['Ask whether the amount changes by adding the same number or by multiplying by the same factor.', 'Adding or subtracting the same amount each time is linear.', 'Changing by the same percent, doubling or halving is multiplying by the same factor.', 'Multiplying by the same factor each time is exponential.'],
         solution: [
           { text: wantExp ? 'An exponential function multiplies by the same factor in each equal time step.' : 'A linear function adds or subtracts the same amount in each equal time step.' },
           { text: correct, why: wantExp ? 'A percent change, doubling, tripling or halving multiplies by the same factor each time.' : 'The same amount is added or taken away each time.' },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisconceptions(sitAnswer, others.map((o) => ({ label: o.text, tag: 'growth-decay' as MisconceptionTag, feedback: sitWhy(o.text) }))),
       });
     }
     // which plan is worth more after n periods
@@ -205,18 +212,25 @@ export const genLinearOrExp: GeneratorDef = {
     const B = S.mul(r.add(1).pow(n));
     if (B.sub(A).abs().lt(Q(5))) return genLinearOrExp.generate(rng, 3);
     const correct = B.gt(A) ? 'Plan B' : 'Plan A';
+    const planAnswer = makeChoice(rng, correct, [B.gt(A) ? 'Plan A' : 'Plan B', 'They have the same amount']);
+    const howBoth = `Work out both totals: Plan A is ${money(S)} plus ${n} times ${money(add)}, and Plan B is $${commas(S)}\\left(${dTex(r.add(1))}\\right)^{${n}}$.`;
+    const planMis = [
+      { label: 'Plan A', tag: 'growth-decay' as MisconceptionTag, feedback: `Growing by ${pct(r)}% each month means multiplying by $${dTex(r.add(1))}$ each month, so the amount added gets bigger as the balance grows. ${howBoth}` },
+      { label: 'Plan B', tag: 'growth-decay' as MisconceptionTag, feedback: `An exponential plan passes a linear one eventually, but not necessarily within ${n} months. ${howBoth}` },
+      { label: 'They have the same amount', tag: 'arithmetic-error' as MisconceptionTag, feedback: `The two totals are not equal. ${howBoth} Then compare.` },
+    ];
     return makeProblem({
       skillId: 'S6.04',
       tags: ['real-world', 'multi-step'],
       prompt: [p(`Two savings plans each start with ${money(S)}. Plan A adds ${money(add)} at the end of every month. Plan B grows by ${pct(r)}% at the end of every month. Which plan has more money after ${n} months?`)],
-      answer: makeChoice(rng, correct, [B.gt(A) ? 'Plan A' : 'Plan B', 'They have the same amount']),
+      answer: planAnswer,
       hints: ['Plan A is linear: it adds the same amount each month.', `Plan A after ${n} months: ${money(S)} plus ${n} times ${money(add)}.`, `Plan B is exponential: multiply by $${dTex(r.add(1))}$ each month.`, `Plan B after ${n} months: $${commas(S)}\\left(${dTex(r.add(1))}\\right)^{${n}}$.`],
       solution: [
         { text: 'Plan A adds the same amount each month.', tex: `${commas(S)} + ${commas(add)}(${n}) = ${commas(A)}` },
         { text: 'Plan B multiplies by the same factor each month.', tex: `${commas(S)}\\left(${dTex(r.add(1))}\\right)^{${n}} \\approx ${commas(B.round(2), 2)}`, why: `Growing by ${pct(r)}% means multiplying by $1 + ${dTex(r)} = ${dTex(r.add(1))}$.` },
         { text: `${correct} has more after ${n} months.`, why: 'An exponential plan starts slowly but eventually passes any linear plan.' },
       ],
-      misconceptions: [],
+      misconceptions: choiceMisconceptions(planAnswer, planMis),
     });
   },
   verify(pr) {
@@ -463,18 +477,24 @@ export const genGeometric: GeneratorDef = {
       const rTex = r.isInteger() && !r.isNegative() ? rT : paren(r);
       const correct = recLabel(a1, rTex, 'R\\,a_{n-1}');
       const wrongs = [recLabel(a1.mul(r), rTex, 'R\\,a_{n-1}'), recLabel(a1, rTex, 'a_{n-1} + R'), r.eq(a1) ? `$a_1 = ${dTex(a1)}$ and $a_n = ${rTex}\\,a_{n+1}$` : recLabel(r, a1.isNegative() ? paren(a1) : dTex(a1), 'R\\,a_{n-1}')];
+      const e2rAnswer = makeChoice(rng, correct, wrongs);
+      const e2rMis = choiceMisconceptions(e2rAnswer, [
+        { label: wrongs[0], tag: 'sequence-index', feedback: 'That first term is the value of the formula at $n = 2$. Substitute $n = 1$: the exponent $n - 1$ is 0, and any nonzero number to the power 0 is 1.' },
+        { label: wrongs[1], tag: 'formula-error', feedback: 'Adding the ratio would make an arithmetic sequence. In a geometric sequence each term is the term before it multiplied by the ratio.' },
+        { label: wrongs[2], tag: r.eq(a1) ? 'sequence-index' : 'formula-error', feedback: r.eq(a1) ? '$a_{n+1}$ is the term after $a_n$, so this rule needs a term you do not know yet. A recursive rule builds each term from the one before it, $a_{n-1}$.' : 'This switches the first term and the ratio. In $a_n = a_1(r)^{n-1}$ the number in front is the first term and the base of the power is the ratio.' },
+      ]);
       return makeProblem({
         skillId: 'S6.07',
         tags: [],
         prompt: [p('A geometric sequence has this explicit formula:'), math(`a_n = ${geoTex(a1, r)}`), p('Which recursive formula defines the same sequence?')],
-        answer: makeChoice(rng, correct, wrongs),
+        answer: e2rAnswer,
         hints: ['In $a_n = a_1(r)^{n-1}$, the number in front is the first term and the base is the ratio.', 'Check $n = 1$: the exponent is 0, so $a_1$ is the number in front.', 'A recursive formula multiplies the previous term $a_{n-1}$ by the ratio.', 'Make sure the first term is the value of the formula at $n = 1$.'],
         solution: [
           { text: 'Find the first term.', tex: `a_1 = ${geoTex(a1, r, '0')} = ${dTex(a1)}`, why: 'Any nonzero number to the power 0 is 1.' },
           { text: 'Find the ratio.', tex: `r = ${rT}`, why: 'The base of the power is what each term is multiplied by.' },
           { text: 'Write the recursive formula.', tex: `a_1 = ${dTex(a1)},\\quad a_n = ${rTex}\\,a_{n-1}`, why: 'Each term is $r$ times the term before it.' },
         ],
-        misconceptions: [],
+        misconceptions: e2rMis,
       });
     }
     if (task === 'ratio') {
@@ -580,18 +600,24 @@ export const genGeometric: GeneratorDef = {
       const rTex = r.isInteger() && !r.isNegative() ? rT : paren(r);
       const correct = recLabel(a1, rTex, 'R\\,a_{n-1}');
       const wrongs = [recLabel(a1, rTex, 'a_{n-1} + R'), recLabel(r, dTex(a1), r.eq(a1) ? 'a_{n-1} + R' : 'R\\,a_{n-1}'), `$a_1 = ${dTex(a1)}$ and $a_n = ${rTex}\\,a_{n+1}$`];
+      const recAnswer = makeChoice(rng, correct, wrongs);
+      const recMis = choiceMisconceptions(recAnswer, [
+        { label: wrongs[0], tag: 'formula-error', feedback: 'Adding the ratio would make an arithmetic sequence. In a geometric sequence each term is the term before it multiplied by the ratio.' },
+        { label: wrongs[1], tag: 'formula-error', feedback: r.eq(a1) ? 'Adding the ratio would make an arithmetic sequence. In a geometric sequence each term is the term before it multiplied by the ratio.' : 'This switches the first term and the ratio. $a_1$ must be the first number in the list, and the ratio is what each term is multiplied by to get the next one.' },
+        { label: wrongs[2], tag: 'sequence-index', feedback: '$a_{n+1}$ is the term after $a_n$, so this rule needs a term you do not know yet. A recursive rule builds each term from the one before it, $a_{n-1}$.' },
+      ]);
       return makeProblem({
         skillId: 'S6.07',
         tags: [],
         prompt: [...intro, p('Which recursive formula defines this sequence?')],
-        answer: makeChoice(rng, correct, wrongs),
+        answer: recAnswer,
         hints: ['A recursive formula gives the first term and a rule to get each term from the one before it.', 'The term before $a_n$ is $a_{n-1}$.', 'Find the common ratio by dividing neighboring terms.', 'Each term is the ratio times the term before it.'],
         solution: [
           { text: 'The first term is given.', tex: `a_1 = ${dTex(a1)}` },
           { text: 'Find the ratio.', tex: `r = \\frac{${dTex(ts[1])}}{${dTex(ts[0])}} = ${rT}` },
           { text: 'Each term is $r$ times the previous term.', tex: `a_n = ${rTex}\\,a_{n-1}`, why: 'That is the recursive rule for a geometric sequence.' },
         ],
-        misconceptions: [],
+        misconceptions: recMis,
       });
     }
     // which term equals a value
@@ -776,18 +802,25 @@ export const genGeoFunction: GeneratorDef = {
     }
     const n = rng.pick([first - 1, first + 1, first + 2, 2].filter((k) => k >= 2 && !geo(G0, r, k).eq(ar(k))));
     const correct = geo(G0, r, n).gt(ar(n)) ? `Sequence B` : `Sequence A`;
+    const seqAnswer = makeChoice(rng, correct, [correct === 'Sequence A' ? 'Sequence B' : 'Sequence A', 'They are equal']);
+    const termHow = `Work out term ${n} of each: $a_{${n}} = ${dTex(A0)} + ${dTex(d)}(${n - 1})$ and $b_{${n}} = ${geoTex(G0, r, String(n - 1))}$.`;
+    const seqMis = choiceMisconceptions(seqAnswer, [
+      { label: 'Sequence A', tag: 'growth-decay', feedback: `Starting larger does not mean A stays ahead: A only adds $${dTex(d)}$ each term, while B multiplies by $${dTex(r)}$. ${termHow}` },
+      { label: 'Sequence B', tag: 'growth-decay', feedback: `Growing faster in the long run does not mean B is ahead at every term. ${termHow}` },
+      { label: 'They are equal', tag: 'arithmetic-error', feedback: `The two ${ordinal(n)} terms are not equal. ${termHow} Then compare.` },
+    ]);
     return makeProblem({
       skillId: 'S6.08',
       tags: ['multi-step'],
       prompt: [...intro, p(`Which sequence has the greater ${ordinal(n)} term?`)],
-      answer: makeChoice(rng, correct, [correct === 'Sequence A' ? 'Sequence B' : 'Sequence A', 'They are equal']),
+      answer: seqAnswer,
       hints,
       solution: [
         { text: `Find term ${n} of A.`, tex: `a_{${n}} = ${dTex(A0)} + ${dTex(d)}(${n - 1}) = ${dTex(ar(n))}` },
         { text: `Find term ${n} of B.`, tex: `b_{${n}} = ${geoTex(G0, r, String(n - 1))} ${eqv(geo(G0, r, n))}` },
         { text: `${correct} has the greater ${ordinal(n)} term.` },
       ],
-      misconceptions: [],
+      misconceptions: seqMis,
     });
   },
   verify(pr) {
@@ -1019,6 +1052,69 @@ const MIX_HINTS: Record<MixQ, (n: number) => [string, string, string, string]> =
   dec: () => ['A decreasing function has outputs that go down as $x$ goes up.', 'For the description, ask whether each step makes the output bigger or smaller.', 'For the graph, follow the curve from left to right.', 'Decide for each function separately.'],
 };
 
+/** How to read the y-intercept of a function from its representation (feedback text). */
+function mixHowYint(name: string, f: MixFn, rep: Rep): string {
+  const N = `$${name}$`;
+  if (rep === 'graph') return `For ${N}, read the labeled point where the graph crosses the $y$-axis.`;
+  if (rep === 'table') return `For ${N}, read the row of the table with $x = 0$.`;
+  if (rep === 'verbal') return `For ${N}, use the output given for $x = 0$.`;
+  if (f.kind === 'exp') return f.p[2].isZero() ? `For ${N}, substitute $x = 0$: the power becomes 1, so only the number in front is left.` : `For ${N}, substitute $x = 0$: the power becomes 1, so add the number in front and the constant at the end.`;
+  return `For ${N}, substitute $x = 0$: only the constant term is left.`;
+}
+
+/** How to find the value of a function at x = n from its representation (feedback text). */
+function mixHowValue(name: string, f: MixFn, rep: Rep, n: number): string {
+  const N = `$${name}$`;
+  if (rep === 'eq') return f.kind === 'exp' ? `For ${N}, substitute $x = ${n}$ and find the power before multiplying.` : `For ${N}, substitute $x = ${n}$.`;
+  if (rep === 'graph') return `For ${N}, use the labeled points to find its rule, then substitute $x = ${n}$.`;
+  if (f.kind === 'lin') return rep === 'table' ? `${N} has constant differences, so keep adding the same amount until $x = ${n}$.` : `${N} changes by the same amount each step, so add that amount ${n} times to the starting value.`;
+  if (f.kind === 'exp') return rep === 'table' ? `${N} has constant ratios, so keep multiplying by the same factor until $x = ${n}$.` : `${N} is multiplied by the same factor each step, so multiply the starting value by that factor ${n} times.`;
+  return `${N} has constant second differences, so it is quadratic: find its rule or keep extending the differences until $x = ${n}$.`;
+}
+
+/** How to tell whether a function is decreasing from its representation (feedback text). */
+function mixHowDec(name: string, f: MixFn, rep: Rep): string {
+  const N = `$${name}$`;
+  if (rep === 'graph') return `Check ${N} again: read its labeled points from left to right and see whether the outputs go up or down.`;
+  if (rep === 'verbal' && f.kind === 'lin') return `Check ${N} again: "increases by" adds to the output each step and "decreases by" subtracts from it.`;
+  if (rep === 'verbal') return `Check ${N} again: ask whether each step makes the output bigger or smaller. Multiplying by more than 1 or increasing by a percent makes it bigger; decreasing by a percent makes it smaller.`;
+  return `Check ${N} again: compare its outputs at $x = 0$ and $x = 1$.`;
+}
+
+/** Feedback for every wrong option of a two-function comparison (A.FGR.9.5). */
+function mixedMis(answer: { options: { id: string; label: string }[]; correct: string }, f: MixFn, g: MixFn, rf: Rep, rg: Rep, q: MixQ, n: number): Misconception[] {
+  if (q === 'dec') {
+    const df = f.at(1).lt(f.at(0));
+    const dg = g.at(1).lt(g.at(0));
+    const claims: Array<[string, boolean, boolean]> = [['Only $f$', true, false], ['Only $g$', false, true], ['Both $f$ and $g$', true, true], ['Neither', false, false]];
+    return choiceMisconceptions(answer, claims.map(([label, cf, cg]) => ({ label, tag: 'growth-decay' as MisconceptionTag, feedback: [cf !== df ? mixHowDec('f', f, rf) : '', cg !== dg ? mixHowDec('g', g, rg) : ''].filter(Boolean).join(' ') })));
+  }
+  const vf = q === 'asym' ? f.p[2] : q === 'factor' ? f.p[1] : f.at(n);
+  const vg = q === 'asym' ? g.p[2] : q === 'factor' ? g.p[1] : g.at(n);
+  const loser = vf.gt(vg) ? 'g' : 'f';
+  const [L, W] = loser === 'f' ? [f, g] : [g, f];
+  let how: string;
+  let tag: MisconceptionTag;
+  if (q === 'yint') {
+    how = `The $y$-intercept is the output at $x = 0$. ${mixHowYint('f', f, rf)} ${mixHowYint('g', g, rg)}`;
+    tag = 'graph-reading';
+  } else if (q === 'value') {
+    how = `${mixHowValue('f', f, rf, n)} ${mixHowValue('g', g, rg, n)}`;
+    tag = 'other';
+  } else if (q === 'asym') {
+    how = 'The horizontal asymptote is the line $y = k$ that the graph levels off toward: on the graph it is the dashed line, and in $a(b)^{x} + k$ it is the constant $k$ added at the end. Compare those, not the starting values or the bases.';
+    tag = 'graph-reading';
+  } else {
+    how = 'The growth factor is the base $b$ in $a(b)^{x} + k$. On the graph, subtract the asymptote value from two labeled points one step apart, then divide; dividing the heights themselves does not give the factor when the asymptote is not $y = 0$.';
+    tag = 'growth-decay';
+  }
+  const lead = q === 'value' ? (L.at(0).gt(W.at(0)) ? `$${loser}$ starts higher, but the starting value does not decide the value at $x = ${n}$. ` : `Check how you extended each function to $x = ${n}$. `) : q === 'yint' ? 'Check how you read each $y$-intercept. ' : '';
+  return choiceMisconceptions(answer, [
+    { label: `$${loser}$`, tag, feedback: `${lead}${how}` },
+    { label: 'They are equal', tag: 'arithmetic-error', feedback: `The two values are not equal. ${how}` },
+  ]);
+}
+
 function mixedCompare(rng: Rng, difficulty: number) {
   for (let tries = 0; tries < 60; tries++) {
     const { f, g, rf, rg, q, n } = pickMixed(rng, difficulty);
@@ -1064,7 +1160,7 @@ function mixedCompare(rng: Rng, difficulty: number) {
       answer,
       hints: MIX_HINTS[q](n),
       solution: [mixRead('f', f, rf, q, n), mixRead('g', g, rg, q, n), { text: concl, why: 'The two functions are given in different ways, so first turn each one into the same kind of fact, then compare.' }],
-      misconceptions: [],
+      misconceptions: mixedMis(answer, f, g, rf, rg, q, n),
     }), (pr) => {
       if (q !== 'yint' && q !== 'value') return [];
       const how = (name: string, h: MixFn, rep: Rep): [string, string, string, string] => {
@@ -1248,11 +1344,31 @@ export const genCompareFamilies: GeneratorDef = {
       }
       if (vl.eq(ve)) return genCompareFamilies.generate(rng, 2);
       const correct = `$${ve.gt(vl) ? names[1] : names[0]}$`;
+      const loserName = ve.gt(vl) ? names[0] : names[1];
+      const famAnswer = makeChoice(rng, correct, [`$${loserName}$`, 'They are equal']);
+      const exA = ex.at(0);
+      const exB = ex.at(1).div(exA);
+      let famHow: string;
+      let famLead = '';
+      if (askRate) {
+        famHow = `Average rate of change is the change in output divided by the change in input. Find each function's outputs at $x = ${x1}$ and $x = ${x2}$, subtract, and divide by $${x2 - x1}$. For $${names[1]}$, find each power before multiplying.`;
+        const lOut = loserName === names[0] ? lin.at(x2) : ex.at(x2);
+        const wOut = loserName === names[0] ? ex.at(x2) : lin.at(x2);
+        if (lOut.gt(wOut)) famLead = `$${loserName}$ has the greater output at $x = ${x2}$, but the question is about the rate of change, not the outputs. `;
+      } else {
+        famHow = `Substitute $x = ${x1}$ into each function. For $${names[1]}$, the exponent means repeated multiplication: find the power first, then multiply by the number in front.`;
+        const wrongEx = exA.mul(exB).mul(x1);
+        if (!wrongEx.eq(ve) && (loserName === names[1] ? wrongEx.gt(vl) : wrongEx.lt(vl))) famLead = `$${dTex(exB)}^{${x1}}$ is not $${dTex(exB)} \\cdot ${x1}$. `;
+      }
+      const famMis = choiceMisconceptions(famAnswer, [
+        { label: `$${loserName}$`, tag: askRate ? 'slope-calc' : 'exponent-rule', feedback: `${famLead}${famHow}` },
+        { label: 'They are equal', tag: 'arithmetic-error', feedback: `The two ${askRate ? 'rates' : 'values'} are not equal. ${famHow}` },
+      ]);
       return withSteps(makeProblem({
         skillId: 'S6.09',
         tags: [],
         prompt: [...intro, p(askRate ? `Which function has the greater average rate of change from $x = ${x1}$ to $x = ${x2}$?` : `Which function has the greater value at $x = ${x1}$?`)],
-        answer: makeChoice(rng, correct, [`$${ve.gt(vl) ? names[0] : names[1]}$`, 'They are equal']),
+        answer: famAnswer,
         hints: askRate ? ['Average rate of change is change in output divided by change in input.', `Evaluate each function at $x = ${x1}$ and $x = ${x2}$.`, `Divide each change by $${x2 - x1}$.`, 'Compare the two rates.'] : [`Substitute $x = ${x1}$ into each function.`, 'For the exponential function, find the power first.', 'Compare the two outputs.', 'The larger output is the greater value.'],
         solution: askRate
           ? [
@@ -1265,7 +1381,7 @@ export const genCompareFamilies: GeneratorDef = {
               { text: `Evaluate $${names[1]}(${x1})$.`, tex: `${names[1]}(${x1}) = ${dTex(ve)}` },
               { text: `${correct} has the greater value.` },
             ],
-        misconceptions: [],
+        misconceptions: famMis,
       }), (pr) => askRate
         ? [
             numStep(`Find the average rate of change of $${names[0]}$ from $x = ${x1}$ to $x = ${x2}$.`, vl, [`$${names[0]}$ is linear.`, `Find $${names[0]}(${x1})$ and $${names[0]}(${x2})$.`, `Subtract, then divide by $${x2 - x1}$.`, 'For a linear function this is the slope.'], `$\\frac{${dTex(lin.at(x2))} - ${dTex(lin.at(x1))}}{${x2 - x1}} = ${dTex(vl)}$, the slope.`, [{ value: lin.at(x2).sub(lin.at(x1)).eq(vl) ? null : lin.at(x2).sub(lin.at(x1)), tag: 'slope-calc', feedback: 'Divide the change in output by the change in input.' }]),
@@ -1309,17 +1425,22 @@ export const genCompareFamilies: GeneratorDef = {
     const exName = names[fns.indexOf(ex)];
     const correct = `$${exName}$, because it multiplies by the same factor each time`;
     const others = names.filter((n) => n !== exName);
+    const evAnswer = makeChoice(rng, correct, [`$${others[0]}$, because it has the largest value at $x = 1$`, `$${others[1]}$, because it has the largest value at $x = 1$`, 'None of them, because they all keep increasing']);
+    const evMis = choiceMisconceptions(evAnswer, [
+      ...others.map((o) => ({ label: `$${o}$, because it has the largest value at $x = 1$`, tag: 'growth-decay' as MisconceptionTag, feedback: `Values at small $x$ can be misleading. $${o}$ is ${fns[names.indexOf(o)] === lin ? 'linear, so it only adds the same amount each time' : 'quadratic, so it grows by squaring'}. Try a large input, like $x = 100$, in all three functions before you decide.` })),
+      { label: 'None of them, because they all keep increasing', tag: 'growth-decay' as MisconceptionTag, feedback: 'All three keep increasing, but not at the same speed: as $x$ gets large, one kind of function pulls far ahead of the others. Try $x = 100$ in each function.' },
+    ]);
     return makeProblem({
       skillId: 'S6.09',
       tags: [],
       prompt: [p(`As $x$ gets very large, which function will eventually have the greatest values?`), math(fns.map((f, i) => `${names[i]}(x) = ${f.tex}`).join(',\\quad '))],
-      answer: makeChoice(rng, correct, [`$${others[0]}$, because it has the largest value at $x = 1$`, `$${others[1]}$, because it has the largest value at $x = 1$`, 'None of them, because they all keep increasing']),
+      answer: evAnswer,
       hints: ['Identify each function as linear, quadratic or exponential.', 'Small values of $x$ can be misleading.', 'Try a large input, like $x = 100$, in each function.', 'Repeated multiplication by a number greater than 1 eventually beats adding and squaring.'],
       solution: [
         { text: `$${names[fns.indexOf(lin)]}$ is linear, $${names[fns.indexOf(quad)]}$ is quadratic and $${exName}$ is exponential with a base greater than 1.` },
         { text: 'An increasing exponential function eventually exceeds any linear or quadratic function.', why: `For example, at $x = 100$: ${fns.map((f, i) => `$${names[i]}(100) \\approx ${f.at(100).toNumber().toPrecision(3).replace(/e\+(\d+)/, ' \\times 10^{$1}')}$`).join(', ')}.` },
       ],
-      misconceptions: [],
+      misconceptions: evMis,
     });
   },
   verify(pr) {
@@ -1473,16 +1594,28 @@ export const genExpModel: GeneratorDef = {
       const wrongs = askB
         ? [`The ${c.noun} ${grow ? 'increases' : 'decreases'} by ${pct(b)}% each ${c.per}.`, `The ${c.noun} ${grow ? 'decreases' : 'increases'} by ${pct(r)}% each ${c.per}.`, `The ${c.noun} ${grow ? 'increases' : 'decreases'} by ${dTex(b)} each ${c.per}.`]
         : [`The ${c.noun} after 1 ${c.per} is ${amt}.`, `The ${c.noun} changes by ${amt} each ${c.per}.`, `The largest possible ${c.noun} is ${amt}.`];
+      const partAnswer = makeChoice(rng, correct, wrongs);
+      const partWhy: Array<[MisconceptionTag, string]> = askB
+        ? [
+            ['percent-rate', `That treats the whole factor $${dTex(b)}$ as the percent. The percent change is how far the factor is from 1.`],
+            ['growth-decay', 'Compare the factor with 1: a factor greater than 1 makes the amount bigger each time, and a factor between 0 and 1 makes it smaller.'],
+            ['percent-rate', `The factor $${dTex(b)}$ is multiplied, not added: each ${c.per} the amount is multiplied by $${dTex(b)}$, so it changes by a percent of the current amount.`],
+          ]
+        : [
+            ['exponent-rule', `After 1 ${c.per} the amount has already been multiplied by $${dTex(b)}$ once. Substitute $t = 0$ and see what is left.`],
+            ['growth-decay', `Changing by the same amount each ${c.per} would be a linear model. In this model the amount is multiplied by $${dTex(b)}$ each ${c.per}; nothing is added.`],
+            ['other', grow ? `With a factor greater than 1 the amount keeps getting bigger, so there is no largest value. Substitute $t = 0$ to see what $${commas(a)}$ tells you.` : `$${commas(a)}$ is the value of $y$ at one particular time, not a cap on the model. Substitute $t = 0$ to see which time.`],
+          ];
       return makeProblem({
         skillId: 'S6.10',
         tags: ['real-world'],
         prompt: [p(`The function $y = ${commas(a)}\\left(${dTex(b)}\\right)^{t}$ models ${c.y} after $t$ ${c.per}s. What does the ${askB ? `$${dTex(b)}$` : `$${commas(a)}$`} tell you?`)],
-        answer: makeChoice(rng, correct, wrongs),
+        answer: partAnswer,
         hints: ['In $y = a(b)^{t}$, $a$ is the value when $t = 0$.', '$b$ is the factor the amount is multiplied by each time step.', 'A factor greater than 1 is growth; a factor less than 1 is decay.', 'The percent change is the distance of $b$ from 1.'],
         solution: askB
           ? [{ text: `The factor is $${dTex(b)}$, which is ${grow ? 'greater' : 'less'} than 1.`, why: grow ? 'So the amount grows.' : 'So the amount decays.' }, { text: `$${dTex(b)} = 1 ${grow ? '+' : '-'} ${dTex(r)}$, so the rate is ${pct(r)}%.`, why: correct }]
           : [{ text: 'At $t = 0$ the power is 1.', tex: `y = ${commas(a)}(1) = ${commas(a)}` }, { text: correct, why: '$a$ is the starting amount.' }],
-        misconceptions: [],
+        misconceptions: choiceMisconceptions(partAnswer, wrongs.map((w, i) => ({ label: w, tag: partWhy[i][0], feedback: partWhy[i][1] }))),
       });
     }
     // two models: first whole period when B passes A

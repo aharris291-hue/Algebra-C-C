@@ -105,7 +105,7 @@ function evalD1(rng: Rng): PowItem {
             [{ value: Q(1), tag: 'exponent-rule', feedback: 'That is the zero power. An exponent of 1 means the base is used once.' }],
           ),
         ],
-        last: [`Going down from exponent 1 to exponent 0 divides by the base once more. So $${powTex(base, 0)} = ${powTex(base, 1)} \\div ${baseTex(base)}$. What is $${powTex(base, 0)}$?`, ['Each step down in the exponent divides by the base.', `Divide your answer from the first step by $${base.toTex()}$.`, 'A nonzero number divided by itself is always the same number.', 'This works for every nonzero base, including negatives and fractions.'], `$${powTex(base, 0)} = \\frac{${base.toTex()}}{${base.toTex()}} = 1$.`],
+        last: [`Going down from exponent 1 to exponent 0 divides by the base once more. So $${powTex(base, 0)} = ${powTex(base, 1)} \\div ${baseTex(base)}$. What is $${powTex(base, 0)}$?`, ['Each step down in the exponent divides by the base.', `Divide your answer from the first step by $${base.toTex()}$.`, 'Think about what any nonzero number divided by itself equals, for example $7 \\div 7$.', 'This works for every nonzero base, including negatives and fractions.'], `$${powTex(base, 0)} = \\frac{${base.toTex()}}{${base.toTex()}} = 1$.`],
       },
     };
   }
@@ -601,7 +601,7 @@ function simpD1(rng: Rng, v: string, w: string): SimpItem {
       pre: [
         choiceStep(`In $\\left(${monoRawTex(A, order)}\\right)^{0}$, what is the base of the zero power?`, [`Only the number $${c}$`, `Everything inside the parentheses, $${monoRawTex(A, order)}$`, `Only the variable $${w}$`], 1, ['The base is whatever the exponent sits on.', 'The exponent 0 is written outside the parentheses.', 'Parentheses group everything inside into one base.', 'An exponent outside parentheses applies to the whole group.'], 'The exponent is outside the parentheses, so the whole product is the base.', [{ index: 0, tag: 'exponent-rule', feedback: 'The exponent is outside the parentheses, so it applies to everything inside, not just the number.' }, { index: 2, tag: 'exponent-rule', feedback: 'The exponent is outside the parentheses, so it applies to everything inside.' }]),
       ],
-      last: ['Any nonzero base to the zero power has the same value. Write the simplified expression.', ['Assume the variables are not zero, so the base is not zero.', 'Think of the base divided by itself.', 'A nonzero quantity divided by itself is always the same number.', 'The answer is a single number with no variables.'], `$\\left(${monoRawTex(A, order)}\\right)^{0} = 1$: a nonzero base to the zero power is 1.`],
+      last: ['Any nonzero base to the zero power has the same value. Write the simplified expression.', ['Assume the variables are not zero, so the base is not zero.', 'Think of the base divided by itself.', 'Think about what any nonzero quantity divided by itself equals, for example $\\frac{x}{x}$ when $x \\ne 0$.', 'The answer is a single number with no variables.'], `$\\left(${monoRawTex(A, order)}\\right)^{0} = 1$: a nonzero base to the zero power is 1.`],
     },
   };
 }
