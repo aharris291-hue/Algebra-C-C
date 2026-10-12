@@ -548,6 +548,21 @@ function keepFunctionName(input: string, target: Relation): string {
   return input.replace(FUNC_PREFIX, (m, f: string) => (f === name ? `${name} ` : m));
 }
 
+/**
+ * "A(t) = 500(1.03)^t" names its output A (it is compared as y = ...): the name to show in messages,
+ * and the name a student may write instead ("A = 500(1.03)^t"). Null for plain equations and y(x).
+ */
+function outputName(value: string, target: Relation): string | null {
+  const m = FUNC_PREFIX.exec(value);
+  if (!m || m[1] === 'y' || target.lhs.type !== 'var' || target.lhs.name !== 'y') return null;
+  return variablesOf(target.rhs).has(m[1]) ? null : m[1];
+}
+
+/** "A = ..." typed for "A(t) = ...": read it as the y = ... the target is compared as. */
+function useOutputName(input: string, name: string | null): string {
+  return name ? input.replace(new RegExp(`^\\s*${name}\\s*=`), 'y =') : input;
+}
+
 export function parseRelations(src: string): { parts: Node[]; texts: string[]; ops: RelOp[] } {
   const s = normalizeInput(stripFunctionNotation(src)).replace(/=</g, '<=').replace(/=>/g, '>=');
   const re = /(<=|>=|<|>|=)/g;
@@ -760,11 +775,20 @@ export function intervalToTex(iv: Interval): string {
 // Solution lists ("x = 3 or x = -2", "3, -2", "x = 1 ± √5", "no real solutions")
 // ---------------------------------------------------------------------------
 
-const NO_SOLUTION = /^(no( real)? (solution|solutions|roots|zeros)|none|∅|\{\s*\}|no solution\.?)$/i;
+const NO_SOLUTION = /^(no\s*(real\s*)?(solution|solutions|roots|zeros)\.?|none|∅|\{\s*\})$/i;
 
 /** "1,000" -> "1000": a comma followed by exactly three digits (no space) between digits is a thousands separator. */
 export function collapseThousands(s: string): string {
   return s.replace(/(^|[^\d.])(\d{1,3}(?:,\d{3})+)(?![\d])/g, (_m, pre: string, num: string) => pre + num.replace(/,/g, ''));
+}
+
+/**
+ * "1 200x" -> "1200x", "(1 200, 5)" -> "(1200, 5)": a space followed by exactly three digits between
+ * digits, as a thousands separator. Only used as a second reading of an answer that could not be
+ * read as typed (two numbers side by side are otherwise an error), so it never changes a readable answer.
+ */
+export function collapseSpaceThousands(s: string): string {
+  return s.replace(/(?<![\d.])\d{1,3}(?: \d{3})+(?!\d)/g, (m) => m.replace(/ /g, ''));
 }
 
 /** Does the text contain something that could be a thousands separator ("1,000")? */
@@ -859,25 +883,26 @@ function stripUnit(input: string, unit?: string): string {
   let s = input.trim().replace(/^([-−‒–—﹣－+]?)\s*\$\s*/, '$1');
   if (unit) {
     const u = unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    s = s.replace(new RegExp(`\\s*${u}\\.?$`, 'i'), '');
+    s = s.replace(new RegExp(`(?<![a-zA-Z])\\s*${u}\\.?$`, 'i'), '');
     // "10 thousand" when the unit is "thousand dollars"
     const scaled = scaledUnit(unit);
     if (scaled) s = s.replace(new RegExp(`\\s*${scaled.word}s?\\.?$`, 'i'), '');
   }
   // strip trailing common unit words/symbols the student might add
-  s = s.replace(/\s*(?:per|\/)\s*(?:hours?|hrs?|h|minutes?|min|seconds?|sec|s|days?|weeks?|wk|months?|mo|years?|yr|miles?|mi|cars?|tickets?|items?|gallons?|gal)\.?$/i, '');
+  s = s.replace(/(?<![a-zA-Z])\s*(?:per|\/)\s*(?:hours?|hrs?|h|minutes?|min|seconds?|sec|s|days?|weeks?|wk|months?|mo|years?|yr|miles?|mi|cars?|tickets?|items?|gallons?|gal)\.?$/i, '');
   // square and cubic units: "3 ft²", "3 ft^2", "3 sq ft", "3 square feet"
   const LENGTH = '(?:units?|feet|foot|ft|meters?|m|inches|inch|in|centimeters?|cm|yards?|yd|miles?|mi|kilometers?|km)';
-  s = s.replace(new RegExp(`\\s*(?:sq\\.?|square|cubic|cu\\.?)\\s*${LENGTH}\\.?$`, 'i'), '');
-  s = s.replace(new RegExp(`\\s*${LENGTH}\\s*(?:²|³|\\^\\s*[23])$`, 'i'), '');
+  s = s.replace(new RegExp(`(?<![a-zA-Z])\\s*(?:sq\\.?|square|cubic|cu\\.?)\\s*${LENGTH}\\.?$`, 'i'), '');
+  s = s.replace(new RegExp(`(?<![a-zA-Z])\\s*${LENGTH}\\s*(?:²|³|\\^\\s*[23])$`, 'i'), '');
   // a percent sign or the word "percent" only when the answer is a percent (or has no unit)
   if (!unit || /%|percent/i.test(unit)) s = s.replace(/\s*%$/, '');
   if (unit && /%|percent/i.test(unit)) s = s.replace(/\s*(?:percent|per cent)\.?$/i, '');
-  s = s.replace(/\s*(dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?|milligrams?|mg|grams?|hrs|yrs|people|persons|followers|views|bacteria|cells|customers|fish)\.?$/i, '');
+  s = s.replace(/(?<![a-zA-Z])\s*(dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?|milligrams?|mg|grams?|hrs|yrs|people|persons|followers|views|bacteria|cells|customers|fish)\.?$/i, '');
   // a plain number followed only by words names what was counted ("54 shirts", "12 tote bags"): keep the number
   const counted = /^([-+]?\d[\d,]*(?:\.\d+)?)\s+[a-z][a-z' -]*\.?$/i.exec(s);
   // (but not words that change the value: "2 pi", "5 thousand", "3 dozen")
-  if (counted && !/\bpi\b/i.test(s) && !VALUE_WORDS.test(s) && !/\b(root)\b/i.test(s)) s = counted[1];
+  // (and a single letter is a variable, "3 x", not something counted)
+  if (counted && !/\bpi\b/i.test(s) && !VALUE_WORDS.test(s) && !/\b(root)\b/i.test(s) && !/^[-+]?\d[\d,]*(?:\.\d+)?\s+[a-z]\.?$/i.test(s)) s = counted[1];
   return s;
 }
 
@@ -992,6 +1017,16 @@ function withValue(spec: AnswerSpec, value: string): AnswerSpec {
 }
 
 export function checkAnswer(spec: AnswerSpec, input: string, misconceptions?: Misconception[]): CheckResult {
+  const r = checkAnswerAsTyped(spec, input, misconceptions);
+  if (r.status !== 'invalid') return r;
+  // "1 200x", "1 200, 2 400", "(1 200, 5)": a space as a thousands separator, when the answer cannot be read otherwise
+  const alt = collapseSpaceThousands(normalizeInput(input));
+  if (alt === normalizeInput(input)) return r;
+  const r2 = checkAnswerAsTyped(spec, alt, misconceptions);
+  return r2.status === 'invalid' ? r : r2;
+}
+
+function checkAnswerAsTyped(spec: AnswerSpec, input: string, misconceptions?: Misconception[]): CheckResult {
   if (input.trim() === '') return invalid('Type an answer first.');
   let r: CheckResult;
   try {
@@ -1027,7 +1062,13 @@ export function requestedFormIssue(spec: AnswerSpec, input: string): string | nu
   try {
     return formIssueCore(spec, input);
   } catch {
-    return null;
+    // not readable as typed: check the reading with space thousands separators ("1 200x"), as the checker does
+    try {
+      const alt = collapseSpaceThousands(normalizeInput(input));
+      return alt === normalizeInput(input) ? null : formIssueCore(spec, alt);
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -1041,6 +1082,16 @@ const EQUATION_FORM_TEXT: Record<Exclude<EquationForm, 'any'>, string> = {
   'quadratic-standard': 'Write your answer in the form y = ax² + bx + c.',
 };
 
+/** "y = a(b)ˣ" in a form message, written with the question's own names: "A = a(b)ᵗ" for A(t) = 500(1.03)^t. */
+function exponentialNames(msg: string, value: string, target: Relation): string {
+  if (!msg.includes('y = a(b)ˣ')) return msg;
+  const name = outputName(value, target) ?? (target.lhs.type === 'var' ? target.lhs.name : 'y');
+  const vars = [...variablesOf(target.rhs)];
+  const v = vars.length === 1 ? vars[0] : 'x';
+  const sup: Record<string, string> = { x: 'ˣ', t: 'ᵗ', n: 'ⁿ' };
+  return msg.replace('y = a(b)ˣ', `${name} = a(b)${sup[v] ?? `^${v}`}`);
+}
+
 function formIssueCore(spec: AnswerSpec, rawInput: string): string | null {
   if (rawInput.trim() === '') return null;
   switch (spec.kind) {
@@ -1051,7 +1102,13 @@ function formIssueCore(spec: AnswerSpec, rawInput: string): string | null {
       if (VALUE_WORDS.test(input)) return null;
       const got = numberValueOf(input);
       if (got.error) return null;
-      if (scaled && (/\$/.test(rawInput) || (got.value && got.value.abs().ge(scaled.factor)))) return `Give the answer in ${spec.unit}: for example, $5,000 is written as 5.`;
+      // the same rule as the checker: only a value in dollars ($2,000 for 2 thousand dollars) is
+      // the wrong form; "$2", "$2 thousand" and a large answer in thousands (1500) are fine
+      if (scaled && got.value) {
+        const exact = exactValue(spec.value);
+        const target = exact && exact.isRational() ? exact.rationalPart() : null;
+        if (target && !got.value.eq(target) && got.value.eq(target.mul(scaled.factor))) return `Give the answer in ${spec.unit}: for example, $5,000 is written as 5.`;
+      }
       if (got.value === null) {
         if (!got.node || spec.roundTo === undefined) return null;
         const vars = variablesOf(got.node);
@@ -1087,7 +1144,7 @@ function formIssueCore(spec: AnswerSpec, rawInput: string): string | null {
       const f = spec.form ?? 'any';
       if (f === 'any') return null;
       const target = parseRelation(spec.value);
-      const raw = keepFunctionName(stripThousands(rawInput), target);
+      const raw = useOutputName(keepFunctionName(stripThousands(rawInput), target), outputName(spec.value, target));
       let got: Relation;
       try {
         got = parseRelation(raw);
@@ -1096,7 +1153,7 @@ function formIssueCore(spec: AnswerSpec, rawInput: string): string | null {
         else throw e;
       }
       if (got.op !== '=') return null;
-      return equationFormCheck(got, f) ? EQUATION_FORM_TEXT[f] : null;
+      return equationFormCheck(got, f) ? exponentialNames(EQUATION_FORM_TEXT[f], spec.value, target) : null;
     }
     case 'inequality': {
       if (spec.form !== 'solved') return null;
@@ -1108,7 +1165,7 @@ function formIssueCore(spec: AnswerSpec, rawInput: string): string | null {
       const alone = (n: Node) => n.type === 'var' && n.name === v;
       const other = alone(got.lhs) ? got.rhs : alone(got.rhs) ? got.lhs : null;
       const op = other ? tryPoly(other) : null;
-      if (!other || !op || op.degreeIn(v) !== 0) return `Write your answer solved for ${v}, with ${v} by itself on one side, like ${v} ≥ 3.`;
+      if (!other || !op || op.degreeIn(v) > 0 || variablesOf(other).has(v)) return `Write your answer solved for ${v}, with ${v} by itself on one side, like ${v} ≥ 3.`;
       if (op.variables().length > 0 && !isExpandedForm(other)) return `Simplify the side without ${v}.`;
       return null;
     }
@@ -1264,7 +1321,8 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
 
     case 'equation': {
       const target = parseRelation(spec.value);
-      rawInput = keepFunctionName(stripThousands(rawInput), target);
+      const outName = outputName(spec.value, target);
+      rawInput = useOutputName(keepFunctionName(stripThousands(rawInput), target), outName);
       let got: Relation;
       try {
         got = parseRelation(rawInput);
@@ -1284,14 +1342,16 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
         return l && r ? new Set(l.sub(r).variables()) : null;
       })();
       const extra = [...gVars].filter((v) => !tVars.has(v) && (!gDiff || gDiff.has(v)));
-      if (extra.length && !quiet) return invalid(`Use the variables ${[...tVars].sort().join(' and ')}. I see ${extra.join(', ')}.`);
+      if (extra.length && !quiet) return invalid(`Use the variables ${[...tVars].map((v) => (v === 'y' && outName ? outName : v)).sort().join(' and ')}. I see ${extra.join(', ')}.`);
       if (!equationsEquivalentImpl(got, target)) return bad();
       const f = spec.form ?? 'any';
       const fm = equationFormCheck(got, f);
-      return fm ?? ok();
+      return fm ? { ...fm, message: fm.message && exponentialNames(fm.message, spec.value, target) } : ok();
     }
 
     case 'inequality': {
+      const compound = compoundInequality(spec, rawInput, quiet);
+      if (compound) return compound;
       const target = parseRelation(spec.value);
       const got = parseRelation(rawInput);
       if (got.op === '=') return quiet ? bad() : invalid('Use an inequality symbol: <, >, <= (≤) or >= (≥).');
@@ -1307,7 +1367,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
           const alone = (n: Node) => n.type === 'var' && n.name === v;
           const other = alone(got.lhs) ? got.rhs : alone(got.rhs) ? got.lhs : null;
           const op = other ? tryPoly(other) : null;
-          if (!other || !op || op.degreeIn(v) !== 0) return form(`That's equivalent, but not solved yet. Finish solving, so ${v} is by itself on one side, like ${v} ≥ 3.`);
+          if (!other || !op || op.degreeIn(v) > 0 || variablesOf(other).has(v)) return form(`That's equivalent, but not solved yet. Finish solving, so ${v} is by itself on one side, like ${v} ≥ 3.`);
           if (op.variables().length > 0 && !isExpandedForm(other)) return form(`That's equivalent. Now simplify the side without ${v}.`);
         }
         return ok();
@@ -1402,6 +1462,25 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
       return first!;
     }
   }
+}
+
+/** A compound inequality answer ("-2 < x < 5"): compared as the set of numbers it describes. Null when the target is a single inequality. */
+function compoundInequality(spec: Extract<AnswerSpec, { kind: 'inequality' }>, rawInput: string, quiet: boolean): CheckResult | null {
+  const t = parseRelations(spec.value);
+  if (t.ops.length !== 2) return null;
+  const v = spec.variable ?? (t.parts[1].type === 'var' ? t.parts[1].name : 'x');
+  const g = parseRelations(rawInput);
+  const gVars = new Set(g.parts.flatMap((n) => [...variablesOf(n)]));
+  const extra = [...gVars].filter((u) => u !== v);
+  if (extra.length) return quiet ? bad() : invalid(`Use the variable ${v}. I see ${extra.join(', ')}.`);
+  if (g.ops.includes('=')) return quiet ? bad() : invalid('Use inequality symbols: <, >, <= (≤) or >= (≥).');
+  if (g.ops.length !== 2) return bad();
+  const target = intervalFromInequality(spec.value, v);
+  const got = intervalFromInequality(rawInput, v);
+  if (intervalsEqual(got, target)) return ok();
+  const sameEnds = got.lo !== null && got.hi !== null && target.lo !== null && target.hi !== null && got.lo.eq(target.lo) && got.hi.eq(target.hi);
+  if (sameEnds) return bad('The boundaries are right. Should each boundary itself be included?', 'boundary-line');
+  return bad();
 }
 
 function sequenceTerms(values: string[], parts: string[]): CheckResult {

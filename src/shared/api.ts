@@ -143,7 +143,16 @@ export interface ProblemView {
   attempts: number;
   state: 'open' | 'correct' | 'revealed' | 'incorrect-final';
   lastFeedback?: FeedbackView;
+  /** the answer that was saved (deferred sets) or last checked (immediate feedback) */
   lastResponse?: string;
+  /**
+   * deferred sets (quiz, assessment, test-out, diagnostic): an answer is saved (or scored). An
+   * unreadable or wrong-form answer is never saved, so its message must show even when its text
+   * matches nothing saved.
+   */
+  saved?: boolean;
+  /** deferred sets: the text of the last refused answer, put back in the answer box with its message */
+  draft?: string;
   /** only once the problem is finished (correct, revealed or graded) */
   solution?: SolutionStep[];
   correctAnswer?: string;

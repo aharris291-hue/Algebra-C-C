@@ -16,12 +16,14 @@ export interface ProblemActions {
 const DIFF = ['', 'Level 1', 'Level 2', 'Level 3'];
 
 export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: ProblemView; actions: ProblemActions; deferred: boolean; busy: boolean; submitLabel?: string }) {
-  const [value, setValue] = useState(deferred ? p.lastResponse ?? '' : '');
+  // deferred sets: show the refused text with its message (so "save it again" matches the box), else the saved answer
+  const initial = () => (deferred ? p.draft ?? p.lastResponse ?? '' : '');
+  const [value, setValue] = useState(initial);
   const shownAt = useRef(Date.now());
   const stepKey = `${p.key}:${p.step?.index ?? 0}`;
   useEffect(() => {
     shownAt.current = Date.now();
-    setValue(deferred ? p.lastResponse ?? '' : '');
+    setValue(initial());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepKey]);
 
@@ -42,8 +44,8 @@ export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: Pr
     if (!v.trim() || busy || finished) return;
     actions.submit(p.key, v, Date.now() - shownAt.current, p.step?.index);
   };
-  // in a quiz, lastResponse is the answer that is saved; an unreadable or wrong-form answer is never saved
-  const saved = deferred && p.lastResponse !== undefined && p.lastResponse !== '';
+  // deferred sets: the main process says whether an answer is saved; an unreadable or wrong-form answer never is
+  const saved = deferred && !!p.saved && p.lastResponse !== undefined;
   const fb = p.lastFeedback;
 
   return (

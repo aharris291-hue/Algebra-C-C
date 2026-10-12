@@ -20,7 +20,7 @@ import { deriveSeed } from '../../core/engine/rng';
 import type { DiagnosticSkillResult, DiagnosticSummary, DiagnosticVerdict, DiagnosticView, OnboardingState } from '../../shared/api';
 import { ServiceContext, UserFacingError } from './context';
 import { requireProfile } from './profiles';
-import { PracticeState, ProblemState, newPractice, realize, getProblem, problemView, practiceView, submitImmediate, hint, reveal, advance, allResolved, deferredSaveProblem, elapsedFor } from './practice';
+import { PracticeState, ProblemState, newPractice, realize, getProblem, problemView, practiceView, submitImmediate, hint, reveal, advance, allResolved, refuseDeferred, elapsedFor } from './practice';
 import { awardXp, logActivity, recomputeSkill, recordAttempt, recentAnswers, bumpDay } from './records';
 import { lessonStatuses } from './lessons';
 
@@ -255,15 +255,13 @@ export function diagnosticSubmit(ctx: ServiceContext, profileId: number, key: st
     const s = currentItem(run, key);
     const p = getProblem(s.generatorId, s.seed, s.difficulty);
     const r = checkAnswer(p.answer, response, p.misconceptions);
-    s.lastResponse = response;
     // An unreadable answer, or one not in the form the question asks for, is not scored: the
     // student is told what to fix (a neutral message that does not say whether the value is
-    // right) and the question stays open. A correct value in the wrong form is never a miss.
-    const problem = deferredSaveProblem(p.answer, response, r);
-    if (problem) {
-      s.lastFeedback = { status: problem.status, message: problem.message };
-      return;
-    }
+    // right) and the question stays open. As in quizzes, submitting the same wrong-form answer a
+    // second time scores it as written, so no one is stuck ("I haven't learned this yet" is
+    // always there too). Only a scored answer becomes lastResponse.
+    if (refuseDeferred(s, p, response, 'submit', r)) return;
+    s.lastResponse = response;
     const correct = r.status === 'correct';
     const elapsed = elapsedFor(ctx, s, elapsedMs);
     const xpRes = correct

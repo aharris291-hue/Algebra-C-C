@@ -4,7 +4,7 @@
  * The renderer never receives the answer key for an open problem.
  */
 import type { Difficulty, GeneratorDef, Problem, ProblemRef } from '../../core/curriculum/types';
-import { checkAnswer, answerToText, AnswerSpec, requestedFormIssue, CheckResult } from '../../core/math/answers';
+import { checkAnswer, answerToText, AnswerSpec, requestedFormIssue, CheckResult, Misconception } from '../../core/math/answers';
 import { produceProblem } from '../../core/engine/problems';
 import { createRng, deriveSeed } from '../../core/engine/rng';
 import { xpForAnswer, XpActivity } from '../../core/engine/xp';
@@ -27,6 +27,8 @@ export interface ProblemState {
   stepAttempts?: number;
   /** deferred sets: the last response refused for its form (saving it again keeps it as written) */
   formRefused?: string;
+  /** deferred sets: the last response that was refused (not saved), shown again in the answer box */
+  draft?: string;
   /** the response that completed the previous guided step (to recognize a repeated submit) */
   prevStepResponse?: string;
   hintLevel: number;
@@ -364,9 +366,11 @@ export function reveal(ctx: ServiceContext, profileId: number, lessonId: string 
 /**
  * In a deferred set, may this response be saved? An unreadable answer, or one not written in the
  * form the question asks for, is not saved: the student gets a message that says what to fix
- * without saying whether the answer is right. Returns null when the response can be saved.
+ * without saying whether the answer is right. Returns null when the response can be saved. Pass the
+ * problem's misconceptions: a known misconception answer (e.g. "y < -5" read off the wrong axis) is a
+ * readable wrong answer that is saved and graded, not an unreadable one.
  */
-export function deferredSaveProblem(spec: AnswerSpec, response: string, r: CheckResult = checkAnswer(spec, response)): { status: 'invalid' | 'wrong-form'; message: string } | null {
+export function deferredSaveProblem(spec: AnswerSpec, response: string, misconceptions?: Misconception[], r: CheckResult = checkAnswer(spec, response, misconceptions)): { status: 'invalid' | 'wrong-form'; message: string } | null {
   if (r.status === 'invalid') return { status: 'invalid', message: r.message ?? 'That answer could not be read.' };
   const formMsg = requestedFormIssue(spec, response) ?? (r.status === 'wrong-form' ? 'Write your answer in the form the question asks for.' : null);
   return formMsg ? { status: 'wrong-form', message: formMsg } : null;
@@ -381,21 +385,34 @@ export function submitDeferred(ps: PracticeState, key: string, response: string)
   const s = findItem(ps, key);
   if (s.state !== 'open' && s.state !== 'answered') return;
   const p = getProblem(s.generatorId, s.seed, s.difficulty);
-  const problem = deferredSaveProblem(p.answer, response);
-  // Saving the same wrong-form answer a second time keeps it as written (graded as it is), so a
-  // student is never stuck on a question; an unreadable answer can never be saved.
-  const insisted = problem?.status === 'wrong-form' && s.formRefused === response;
-  if (problem && !insisted) {
-    const kept = s.state === 'answered' ? ' This was not saved; your earlier answer is still saved.' : ' This answer is not saved yet.';
-    const keepAnyway = problem.status === 'wrong-form' ? ' To keep it exactly as it is, save it again.' : '';
-    s.lastFeedback = { status: problem.status, message: problem.message + kept + keepAnyway };
-    s.formRefused = problem.status === 'wrong-form' ? response : undefined;
-    return;
-  }
-  s.formRefused = undefined;
+  if (refuseDeferred(s, p, response, 'save')) return;
   s.lastResponse = response;
   s.state = 'answered';
   s.lastFeedback = undefined;
+}
+
+/**
+ * The one rule for answers that are not checked right away (quizzes, assessments, test-outs and the
+ * diagnostic): an unreadable answer, or one not in the requested form, is refused with a message that
+ * says what to fix (the same whether the value is right or wrong). Sending the same wrong-form answer
+ * a second time keeps it as written, so no one is ever stuck; an unreadable answer is never accepted.
+ * Returns true when the response was refused (the item's lastFeedback says why and `draft` keeps the
+ * text); false when it may be saved or scored. `r` is the checker's result when the caller has it.
+ */
+export function refuseDeferred(s: ProblemState, p: Problem, response: string, verb: 'save' | 'submit', r?: CheckResult): boolean {
+  const problem = deferredSaveProblem(p.answer, response, p.misconceptions, r);
+  const insisted = problem?.status === 'wrong-form' && s.formRefused === response;
+  if (problem && !insisted) {
+    const kept = s.state === 'answered' ? ' This was not saved; your earlier answer is still saved.' : verb === 'save' ? ' This answer is not saved yet.' : '';
+    const keepAnyway = problem.status === 'wrong-form' ? ` To keep it exactly as it is, ${verb} it again.` : '';
+    s.lastFeedback = { status: problem.status, message: problem.message + kept + keepAnyway };
+    s.formRefused = problem.status === 'wrong-form' ? response : undefined;
+    s.draft = response;
+    return true;
+  }
+  s.formRefused = undefined;
+  s.draft = undefined;
+  return false;
 }
 
 /** Grade every item of a deferred set; records counted attempts. Returns per-item results. */
@@ -468,6 +485,8 @@ export function problemView(ps: PracticeState, s: ProblemState, index: number, s
     state: s.state === 'answered' ? 'open' : s.state,
     lastFeedback: s.lastFeedback,
     lastResponse: s.lastResponse,
+    saved: ps.deferred && s.state !== 'open' && !!s.lastResponse,
+    draft: ps.deferred && (s.state === 'open' || s.state === 'answered') ? s.draft : undefined,
     canReveal: canReveal(ps, s),
     suggestion,
   };

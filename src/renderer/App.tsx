@@ -30,6 +30,8 @@ type Screen =
 
 const HEARTBEAT_SECONDS = 15;
 const IDLE_AFTER_MS = 90_000;
+/** while saving is failing, how often the status is re-checked (a retry may have succeeded) */
+const SAVE_FAILING_RECHECK_MS = 2_000;
 /** Monotonic time for idle detection: unlike Date.now() it does not jump when the system clock is changed. */
 const mono = () => performance.now();
 
@@ -121,6 +123,15 @@ export function App() {
       clearInterval(t);
     };
   }, [showSaveError]);
+  // while saving is failing, check every few seconds so the warning goes away soon after a retry succeeds
+  const saveFailing = !!status?.persistError;
+  useEffect(() => {
+    if (!saveFailing) return;
+    const t = setInterval(() => {
+      api.getStatus().then((s) => showSaveError(s.persistError), () => undefined);
+    }, SAVE_FAILING_RECHECK_MS);
+    return () => clearInterval(t);
+  }, [saveFailing, showSaveError]);
 
   useEffect(() => {
     if (screen.name !== 'lesson' && screen.name !== 'day' && screen.name !== 'diagnostic') activity.current = { lessonId: null, activity: screen.name === 'home' ? 'dashboard' : screen.name };

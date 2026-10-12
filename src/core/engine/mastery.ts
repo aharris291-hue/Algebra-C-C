@@ -9,13 +9,15 @@
  * - Independent, first-try, no-hint work counts most; hints and retries count less;
  *   quizzes and assessments carry more weight than practice.
  * - MASTERED has hysteresis: a single miss (even on a unit assessment or an easy quiz item)
- *   never removes it; it drops only after repeated misses pull the recent score down.
+ *   never removes it; it drops only after repeated misses pull the recent score down, or when
+ *   the score falls below the Developing threshold (e.g. only heavily hinted answers).
  * - Placement: answers from the diagnostic count 1.5x toward the minimum-evidence rule, so two
  *   correct placement answers can establish a starting stage (never MASTERED, which needs
  *   quiz/assessment evidence spread over time).
  * - Spaced review follows 2, 4, 7, 14, 30 days. Only an answer given once the skill is due
- *   (at or after nextReviewAt) counts as a review; practice before then just keeps the date
- *   measured from the latest correct work.
+ *   (at or after nextReviewAt) counts as a review, and only independent work (first try, no
+ *   hints) is a successful one; independent practice before then keeps the date measured from
+ *   the latest independent work. Hinted or retried correct answers leave the schedule as it is.
  */
 
 export type MasteryStage = 'NOT_STARTED' | 'LEARNING' | 'DEVELOPING' | 'PROFICIENT' | 'MASTERED';
@@ -138,7 +140,10 @@ export function computeSkillState(evidence: Evidence[]): SkillState {
       // hysteresis: leave MASTERED only after repeated misses (never after one) that pull the score down
       const windowStart = Math.max(masteredIdx + 1, history.length - MASTERY_POLICY.window);
       const missesSince = history.slice(windowStart).filter((h) => !h.correct).length;
-      if (score >= MASTERY_POLICY.masteredDropBelow || missesSince < MASTERY_POLICY.masteredDropMinMisses) s = 'MASTERED';
+      // ... unless the score has fallen below the Developing threshold: then it drops whatever the
+      // miss count (e.g. every answer right only after full hints is not mastery)
+      const collapsed = score < MASTERY_POLICY.developingMinScore;
+      if (!collapsed && (score >= MASTERY_POLICY.masteredDropBelow || missesSince < MASTERY_POLICY.masteredDropMinMisses)) s = 'MASTERED';
     }
     if (s === 'MASTERED' && stage !== 'MASTERED') {
       masteredAt = e.at;
@@ -158,18 +163,19 @@ export function computeSkillState(evidence: Evidence[]): SkillState {
         reviewStreak = 0;
         nextReviewAt = e.at + intervalMs(0);
       } else if (e.at >= nextReviewAt) {
-        // the skill was due: this answer is a spaced review
-        if (e.correct) {
+        // the skill was due: this answer is a spaced review. Only independent work (first try, no
+        // hints, not guided) is a successful review; a hinted or second-try answer leaves it due.
+        if (isIndependent(e)) {
           reviewStreak += 1;
           nextReviewAt = e.at + intervalMs(reviewStreak);
-        } else {
+        } else if (!e.correct) {
           reviewStreak = 0;
           nextReviewAt = e.at + DAY;
         }
-      } else if (e.correct) {
+      } else if (isIndependent(e)) {
         // practice before the review is due: keep the interval, measured from the latest correct work
         nextReviewAt = Math.max(nextReviewAt, e.at + intervalMs(reviewStreak));
-      } else {
+      } else if (!e.correct) {
         // a miss before the review is due: start the interval ladder again, review tomorrow
         reviewStreak = 0;
         nextReviewAt = e.at + DAY;

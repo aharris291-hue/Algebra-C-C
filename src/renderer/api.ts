@@ -43,10 +43,34 @@ function unwrap(r: CallResult): unknown {
   return r.value;
 }
 
-async function call(method: string, args: unknown[]): Promise<unknown> {
+/**
+ * Changes are written to disk a moment after a call returns (writes are batched), so a failed write
+ * is not on that call's result. Shortly after each call the save status is checked again, so the
+ * first failure shows at once instead of at the next heartbeat.
+ */
+export const SAVE_RECHECK_MS = 1_000;
+let recheckTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleSaveRecheck(method: string): void {
+  if (method === 'getStatus') return;
+  if (recheckTimer !== undefined) clearTimeout(recheckTimer);
+  recheckTimer = setTimeout(() => {
+    recheckTimer = undefined;
+    rawCall('getStatus', []).catch(() => undefined);
+  }, SAVE_RECHECK_MS);
+}
+
+async function rawCall(method: string, args: unknown[]): Promise<unknown> {
   if (bridge) return unwrap(await bridge.call(method, args));
   if (location.protocol.startsWith('http')) return unwrap(await httpCall(method, args));
   throw new ApiError('The app could not connect to its data.', true);
+}
+
+async function call(method: string, args: unknown[]): Promise<unknown> {
+  try {
+    return await rawCall(method, args);
+  } finally {
+    scheduleSaveRecheck(method);
+  }
 }
 
 export const api = Object.fromEntries(API_METHODS.map((m) => [m, (...args: unknown[]) => call(m, args)])) as unknown as AcademyApi;

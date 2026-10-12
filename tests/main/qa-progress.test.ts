@@ -115,6 +115,29 @@ describe('the next lesson unlocks after two honest quiz attempts', () => {
     ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at) VALUES (?, 'U1L01', 'in_progress', 'mastery', '{\"v\":1,\"quizAttempts\":2}', 1, 1)", [pid]);
     expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('available');
   });
+
+  it('a lesson saved by an older version keeps its unlock after another attempt (the honest count starts from the old attempts)', async () => {
+    const { ctx, pid } = await makeCtx();
+    const id = 'U1L01';
+    let v = toQuiz(ctx, pid, id);
+    v = answerQuiz(ctx, pid, id, v, 99);
+    v = remediate(ctx, pid, id, v, 'solve');
+    v = answerQuiz(ctx, pid, id, v, 99);
+    // strip the honest count, as a save from an older version has none
+    const st = JSON.parse(ctx.db.get<{ state_json: string }>('SELECT state_json FROM lesson_progress WHERE profile_id = ? AND lesson_id = ?', [pid, id])!.state_json);
+    delete st.honestAttempts;
+    delete st.retakeHonest;
+    ctx.db.run('UPDATE lesson_progress SET state_json = ? WHERE profile_id = ? AND lesson_id = ?', [JSON.stringify(st), pid, id]);
+    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('available');
+    // a third attempt after the upgrade (scored 0, but honest) never takes the unlock away
+    v = L.openLesson(ctx, pid, id);
+    v = remediate(ctx, pid, id, v, 'solve');
+    v = answerQuiz(ctx, pid, id, v, 99);
+    expect(v.results!.attemptNumber).toBe(3);
+    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('available');
+    const after = JSON.parse(ctx.db.get<{ state_json: string }>('SELECT state_json FROM lesson_progress WHERE profile_id = ? AND lesson_id = ?', [pid, id])!.state_json);
+    expect(after.honestAttempts).toBe(3);
+  });
 });
 
 describe('Show What You Know', () => {

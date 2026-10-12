@@ -3,6 +3,8 @@
  * - B3: a single miss (even on a unit assessment or an easy quiz item) never removes MASTERED.
  * - B10: two correct placement (diagnostic) answers establish a starting stage, never MASTERED.
  * - B11: spaced review follows 2, 4, 7, 14, 30 days; only answers given once the skill is due count as reviews.
+ * - Retest 3: MASTERED drops when the score falls below the Developing threshold (no misses needed);
+ *   only independent answers are successful reviews.
  */
 import { computeSkillState, Evidence } from '../../src/core/engine/mastery';
 
@@ -46,6 +48,26 @@ describe('MASTERED hysteresis (spec §18: not lost after one mistake)', () => {
     const e = masteredHistory();
     const two = [...e, ev(3 * D, false, 'assessment', { difficulty: 1 }), ev(3 * D + 60_000, false, 'assessment', { difficulty: 1 })];
     expect(computeSkillState(two).stage).not.toBe('MASTERED');
+  });
+
+  it('drops without misses once the score falls below the Developing threshold (every answer right only with full hints)', () => {
+    const e = masteredHistory();
+    let dropped = -1;
+    for (let i = 0; i < 30 && dropped < 0; i++) {
+      e.push(ev(2 * D + i * 3 * H, true, 'independent', { maxHintLevel: 4 }));
+      if (computeSkillState(e).stage !== 'MASTERED') dropped = i + 1;
+    }
+    expect(dropped).toBeGreaterThan(1);
+    expect(dropped).toBeLessThan(12);
+    expect(computeSkillState(e).score).toBeLessThan(0.5);
+  });
+
+  it('keeps the documented hysteresis: a steady 4 right / 1 wrong pattern stays MASTERED', () => {
+    const e = masteredHistory();
+    for (let i = 0; i < 60; i++) {
+      e.push(ev(2 * D + i * 3 * H, i % 5 !== 4));
+      expect(computeSkillState(e).stage, `after ${i + 1}`).toBe('MASTERED');
+    }
   });
 });
 
@@ -96,5 +118,24 @@ describe('spaced review intervals 2, 4, 7, 14, 30 days', () => {
     const after = computeSkillState([...e, ev(s.nextReviewAt!, false, 'review')]);
     expect(after.reviewStreak).toBe(0);
     expect(after.nextReviewAt! - s.nextReviewAt!).toBe(D);
+  });
+
+  it('only an independent answer is a successful review: a hinted or second-try answer leaves the skill due', () => {
+    const e = masteredHistory();
+    const s = computeSkillState(e);
+    const due = s.nextReviewAt!;
+    for (const opts of [{ maxHintLevel: 1 }, { attemptNumber: 2 }]) {
+      const after = computeSkillState([...e, ev(due, true, 'review', opts)]);
+      expect(after.reviewStreak, JSON.stringify(opts)).toBe(0);
+      expect(after.nextReviewAt, JSON.stringify(opts)).toBe(due);
+    }
+    // guided work never counts as a review either
+    expect(computeSkillState([...e, ev(due, true, 'guided')]).nextReviewAt).toBe(due);
+    // hinted correct practice before the due date does not push the review back
+    expect(computeSkillState([...e, ev(due - H, true, 'independent', { maxHintLevel: 2 })]).nextReviewAt).toBe(due);
+    // an independent answer does
+    const ok = computeSkillState([...e, ev(due, true, 'review')]);
+    expect(ok.reviewStreak).toBe(1);
+    expect((ok.nextReviewAt! - due) / D).toBe(4);
   });
 });

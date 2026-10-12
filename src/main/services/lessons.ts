@@ -357,6 +357,7 @@ export function openLesson(ctx: ServiceContext, profileId: number, lessonId: str
   requireProfile(ctx, profileId);
   const meta = lessonMeta(lessonId);
   if (meta.kind !== 'lesson') throw new UserFacingError('Open review and assessment days from the course map.');
+  assertNotDuringAssessment(ctx, profileId);
   const row = loadRow(ctx, profileId, lessonId);
   let st = row ? parseState(row, lessonId, ctx) : null;
   if (!row) assertCanOpen(ctx, profileId, lessonId);
@@ -435,6 +436,40 @@ function startQuiz(ctx: ServiceContext, st: LessonState, content: LessonContent,
   st.results = null;
 }
 
+/**
+ * A quiz or Show What You Know is in progress from the moment its questions are shown until it is
+ * graded. Meanwhile the lesson is closed-book: its pages, worked examples and Teach Me Again are
+ * not served (the renderer hides them too), so a quiz never turns into an open-book quiz.
+ */
+export function quizInProgress(st: LessonState): boolean {
+  return st.section === 'quiz' && !!st.quiz && !st.results;
+}
+
+/**
+ * A unit or semester assessment whose questions have been shown and that is not graded yet (the
+ * same meaning of "in progress" as for a quiz). While one is, lessons are closed: they would make
+ * it open-book (worked examples, Teach Me Again). The assessment is saved where the student left it.
+ */
+export function assessmentInProgress(ctx: ServiceContext, profileId: number): LessonMeta | null {
+  const rows = ctx.db.all<{ lesson_id: string; state_json: string }>("SELECT lesson_id, state_json FROM lesson_progress WHERE profile_id = ? AND section = 'practice'", [profileId]);
+  for (const r of rows) {
+    const meta = LESSON_BY_ID.get(r.lesson_id);
+    if (!meta || (meta.kind !== 'unit-assessment' && meta.kind !== 'semester-assessment')) continue;
+    try {
+      const js = JSON.parse(r.state_json) as { phase?: string; practice?: unknown };
+      if (js.phase === 'practice' && js.practice) return meta;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function assertNotDuringAssessment(ctx: ServiceContext, profileId: number): void {
+  const a = assessmentInProgress(ctx, profileId);
+  if (a) throw new UserFacingError(`Finish the ${a.title} first. It is saved where you left off; lessons and Teach Me Again open again once it is graded.`);
+}
+
 function sectionComplete(st: LessonState, s: SectionId): boolean {
   switch (s) {
     case 'guided':
@@ -474,9 +509,7 @@ export function goToSection(ctx: ServiceContext, profileId: number, lessonId: st
     if (target > furthest) throw new UserFacingError('Finish the current section first.');
     if (st.mode === 'testout' && section !== 'quiz') throw new UserFacingError('Finish the Show What You Know quiz first.');
     // A quiz in progress can't be left to look at the lesson (it would turn into an open-book quiz).
-    if (st.section === 'quiz' && !st.results && section !== 'quiz' && st.quiz && st.quiz.items.some((i) => i.state === 'answered')) {
-      throw new UserFacingError('Finish the quiz before going back to the lesson.');
-    }
+    if (quizInProgress(st) && section !== 'quiz') throw new UserFacingError('Finish the quiz before going back to the lesson.');
     st.section = section;
     ensurePractice(ctx, profileId, st, meta, content, section);
   });
@@ -718,7 +751,9 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       // hints always lead to a solved problem, so an honest struggling student is never stuck.
       const practiceBefore = attemptNumber === 1 ? solvedAny(st.guided) || solvedAny(st.independent) : !!st.retakeHonest;
       const honest = practiceBefore || score / max >= HONEST_QUIZ_SCORE - 1e-9;
-      st.honestAttempts = (st.honestAttempts ?? 0) + (honest ? 1 : 0);
+      // a lesson saved by an older version has no honest count: every earlier attempt counted there
+      // (as lessonStatuses reads it), so start from those attempts instead of from zero
+      st.honestAttempts = (typeof st.honestAttempts === 'number' ? st.honestAttempts : attemptNumber - 1) + (honest ? 1 : 0);
       st.retakeHonest = undefined;
       ctx.db.run('UPDATE lesson_progress SET quiz_best = MAX(COALESCE(quiz_best, 0), ?) WHERE profile_id = ? AND lesson_id = ?', [percent, profileId, lessonId]);
       if (passed) {
@@ -857,6 +892,8 @@ export function teachMeAgain(ctx: ServiceContext, profileId: number, lessonId: s
   const content = lessonContent(lessonId);
   const row = loadRow(ctx, profileId, lessonId);
   const st = row ? parseState(row, lessonId, ctx) ?? freshState() : freshState();
+  assertNotDuringAssessment(ctx, profileId);
+  if (quizInProgress(st)) throw new UserFacingError(st.mode === 'testout' ? 'Teach Me Again comes back after Show What You Know. Finish it first.' : 'Teach Me Again comes back after the quiz. Finish the quiz first.');
   let variant = approach ? content.teachMeAgain.find((t) => t.approach === approach) : undefined;
   if (!variant) {
     variant = content.teachMeAgain.find((t) => !st.teachAgainUsed.includes(t.approach)) ?? content.teachMeAgain[st.teachAgainUsed.length % content.teachMeAgain.length];
@@ -879,6 +916,7 @@ export function buildView(ctx: ServiceContext, profileId: number, lessonId: stri
   const row = loadRow(ctx, profileId, lessonId);
   const unit = UNIT_BY_ID.get(meta.unitId)!;
   const ps = currentPractice(st);
+  const closedBook = quizInProgress(st);
   const suggestion = (s: { skillId: string; state: string; attempts: number; hintLevel: number }) =>
     s.state === 'open' && s.attempts >= 2 && !(st.teachAgainUsed.length > 0) ? 'Stuck? Teach Me Again explains this a different way.' : undefined;
   const view: LessonView = {
@@ -896,15 +934,18 @@ export function buildView(ctx: ServiceContext, profileId: number, lessonId: stri
     section: st.section,
     sections: LESSON_SECTIONS,
     sectionsDone: st.sectionsDone,
-    content: {
-      goal: content.goal,
-      needToKnow: content.needToKnow,
-      instruction: content.instruction,
-      examples: content.examples,
-      vocabulary: content.vocabulary ?? [],
-      summary: content.summary,
-    },
-    teachAgainOptions: content.teachMeAgain.map((t) => ({ approach: t.approach, title: t.title, used: st.teachAgainUsed.includes(t.approach) })),
+    // closed-book while a quiz is in progress: only the goal is sent
+    content: closedBook
+      ? { goal: content.goal, needToKnow: [], instruction: [], examples: [], vocabulary: [], summary: [] }
+      : {
+          goal: content.goal,
+          needToKnow: content.needToKnow,
+          instruction: content.instruction,
+          examples: content.examples,
+          vocabulary: content.vocabulary ?? [],
+          summary: content.summary,
+        },
+    teachAgainOptions: closedBook ? [] : content.teachMeAgain.map((t) => ({ approach: t.approach, title: t.title, used: st.teachAgainUsed.includes(t.approach) })),
     practice: ps && ps !== st.corrections && ps !== st.remediation?.practice ? practiceView(ps, suggestion) : null,
     results: st.results,
     corrections: st.corrections ? practiceView(st.corrections) : null,

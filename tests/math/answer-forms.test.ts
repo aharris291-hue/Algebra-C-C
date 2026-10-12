@@ -174,3 +174,97 @@ describe('requested-form check used by quizzes (does not depend on the value)', 
     expect(requestedFormIssue({ kind: 'number', value: '5' }, '2+3')).toMatch(/single number/);
   });
 });
+
+describe('QA retest: answer forms', () => {
+  it('"thousand dollars": only a dollar amount is the wrong form, the same rule in the checker and the quiz form check', () => {
+    const two: AnswerSpec = { kind: 'number', value: '2', unit: 'thousand dollars' };
+    for (const i of ['2', '$2', '$2 thousand', '2 thousand', '2 thousand dollars']) {
+      expect(st(two, i), i).toBe('correct');
+      expect(requestedFormIssue(two, i), i).toBeNull();
+    }
+    for (const i of ['$2,000', '2000', '2,000 dollars']) {
+      expect(st(two, i), i).toBe('wrong-form');
+      expect(requestedFormIssue(two, i), i).toMatch(/thousand dollars/);
+    }
+    // a wrong amount is saved and graded wrong (with the units hint), never refused
+    expect(requestedFormIssue(two, '$3,000')).toBeNull();
+    expect(checkAnswer(two, '$3,000').misconception).toBe('units');
+    // answers of a thousand or more in thousands are fine
+    const big: AnswerSpec = { kind: 'number', value: '1500', unit: 'thousand dollars' };
+    for (const i of ['1500', '1,500', '1500 thousand dollars']) {
+      expect(st(big, i), i).toBe('correct');
+      expect(requestedFormIssue(big, i), i).toBeNull();
+    }
+    expect(requestedFormIssue({ kind: 'number', value: '-1200', unit: 'thousand dollars' }, '-1200')).toBeNull();
+  });
+
+  it('solved-form inequalities with boundary 0 are solved', () => {
+    const ge: AnswerSpec = { kind: 'inequality', value: 'x >= 0', form: 'solved' };
+    const lt: AnswerSpec = { kind: 'inequality', value: 'x < 0', form: 'solved' };
+    for (const [s, i] of [[ge, 'x >= 0'], [ge, '0 <= x'], [ge, 'x ≥ 0'], [lt, '0 > x'], [lt, 'x < 0'], [{ kind: 'inequality', value: 'x > 0', form: 'solved' } as AnswerSpec, '0 < x']] as const) {
+      expect(st(s, i), i).toBe('correct');
+      expect(requestedFormIssue(s, i), i).toBeNull();
+    }
+    // still not solved: x on both sides or with a coefficient
+    for (const i of ['2x >= 0', 'x >= x - x', 'x + 1 >= 1']) {
+      expect(st(ge, i), i).toBe('wrong-form');
+      expect(requestedFormIssue(ge, i), i).not.toBeNull();
+    }
+    expect(st(ge, 'x <= 0')).toBe('incorrect');
+  });
+
+  it('words and letters after a number never vanish', () => {
+    expect(st({ kind: 'number', value: '3' }, '3 halves')).not.toBe('correct');
+    expect(st({ kind: 'number', value: '3', unit: 'seconds' }, '3 halves')).not.toBe('correct');
+    expect(st({ kind: 'number', value: '3/2' }, '3 halves')).not.toBe('correct');
+    for (const i of ['3 x', '3 y', '3 n']) expect(st({ kind: 'number', value: '3' }, i), i).toBe('invalid');
+    // real units and counted things still work
+    expect(st({ kind: 'number', value: '3', unit: 'seconds' }, '3 s')).toBe('correct');
+    expect(st({ kind: 'number', value: '3' }, '3s')).toBe('correct');
+    expect(st({ kind: 'number', value: '3', unit: 'meters' }, '3 m')).toBe('correct');
+    expect(st({ kind: 'number', value: '54' }, '54 shirts')).toBe('correct');
+    expect(st({ kind: 'number', value: '3', unit: 'hours' }, '3 hrs')).toBe('correct');
+  });
+
+  it('a space as a thousands separator works inside expressions, lists and points', () => {
+    expect(st({ kind: 'expression', value: '1200x' }, '1 200x')).toBe('correct');
+    expect(st({ kind: 'expression', value: 'x+1200', form: 'expanded' }, 'x + 1 200')).toBe('correct');
+    expect(st({ kind: 'sequence-terms', values: ['1200', '2400'] }, '1 200, 2 400')).toBe('correct');
+    expect(st({ kind: 'point', x: '1200', y: '5' }, '(1 200, 5)')).toBe('correct');
+    expect(st({ kind: 'solutions', values: ['1200', '-2'] }, '1 200 or -2')).toBe('correct');
+    expect(st({ kind: 'equation', value: 'y = 1200x + 5' }, 'y = 1 200x + 5')).toBe('correct');
+    // the plain reading wins when it is readable, and a malformed group is not a separator
+    expect(st({ kind: 'sequence-terms', values: ['1', '200', '3'] }, '1 200 3')).toBe('correct');
+    expect(st({ kind: 'number', value: '1200' }, '1 2000')).toBe('invalid');
+    expect(st({ kind: 'expression', value: '200x' }, '2 100x')).not.toBe('correct');
+    // the quiz form check reads it the same way
+    expect(requestedFormIssue({ kind: 'expression', value: '1200x + 1200', form: 'expanded' }, '1 200(x + 1)')).toMatch(/multiplied out/);
+  });
+
+  it('"no real solutions" without spaces', () => {
+    for (const i of ['norealsolutions', 'nosolution', 'no real solutions', 'No solution.', 'none']) expect(st({ kind: 'solutions', values: [] }, i), i).toBe('correct');
+    expect(st({ kind: 'solutions', values: ['2'] }, 'norealsolutions')).toBe('incorrect');
+  });
+
+  it('compound inequality answers', () => {
+    const spec: AnswerSpec = { kind: 'inequality', value: '-2 < x < 5' };
+    expect(st(spec, '-2<x<5')).toBe('correct');
+    expect(st(spec, '5 > x > -2')).toBe('correct');
+    expect(checkAnswer(spec, '-2 <= x < 5').misconception).toBe('boundary-line');
+    expect(st(spec, '-3 < x < 5')).toBe('incorrect');
+    expect(st(spec, 'x < 5')).toBe('incorrect');
+    expect(st(spec, '-2 < y < 5')).toBe('invalid');
+  });
+
+  it('a named output ("A(t) = ...") is named in messages and may be written as A = ...', () => {
+    const spec: AnswerSpec = { kind: 'equation', value: 'A(t) = 500(1.03)^t' };
+    expect(st(spec, 'A = 500(1.03)^t')).toBe('correct');
+    expect(st(spec, 'A(t) = 500(1.03)^t')).toBe('correct');
+    expect(st(spec, 'A = 500(1.04)^t')).toBe('incorrect');
+    const r = checkAnswer(spec, 'B = 500(1.03)^t');
+    expect(r.status).toBe('invalid');
+    expect(r.message).toMatch(/A and t/);
+    const ex: AnswerSpec = { kind: 'equation', value: 'A = 500(1.03)^t', form: 'exponential' };
+    expect(requestedFormIssue(ex, 'A = 500 + 15t')).toMatch(/A = a\(b\)ᵗ/);
+  });
+});
