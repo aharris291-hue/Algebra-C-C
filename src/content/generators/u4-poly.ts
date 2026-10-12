@@ -11,7 +11,7 @@ import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { polyTex, polyPlain } from '../../core/math/format';
 import { p, makeProblem, makeChoice, choiceLabel, texToExpr, Q } from './util';
-import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, mathOf, gcd, gcdAll, factorPairs, pairLabel, fixedChoice, choiceMis, exprMis, numMis, gstep, checkSteps, pickLabel } from './u4-common';
+import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, mathOf, gcd, gcdAll, factorPairs, pairLabel, fixedChoice, choiceMis, choiceMisList, exprMis, numMis, gstep, checkSteps, pickLabel } from './u4-common';
 
 type ChoiceSpec = { kind: 'choice'; options: { id: string; label: string }[]; correct: string };
 
@@ -122,7 +122,13 @@ const PART_TERM: Record<Part, number | null> = { leading: 2, degree: 2, constant
 
 /** Guided steps for a parts question: first find the right term (or count the signs), then name the part. */
 function partSteps(terms: Term[], tex: string, part: Part, val: number, answer: ChoiceSpec): ProblemStep[] {
-  const finalMis = answer.options
+  const finalMis = partChoiceMis(terms, part, val, answer);
+  return partStepsWith(terms, tex, part, val, answer, finalMis);
+}
+
+/** Feedback for each wrong option of a parts question, from the number on the option. */
+function partChoiceMis(terms: Term[], part: Part, val: number, answer: ChoiceSpec): Misconception[] {
+  return answer.options
     .filter((o) => o.id !== answer.correct)
     .map((o): Misconception => {
       const x = Number(o.label.replace(/\$/g, ''));
@@ -133,6 +139,9 @@ function partSteps(terms: Term[], tex: string, part: Part, val: number, answer: 
       if (terms.some((t) => t.coef === -x)) return { answer: o.id, tag: 'sign-error', feedback: 'That has the wrong sign, and it belongs to a different term. Find the term the question is about and keep its sign.' };
       return { answer: o.id, tag: 'other', feedback: 'That number is not in the expression. Find the term the question is about and read its number, with its sign.' };
     });
+}
+
+function partStepsWith(terms: Term[], tex: string, part: Part, val: number, answer: ChoiceSpec, finalMis: Misconception[]): ProblemStep[] {
   if (part === 'terms') {
     const signs = (tex.slice(1).match(/ [+-] /g) ?? []).length;
     return [
@@ -236,7 +245,13 @@ export const genInterpretParts: GeneratorDef = {
                       : `At $p = 0$ the number sold would be $${N} - ${m}(0) = ${N}$.`,
             },
           ],
-          misconceptions: [],
+          misconceptions: choiceMisList(answer, [
+            [L.sold, 'other', `The number sold is the whole factor $${N} - ${m}p$, which changes as the price changes.`],
+            [L.price, 'other', 'The price of one item is the variable $p$ by itself.'],
+            [L.drop, 'other', `The drop in sales for each \\$1 increase in price is $${m}$, the number multiplying $p$ inside the parentheses.`],
+            [L.free, 'other', `The number given out at a price of \\$0 is the value of $${N} - ${m}p$ when $p = 0$.`],
+            [L.revenue, 'other', 'The total money taken in is the whole product $R(p)$, price times number sold, not one piece of it.'],
+          ]),
         });
       }
       if (roll === 3) {
@@ -265,7 +280,12 @@ export const genInterpretParts: GeneratorDef = {
             { text: 'Read the model as one side times the other side.', tex: `A(x) = \\underbrace{(x + ${a})}_{\\text{side made } ${a} \\text{ ft longer}} \\cdot \\underbrace{(x + ${b})}_{\\text{side made } ${b} \\text{ ft longer}}`, why: 'Area of a rectangle is length times width, and each side started at $x$ feet.' },
             { text: `So $${shown}$ is: ${L[ask].charAt(0).toLowerCase() + L[ask].slice(1)}.`, why: ask === 'orig' ? 'The problem defines $x$ as the side of the original square.' : 'It is a length in feet, not an area: it is one factor of the area.' },
           ],
-          misconceptions: [],
+          misconceptions: choiceMisList(answer, [
+            [L.sideA, 'other', `The side that was made $${a}$ feet longer is $x + ${a}$: the original side $x$ plus $${a}$.`],
+            [L.sideB, 'other', `The side that was made $${b}$ feet longer is $x + ${b}$: the original side $x$ plus $${b}$.`],
+            [L.orig, 'other', 'The side of the original square is $x$ by itself, as the first sentence says.'],
+            [L.area, 'units', 'The area of the new garden is the whole product $A(x)$, measured in square feet, not one piece of it.'],
+          ]),
         });
       }
       const v = rng.pick([32, 48, 64, 80]);
@@ -286,6 +306,13 @@ export const genInterpretParts: GeneratorDef = {
           'The term with $t$ to the first power is the part that grows steadily with time, like a speed times a time. The $t^{2}$ term grows faster and faster.',
           'The greatest height and the landing time come from solving or graphing, not from reading one number.',
         ],
+        misconceptions: choiceMisList(answer, [
+          [CTX_LABELS.start, 'other', `The starting height is the constant term, $${h0}$: it is what is left when you substitute $t = 0$.`],
+          [CTX_LABELS.speed, 'other', `The upward speed at the throw is $${v}$, the coefficient of $t$: feet per second times seconds gives feet.`],
+          [CTX_LABELS.gravity, 'other', 'The effect of gravity is the $-16$ in the $-16t^{2}$ term, which subtracts more and more height as time goes on.'],
+          [CTX_LABELS.max, 'other', 'The greatest height is not one of the numbers written in the function. You find it from the vertex.'],
+          [CTX_LABELS.time, 'other', 'The landing time is not one of the numbers written in the function. You find it by solving $h(t) = 0$.'],
+        ]),
         solution:
           askK === 'start'
             ? [{ text: 'Substitute $t = 0$.', tex: `h(0) = -16(0)^{2} + ${v}(0) + ${h0} = ${h0}`, why: `At the moment the ball is thrown its height is ${h0} feet, so the constant term is the starting height.` }]
@@ -295,7 +322,6 @@ export const genInterpretParts: GeneratorDef = {
                   { text: 'The term $-16t^{2}$ is negative and grows like $t^{2}$.', why: 'It subtracts more height each second than the second before, which is how gravity pulls a thrown ball back down faster and faster.' },
                   { text: 'So $-16$ is the effect of gravity.', why: 'In feet and seconds, gravity speeds a falling object up by $32$ feet per second every second, and the model uses half of that, $16$. It is negative because gravity pulls down.' },
                 ],
-        misconceptions: [],
       });
     }
     if (difficulty === 2 && rng.int(0, 2) === 0) {
@@ -321,7 +347,14 @@ export const genInterpretParts: GeneratorDef = {
           'Exactly one choice appears as a factor in the product.',
         ],
         solution: [{ text: `The expression is $${k}$ times $${linTex(1, -r1)}$ times $${linTex(1, -r2)}$.`, why: 'Each of these is a factor.' }, { text: `So $${linTex(1, -correct)}$ is a factor.` }],
-        misconceptions: [],
+        misconceptions: choiceMisList(
+          answer,
+          fakes.map((r): [string, MisconceptionTag, string] =>
+            r === -r1 || r === -r2
+              ? [`$${linTex(1, -r)}$`, 'sign-error', `Check the sign inside the binomial: $${linTex(1, -r)}$ and $${linTex(1, r)}$ are different factors. Compare the choice with the product exactly, sign included.`]
+              : [`$${linTex(1, -r)}$`, 'factoring', 'That binomial is not one of the parts being multiplied. The factors are the number in front and the binomials in parentheses, exactly as written.'],
+          ),
+        ),
       });
     }
     const a = nz(rng, -6, 9);
@@ -364,7 +397,7 @@ export const genInterpretParts: GeneratorDef = {
         { text: 'Write the expression in standard form.', tex: polyTex(poly, ['x']), why: 'Ordering the terms by power makes each part easy to name.' },
         { text: `The answer is $${val}$.`, why: why[part] },
       ],
-      misconceptions: [],
+      misconceptions: partChoiceMis(terms, part, val, answer),
     });
   },
   verify(pr) {
@@ -810,7 +843,7 @@ function squareSteps(b: number, tex: string, plain: string, resultTex: string, f
     gstep(
       `Use the pattern $${pat}$ for $${tex}$, with $a = x$ and $b = ${B}$. What is the **middle term**${b < 0 ? ' (with its minus sign)' : ''}?`,
       { kind: 'expression', value: pPlain(mid) },
-      ['Squaring means the binomial times itself, which makes two equal middle products.', 'The middle term is **twice** the product of the two terms.', `The product of the two terms is $x \\cdot ${B}$.`, b < 0 ? `Double $${B}x$ and keep the minus sign from the pattern.` : `Double $${B}x$.`],
+      ['Squaring means the binomial times itself, which makes two equal middle products.', 'The middle term is **twice** the product of the two terms.', `The product of the two terms is $x \\cdot ${B}$.`, b < 0 ? `Double $${pTex(X([0, B]))}$ and keep the minus sign from the pattern.` : `Double $${pTex(X([0, B]))}$.`],
       `$${b < 0 ? '-' : ''}2(x)(${B}) = ${pTex(mid)}$: the two equal rectangles in the area model, $${pTex(X([0, b]))}$ and $${pTex(X([0, b]))}$, add up to it.`,
       exprMis(pPlain(mid), [
         { answer: pPlain(X([0, b])), tag: 'distribution', feedback: 'That is only one of the two middle products. Squaring gives two equal ones, so double it.' },
@@ -1154,7 +1187,7 @@ export const genFactorAx2: GeneratorDef = {
       {
         prompt: [p(`For $${pTex(inner)}$, what is $a \\cdot c$?`)],
         answer: { kind: 'number', value: String(A * C) },
-        hints: [`$a = ${A}$ is the coefficient of $x^{2}$.`, `$c = ${C}$ is the constant term.`, 'Multiply them, keeping the sign.', 'A negative times a positive is negative.'],
+        hints: [`$a = ${A}$ is the coefficient of $x^{2}$.`, `$c = ${C}$ is the constant term.`, 'Multiply them, keeping the sign.', A < 0 && C < 0 ? 'A negative times a negative is positive.' : A < 0 || C < 0 ? 'A negative times a positive is negative.' : 'Both numbers are positive, so the product is positive.'],
         explanation: `$a \\cdot c = ${A} \\cdot ${C < 0 ? `(${C})` : C} = ${A * C}$.`,
       },
       pairStep(A * C, B, rng, [m, n], '($a \\cdot c$)'),

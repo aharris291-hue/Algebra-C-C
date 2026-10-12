@@ -359,3 +359,16 @@ export function pickLabel(spec: AnswerSpec, label: string): string {
   if (spec.kind !== 'choice') return '#not-a-choice';
   return spec.options.find((o) => o.label === label)?.id ?? '#missing-option';
 }
+
+/**
+ * Misconceptions for the wrong options of a choice answer: one entry per distractor label, as
+ * [label, tag, feedback]. Entries whose label is absent or is the correct option are dropped.
+ */
+export function choiceMisList(spec: Choice, entries: Array<[string, MisconceptionTag, string]>): Misconception[] {
+  const out: Misconception[] = [];
+  for (const [label, tag, feedback] of entries) {
+    const m = choiceMis(spec, label, tag, feedback);
+    if (m && !out.some((o) => o.answer === m.answer)) out.push(m);
+  }
+  return out;
+}

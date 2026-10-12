@@ -12,7 +12,7 @@ import { toPoly, Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, texToExpr, numberMisconceptions } from './util';
 import { radPlain, radTex, splitPower, SQUAREFREE } from './u3-common';
-import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, texEquation, mathOf, quadRoots, checkSolutions, roundedRootOk, gcdAll, gcd, subTex, promptText, fixedChoice, choiceMis, numMis, gstep, checkSteps, pickLabel } from './u4-common';
+import { X, lin, pTex, pPlain, linPlain, linTex, texPoly, plainPoly, texEquation, mathOf, quadRoots, checkSolutions, roundedRootOk, gcdAll, gcd, subTex, promptText, fixedChoice, choiceMis, choiceMisList, numMis, gstep, checkSteps, pickLabel } from './u4-common';
 
 const SOL_HINT = 'Like x = 3, -5 or 2 ± sqrt(5), or none';
 const nz = (rng: Rng, lo: number, hi: number) => rng.nonzeroInt(lo, hi);
@@ -328,7 +328,7 @@ export const genCompleteSquareSolve: GeneratorDef = {
         prompt: [p(`Solve $${sq} = ${m}$.`)],
         answer: solSpec(sols.values),
         inputHint: SOL_HINT,
-        hints: ['Take the square root of both sides, using $\\pm$.', 'Simplify the radical if you can.', `Then subtract $${h}$ from both sides.`, 'There are two solutions.'],
+        hints: ['Take the square root of both sides, using $\\pm$.', 'Simplify the radical if you can.', h > 0 ? `Then subtract $${h}$ from both sides.` : `Then add $${-h}$ to both sides.`, 'There are two solutions.'],
         explanation: `$${sols.tex}$.`,
       },
     ];
@@ -956,7 +956,26 @@ export const genQuadraticContext: GeneratorDef = {
                     : `$h(${t.toTex()}) = ${ht.toTex()}$, so the point is a solution of the equation, but $t = ${t.toTex()}$ is ${t.isNegative() ? 'before the throw' : 'after the ball has landed'}. A negative height is not possible here.`,
           },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisList(answer, [
+          [
+            POINT.yes,
+            which === 'domain' ? 'interval-endpoint' : 'arithmetic-error',
+            which === 'domain'
+              ? `Fitting the equation is not enough. Check whether $t = ${t.toTex()}$ is a time when the ${thing} is actually in the air, between the throw and the landing.`
+              : `Substitute $t = ${t.toTex()}$: $h(${t.toTex()}) = ${ht.toTex()}$, not $${y.toTex()}$, so the point is not on the graph of the model.`,
+          ],
+          [
+            POINT.otherTime,
+            which === 'domain' ? 'interval-endpoint' : which === 'tooHigh' ? 'graph-reading' : 'arithmetic-error',
+            which === 'domain'
+              ? `Look at the time first: is $t = ${t.toTex()}$ while the ${thing} is in the air? Find when it lands by solving $h(t) = 0$.`
+              : which === 'tooHigh'
+                ? `Compare $${y.toTex()}$ with the maximum height, the height at the vertex, $t = ${tv.toTex()}$. Does the ${thing} ever reach $${y.toTex()}$ feet?`
+                : `Substitute $t = ${t.toTex()}$ into $h(t)$ carefully (square first, then multiply) and compare the result with $${y.toTex()}$.`,
+          ],
+          [POINT.tooHigh, 'graph-reading', `The maximum height is $${K.toTex()}$ feet, at $t = ${tv.toTex()}$, and $${y.toTex()}$ is not above it.`],
+          [POINT.domain, 'interval-endpoint', `$t = ${t.toTex()}$ is between the throw and the landing (about $${T.toFixed(2)}$ seconds), so that time is inside the domain.`],
+        ]),
       });
     }
     // a ball thrown upward: h(t) = -16t^2 + v t + h0

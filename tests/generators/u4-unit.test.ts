@@ -48,3 +48,37 @@ describe('Unit 4 guided practice is step by step', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Error-specific feedback (Lesson Quality Audit): in these multiple-choice generator/difficulties every
+// wrong option is built from a specific mistake, so each one carries a misconception whose feedback
+// is what the student sees after picking it.
+// ---------------------------------------------------------------------------
+describe('Unit 4 multiple-choice distractors give error-specific feedback', () => {
+  const pairs = [
+    'u4.avg-rate|2', 'u4.avg-rate|3', 'u4.compare-functions|2', 'u4.graph-features|3', 'u4.interpret-notation|3',
+    'u4.interpret-parts|2', 'u4.interpret-parts|3', 'u4.max-min|3', 'u4.model-situation|3', 'u4.quadratic-context|2',
+    'u4.quadratic-context|3', 'u4.rewrite-forms|3', 'u4.transform-describe|2', 'u4.transform-describe|3',
+  ];
+  for (const pair of pairs) {
+    it(`${pair}: every wrong option has feedback on 60 seeds`, () => {
+      const [gid, d] = pair.split('|');
+      const gen = GENERATORS.get(gid)!;
+      let choices = 0;
+      for (let s = 1; s <= 60; s++) {
+        const { problem } = produceProblem(gen, s * 7919 + 17 * Number(d), Number(d) as Difficulty);
+        if (problem.answer.kind !== 'choice') continue;
+        choices++;
+        for (const o of problem.answer.options) {
+          if (o.id === problem.answer.correct) continue;
+          const m = problem.misconceptions.find((x) => x.answer === o.id);
+          expect(m, `${problem.id} option "${o.label}" has a misconception`).toBeTruthy();
+          const r = checkAnswer(problem.answer, o.id, problem.misconceptions);
+          expect(r.status).toBe('incorrect');
+          expect(r.message, `${problem.id} option ${o.id}`).toBe(m!.feedback);
+        }
+      }
+      expect(choices).toBeGreaterThan(0);
+    });
+  }
+});

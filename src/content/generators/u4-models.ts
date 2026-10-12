@@ -4,19 +4,21 @@
  * the printed function, table, graph or story and re-derives the answer exactly.
  */
 import type { GeneratorDef, Rng, ProblemStep, GraphSpec, Block } from '../../core/curriculum/types';
-import type { Misconception } from '../../core/math/answers';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { isVertexForm, isCompletelyFactored, isExpandedForm, parseRelation } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, money, texToExpr, numberMisconceptions } from './util';
-import { tailTex, fixedChoice, choiceMis, numMis, exprMis, gstep, checkSteps, pickLabel } from './u4-common';
+import { tailTex, fixedChoice, choiceMis, choiceMisList, numMis, exprMis, gstep, checkSteps, pickLabel } from './u4-common';
 import { X, pTex, pPlain, plainPoly, ev, vertexOf, vtxTex, vtxPlain, vtxPoly, factTex, factPlain, factPoly, rhsPoly, mathBlocks, promptText, graphOf, subTex, coefTex } from './u4-common';
 
 const nz = (rng: Rng, lo: number, hi: number) => rng.nonzeroInt(lo, hi);
 const numSpec = (v: Rational, unit?: string) => ({ kind: 'number' as const, value: numStr(v), ...(unit ? { unit } : {}) });
 const gexpr = (poly: Poly) => pPlain(poly).replace(/\s+/g, '');
 type Hints = [string, string, string, string];
+/** c times x written the usual way: x, -x, 3x. */
+const monoX = (c: number) => (c === 1 ? 'x' : c === -1 ? '-x' : `${c}x`);
 
 // ---------------------------------------------------------------------------
 // S4.18: rewrite forms; maximum and minimum
@@ -30,6 +32,18 @@ const REVEAL_ASK: Record<Prop, { abstract: string; ctx: string }> = {
   vertex: { abstract: 'the vertex of the graph of $f$', ctx: 'the maximum height of the ball and when it happens' },
   yint: { abstract: 'the $y$-intercept of $f$', ctx: 'the height the ball is thrown from' },
 };
+
+const FORM_SHOWS: Record<'factored' | 'vertex' | 'expanded', string> = {
+  factored: 'factored form, which shows the zeros',
+  vertex: 'vertex form, which shows the vertex',
+  expanded: 'standard form, which shows the $y$-intercept',
+};
+const DECOY_TIP = (prop: Prop, v: string): string =>
+  prop === 'zeros'
+    ? `Check the signs: the factor $(${v} - 3)$ is $0$ when $${v} = 3$, and $(${v} + 3)$ is $0$ when $${v} = -3$.`
+    : prop === 'vertex'
+      ? `Check the sign inside the parentheses: $(${v} - 3)^{2}$ has its vertex at $${v} = 3$.`
+      : 'Check the sign of the middle term.';
 
 function revealForm(rng: Rng, ctx: boolean) {
   const v = ctx ? 't' : 'x';
@@ -92,7 +106,20 @@ function revealForm(rng: Rng, ctx: boolean) {
       ...(prop === 'zeros' ? [{ text: 'Read the property.', tex: zerosT }] : []),
       { text: 'Rule out the look-alike choice.', tex: `${decoy} \\ne ${std}`, why: 'It has the right shape but multiplies out to a different function.' },
     ],
-    misconceptions: [],
+    misconceptions: choiceMisList(answer, [
+      ...(['factored', 'vertex', 'expanded'] as const)
+        .filter((k) => k !== PROP_FORM[prop])
+        .map((k): [string, MisconceptionTag, string] => [
+          lab(forms[k]),
+          'other',
+          `That form is equivalent to $${name}$, but it is ${FORM_SHOWS[k]}. It does not show ${ask} without more calculation.`,
+        ]),
+      [
+        lab(decoy),
+        prop === 'vertex' ? 'vertex-sign' : 'sign-error',
+        `That one has the right shape, but it is not equivalent to $${name}$: multiply it out and you get a different function. ${DECOY_TIP(prop, v)}`,
+      ],
+    ]),
   });
 }
 
@@ -159,16 +186,33 @@ export const genRewriteForms: GeneratorDef = {
       // guided steps: expand the square, distribute a (when a is not 1), then add k
       const sqP = X([h * h, -2 * h, 1]);
       const sqTex = `\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)^{2}`;
+      const binTex = `\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)`;
+      if (k === 0 && a === 1) {
+        // f is just the square: find its x term first, then write the whole square out
+        steps.push(
+          gstep(
+            `$f(x) = ${sqTex}$ means $${binTex}${binTex}$. Multiplying it out gives two middle products. What is the $x$ term, their sum?`,
+            { kind: 'expression', value: pPlain(X([0, -2 * h])) },
+            ['The middle products are the outer product and the inner product.', `Each one is $x \\cdot ${subTex(-h)} = ${monoX(-h)}$.`, 'The two middle products are equal, so add one to itself.', 'Keep the sign.'],
+            `Both middle products are $${monoX(-h)}$, so the $x$ term is $${monoX(-h)} + ${-h < 0 ? `(${monoX(-h)})` : monoX(-h)} = ${monoX(-2 * h)}$.`,
+            exprMis(pPlain(X([0, -2 * h])), [
+              { answer: pPlain(X([0, -h])), tag: 'distribution', feedback: 'There are **two** middle products, so the $x$ term is doubled.' },
+              { answer: pPlain(X([0, 2 * h])), tag: 'sign-error', feedback: `Check the sign of the $x$ term: $x \\cdot ${subTex(-h)} = ${monoX(-h)}$.` },
+            ]),
+            'Type a term like -6x.',
+          ),
+        );
+      }
       steps.push(
         gstep(
-          `Start with the square. Write $${sqTex}$ in standard form.`,
+          k === 0 && a === 1 ? `Now write $f(x) = ${sqTex}$ in standard form.` : `Start with the square. Write $${sqTex}$ in standard form.`,
           { kind: 'expression', value: pPlain(sqP), form: 'expanded' },
-          ['Squaring means multiplying the binomial by itself.', `Write it as $\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)$ and multiply every term by every term.`, `The two middle products are equal, so the $x$ term is twice one of them: $2(${-h}x)$.`, `The last term is $${-h < 0 ? `(${-h})` : -h}^{2}$, which is positive.`],
-          `$${sqTex} = ${pTex(sqP)}$: $x \\cdot x$, two middle products of $${-h}x$, and $${-h} \\cdot ${subTex(-h)} = ${h * h}$.`,
+          ['Squaring means multiplying the binomial by itself.', `Write it as $\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)\\left(x ${h < 0 ? '+' : '-'} ${Math.abs(h)}\\right)$ and multiply every term by every term.`, `The two middle products are equal, so the $x$ term is twice one of them: $2(${monoX(-h)})$.`, `The last term is $${-h < 0 ? `(${-h})` : -h}^{2}$, which is positive.`],
+          `$${sqTex} = ${pTex(sqP)}$: $x \\cdot x$, two middle products of $${monoX(-h)}$, and $${-h} \\cdot ${subTex(-h)} = ${h * h}$.`,
           exprMis(pPlain(sqP), [
             { answer: pPlain(X([h * h, 0, 1])), tag: 'distribution', feedback: '$(x - h)^{2}$ is $(x - h)(x - h)$. Squaring each term misses the two middle products.' },
             { answer: pPlain(X([h * h, -h, 1])), tag: 'distribution', feedback: 'There are **two** middle products, so the $x$ term is doubled.' },
-            { answer: pPlain(X([h * h, 2 * h, 1])), tag: 'sign-error', feedback: `Check the sign of the $x$ term: $x \\cdot (${-h}) = ${-h}x$.` },
+            { answer: pPlain(X([h * h, 2 * h, 1])), tag: 'sign-error', feedback: `Check the sign of the $x$ term: $x \\cdot (${-h}) = ${monoX(-h)}$.` },
           ]),
           'Type an expression like x^2 - 6x + 9.',
         ),
@@ -184,17 +228,20 @@ export const genRewriteForms: GeneratorDef = {
             exprMis(pPlain(aP), [
               { answer: pPlain(X([h * h, -2 * h, a])), tag: 'distribution', feedback: `Multiply **every** term by $${a}$, not just the first one.` },
               { answer: pPlain(X([h * h * a, 2 * h * a, a])), tag: 'sign-error', feedback: 'Check the sign of the $x$ term after multiplying.' },
+              // with nothing added at the end this is the last step, so it also catches the squared-each-term answer
+              ...(k === 0 ? misconceptions : []),
             ]),
             'Type an expression like 2x^2 - 12x + 18.',
           ),
         );
       }
-      steps.push(
+      // with nothing added at the end (k = 0), the square (times a) is already the answer
+      if (k !== 0) steps.push(
         gstep(
-          k === 0 ? 'Nothing is added at the end. Write $f$ in standard form.' : `Last, ${k > 0 ? 'add' : 'subtract'} $${Math.abs(k)}$. Write $f$ in standard form.`,
+          `Last, ${k > 0 ? 'add' : 'subtract'} $${Math.abs(k)}$. Write $f$ in standard form.`,
           { kind: 'expression', value: target, form },
           [`$k = ${k}$ is added at the end, after the squared part.`, 'Only the constant term changes.', 'Combine the constant terms.', 'Write the $x^{2}$ term first, then the $x$ term, then the constant.'],
-          `$${pTex(sqP.scale(Q(a)))} ${k === 0 ? '' : k < 0 ? `- ${-k}` : `+ ${k}`} = ${pTex(f)}$.`,
+          `$${pTex(sqP.scale(Q(a)))} ${k < 0 ? `- ${-k}` : `+ ${k}`} = ${pTex(f)}$.`,
           [...misconceptions, ...exprMis(target, [{ answer: pPlain(sqP.scale(Q(a)).add(X([-k]))), tag: 'sign-error', feedback: `Check the sign of $k$: the function ${k > 0 ? 'adds' : 'subtracts'} $${Math.abs(k)}$.` }])],
           'Type an answer like 2x^2 - 4x + 1.',
         ),
@@ -207,9 +254,9 @@ export const genRewriteForms: GeneratorDef = {
       form = 'expanded';
       const wrong = X([r * s, 0, 1]).scale(Q(a));
       misconceptions.push({ answer: pPlain(wrong), tag: 'distribution', feedback: 'Multiply every term of one binomial by every term of the other. The two middle products give the $x$ term.' });
-      hints = ['Multiply the two binomials first, using the distributive property (or a box).', `The $x$ term comes from the two middle products: $${-s}x$ and $${-r}x$.`, a === 1 ? 'Combine like terms.' : `Then multiply every term by $${a}$.`, 'Check: the constant term should be $a$ times the product of the numbers in the binomials.'];
+      hints = ['Multiply the two binomials first, using the distributive property (or a box).', `The $x$ term comes from the two middle products: $${monoX(-s)}$ and $${monoX(-r)}$.`, a === 1 ? 'Combine like terms.' : `Then multiply every term by $${a}$.`, 'Check: the constant term should be $a$ times the product of the numbers in the binomials.'];
       solution = [
-        { text: 'Multiply the binomials.', tex: `${coefTex(a)}${a === 1 ? '' : '\\left('}${pTex(factPoly(1, r, s))}${a === 1 ? '' : '\\right)'}`, why: `$x \\cdot x$, the two middle products $${-s}x + ${-r < 0 ? `(${-r}x)` : `${-r}x`}$, and $${-r} \\cdot ${subTex(-s)}$.` },
+        { text: 'Multiply the binomials.', tex: `${coefTex(a)}${a === 1 ? '' : '\\left('}${pTex(factPoly(1, r, s))}${a === 1 ? '' : '\\right)'}`, why: `$x \\cdot x$, the two middle products $${monoX(-s)} + ${-r < 0 ? `(${monoX(-r)})` : monoX(-r)}$, and $${-r} \\cdot ${subTex(-s)}$.` },
         ...(a === 1 ? [] : [{ text: `Distribute $${a}$.`, tex: pTex(f) }]),
       ];
     } else if (mode === 's2f') {
@@ -272,8 +319,10 @@ export const genRewriteForms: GeneratorDef = {
     if (form === 'expanded' && !isExpandedForm(n)) errs.push('not expanded');
     if (errs.length || pr.difficulty !== 1) return errs;
     // steps (difficulty 1): (x - h)^2 with h = -b/(2a) of the printed function, times a, then the answer
-    const { a, h } = vertexOf(f);
+    const { a, h, k } = vertexOf(f);
     const sq = Poly.fromCoeffs('x', [h.mul(h), h.mul(-2), Q(1)]);
+    // nothing added at the end: the last step is the square (times a) itself
+    if (k.isZero()) return checkSteps(pr, a.eq(1) ? [pPlain(Poly.fromCoeffs('x', [Q(0), h.mul(-2)])), pr.answer.value] : [pPlain(sq), pr.answer.value]);
     return checkSteps(pr, [pPlain(sq), ...(a.eq(1) ? [] : [pPlain(sq.scale(a))]), pr.answer.value]);
   },
 };
@@ -357,6 +406,11 @@ export const genMaxMin: GeneratorDef = {
         const lab = (kind: string, val: Rational, at: Rational) => `A ${kind} of $${val.toTex()}$ ${one(val, c.unit)}, when $${c.v} = ${at.toTex()}$ ${one(at, c.whenUnit)}`;
         const correct = lab('maximum', k, h);
         const answer = makeChoice(rng, correct, [lab('minimum', k, h), lab('maximum', h, k), lab('maximum', k, h.mul(2))]);
+        const misconceptions = choiceMisList(answer, [
+          [lab('minimum', k, h), 'sign-error', `Look at the sign of the leading coefficient: $a = ${a.toTex()}$ is negative, so the parabola opens down and its vertex is the highest point, not the lowest.`],
+          [lab('maximum', h, k), 'graph-reading', `You swapped the input and the output. The value of $${c.v}$ at the vertex says when it happens; the value itself is the output, $${name}(${c.v})$.`],
+          [lab('maximum', k, h.mul(2)), 'formula-error', `Check the input: $${c.v} = ${h.mul(2).toTex()}$ is $-\\frac{b}{a}$, and $${name}(${h.mul(2).toTex()})$ is not the value in that choice. The vertex is at $${c.v} = -\\frac{b}{2a}$, halfway between the zeros, so divide by $2a$.`],
+        ]);
         return makeProblem({
           skillId: 'S4.18',
           tags: ['real-world', 'multi-step'],
@@ -374,7 +428,7 @@ export const genMaxMin: GeneratorDef = {
             { text: 'Find when it happens.', tex: `${c.v} = -\\frac{${b.toTex()}}{2(${a.toTex()})} = ${h.toTex()}`, why: `This is the input of the vertex, in ${c.whenUnit}.` },
             { text: 'Find the maximum value.', tex: `${name}(${h.toTex()}) = ${k.toTex()}`, why: `So the maximum is $${k.toTex()}$ ${c.unit}, when $${c.v} = ${h.toTex()}$.` },
           ],
-          misconceptions: [],
+          misconceptions,
         });
       }
       const misconceptions: Misconception[] = [{ answer: numStr(h), tag: 'graph-reading', feedback: `That is when (or where) the maximum happens. The question asks for the maximum value of $${name}$.` }];
@@ -535,18 +589,29 @@ export const genAvgRate: GeneratorDef = {
         const L2 = `From $t = ${i2}$ to $t = ${i2 + 1}$`;
         const same = 'Both intervals have the same average rate of change';
         const correct = r1.eq(r2) ? same : r1.gt(r2) !== askLess ? L1 : L2;
+        const answer = makeChoice(rng, correct, [L1, L2, same].filter((x) => x !== correct));
+        const compareTip = askLess
+          ? 'Find the rate on the other interval too and compare them with their signs: the smaller rate is the more negative one.'
+          : 'Find the rate on the other interval too and compare them with their signs: the greater rate is the one farther right on a number line.';
+        const intervalFb = (t1: number, rt: Rational) =>
+          `From $t = ${t1}$ to $t = ${t1 + 1}$ the height changes by $${rt.toTex()}$ feet, so the average rate there is $${rt.toTex()}$ ft/s. ${compareTip}`;
+        const misconceptions = choiceMisList(answer, [
+          [L1, 'slope-calc', intervalFb(i1, r1)],
+          [L2, 'slope-calc', intervalFb(i2, r2)],
+          [same, 'slope-calc', `A quadratic's average rate of change is different on different intervals, even ones of the same length. Find $h(b) - h(a)$ for each one-second interval and compare.`],
+        ]);
         return makeProblem({
           skillId: 'S4.19',
           tags: ['real-world', 'multi-step'],
           prompt: [...story, p(`Over which interval does the height have the ${askLess ? 'smaller (more negative)' : 'greater'} average rate of change?`)],
-          answer: makeChoice(rng, correct, [L1, L2, same].filter((x) => x !== correct)),
+          answer,
           hints: ['Find the average rate of change over each interval.', 'Use $\\frac{h(b) - h(a)}{b - a}$.', 'Each interval is $1$ second long, so the rate is just the change in height.', askLess ? 'Compare the two rates, including their signs: a negative rate is smaller than a positive one.' : 'Compare the two rates, including their signs.'],
           solution: [
             { text: 'First interval.', tex: rateTex(ev(f, i1, 't'), ev(f, i1 + 1, 't'), i1, i1 + 1, 'h'), why: 'The units are feet per second.' },
             { text: 'Second interval.', tex: rateTex(ev(f, i2, 't'), ev(f, i2 + 1, 't'), i2, i2 + 1, 'h'), why: 'The units are feet per second.' },
             { text: `Compare: $${r1.toTex()}$ and $${r2.toTex()}$.`, why: `Gravity slows the ${thing} on the way up and speeds it up on the way down, so a quadratic's average rate of change is different on different intervals.` },
           ],
-          misconceptions: [],
+          misconceptions,
           steps: [
             { prompt: [p(`What is the average rate of change of $h$ from $t = ${i1}$ to $t = ${i1 + 1}$?`)], answer: numSpec(r1, 'ft/s'), hints: [`Find $h(${i1})$ and $h(${i1 + 1})$.`, 'Subtract.', 'Divide by $1$.', 'Units: feet per second.'], explanation: `$${rateTex(ev(f, i1, 't'), ev(f, i1 + 1, 't'), i1, i1 + 1, 'h')}$ ft/s.` },
             { prompt: [p(`What is the average rate of change of $h$ from $t = ${i2}$ to $t = ${i2 + 1}$?`)], answer: numSpec(r2, 'ft/s'), hints: [`Find $h(${i2})$ and $h(${i2 + 1})$.`, 'Subtract.', 'Divide by $1$.', 'Units: feet per second.'], explanation: `$${rateTex(ev(f, i2, 't'), ev(f, i2 + 1, 't'), i2, i2 + 1, 'h')}$ ft/s.` },
@@ -642,6 +707,19 @@ export const genAvgRate: GeneratorDef = {
       const xs = [0, 1, 2, 3, 4];
       const L = (k: number) => `From $x = ${k}$ to $x = ${k + 1}$`;
       const fr = (k: number) => ev(F, k + 1).sub(ev(F, k));
+      const answer = makeChoice(rng, L(kStar), [0, 1, 2, 3].filter((k) => k !== kStar).map(L));
+      const misconceptions = choiceMisList(
+        answer,
+        [0, 1, 2, 3]
+          .filter((k) => k !== kStar)
+          .map((k): [string, 'slope-calc', string] => [
+            L(k),
+            'slope-calc',
+            k < kStar
+              ? `From $x = ${k}$ to $x = ${k + 1}$, $f$ goes up by $${fr(k).toTex()}$, which is ${fr(k).eq(Q(m)) ? 'the same as' : 'less than'} $g$'s rate of $${m}$, so $f$'s rate is not greater there yet. Keep comparing the differences on the next intervals.`
+              : `$f$'s rate is greater than $g$'s on that interval, but the question asks for the **first** time. Check the earlier intervals too.`,
+          ]),
+      );
       return makeProblem({
         skillId: 'S4.19',
         tags: ['multi-step'],
@@ -650,7 +728,7 @@ export const genAvgRate: GeneratorDef = {
           { t: 'table', headers: ['$x$', '$f(x)$', '$g(x)$'], rows: xs.map((x) => [`$${x}$`, `$${ev(F, x).toTex()}$`, `$${ev(G, x).toTex()}$`]) },
           p('Over which interval is the average rate of change of $f$ greater than the average rate of change of $g$ for the **first** time?'),
         ],
-        answer: makeChoice(rng, L(kStar), [0, 1, 2, 3].filter((k) => k !== kStar).map(L)),
+        answer,
         hints: [
           'On each interval of length $1$, the average rate of change is just the difference between consecutive outputs.',
           'Find the differences for $g$: a linear function has the same difference every time.',
@@ -662,7 +740,7 @@ export const genAvgRate: GeneratorDef = {
           { text: 'Differences for $f$.', tex: xs.slice(0, 4).map((x) => `${ev(F, x + 1).toTex()} - ${ev(F, x).toTex()} = ${fr(x).toTex()}`).join(',\\ '), why: `$f$ is quadratic, so its differences grow by $${2 * a}$ each step.` },
           { text: `Compare: the first interval where $f$'s rate is greater than $${m}$.`, tex: `${fr(kStar).toTex()} > ${m}`, why: `Before that, $f$'s rate was ${kStar === 1 ? `$${fr(0).toTex()}$` : `${xs.slice(0, kStar).map((x) => `$${fr(x).toTex()}$`).join(', ')}`}, not more than $${m}$. A quadratic's rate keeps growing, so it eventually beats any linear rate.` },
         ],
-        misconceptions: [],
+        misconceptions,
       });
     }
     const a = rng.pick([1, 2, -1, -2, 3]);
@@ -1053,7 +1131,16 @@ function graphChoiceQuad(rng: Rng) {
       { text: 'Rule out the wrong graphs.', why: 'One graph swaps the axis labels (time must be the horizontal input axis). One draws the whole parabola, including negative times and heights, which are outside the domain. One shows a different curve that starts at its highest point, like a dropped object, not a thrown one.' },
       { text: `The correct graph is Graph ${letters[slot]}.`, why: `It is the parabola through $(0, ${h0})$, $(${tv.toTex()}, ${K.toTex()})$ and $(${T}, 0)$, drawn only for $0 \\le t \\le ${T}$, with time on the horizontal axis and height on the vertical axis, each labeled with units and an even scale.` },
     ],
-    misconceptions: [],
+    misconceptions: cands.flatMap((spec, i): Misconception[] => {
+      if (spec === correct) return [];
+      const feedback =
+        spec === swapped
+          ? 'Look at the axis labels on that graph: time is on the vertical axis. Time is the input, so it belongs on the horizontal axis, and height goes on the vertical axis.'
+          : spec === noDomain
+            ? `That graph draws the whole parabola, including negative times and negative heights. The ${thing} is only in the air from $t = 0$ to $t = ${T}$, so only that part of the curve belongs on the graph.`
+            : `That curve starts at its highest point and only falls, like something dropped. A ${thing} thrown upward rises first: its curve should go up to the vertex at $t = ${tv.toTex()}$ before it comes down.`;
+      return [{ answer: 'abcd'[i], tag: 'graph-reading', feedback }];
+    }),
   });
 }
 
@@ -1433,7 +1520,15 @@ export const genCompareFunctions: GeneratorDef = {
           [
             isY ? 'The $y$-intercept is where the graph crosses the $y$-axis, where $x = 0$.' : 'The axis of symmetry is the vertical line through the vertex.',
             isY ? 'Substitute $x = 0$ into the equation.' : fForm === 'vertex' ? 'In vertex form $a(x - h)^{2} + k$, the vertex is $(h, k)$.' : 'For standard form, use $x = -\\frac{b}{2a}$.',
-            isY ? (fForm === 'standard' ? 'Every term with an $x$ becomes $0$.' : 'Work inside the parentheses first, square, multiply by $a$, then add $k$.') : fForm === 'vertex' ? '$h$ is the number subtracted from $x$ inside the parentheses.' : `Here $a = ${F.f.coeff('x', 2).toTex()}$ and $b = ${F.f.coeff('x', 1).toTex()}$.`,
+            isY
+              ? fForm === 'standard' || F.h === 0
+                ? 'Every term with an $x$ becomes $0$.'
+                : 'Work inside the parentheses first, square, multiply by $a$, then add $k$.'
+              : fForm === 'vertex'
+                ? F.h === 0
+                  ? 'With no parentheses, $x^{2}$ is the same as $(x - 0)^{2}$.'
+                  : '$h$ is the number subtracted from $x$ inside the parentheses.'
+                : `Here $a = ${F.f.coeff('x', 2).toTex()}$ and $b = ${F.f.coeff('x', 1).toTex()}$.`,
             isY ? 'The result is one number, an output.' : 'Watch the sign of $h$.',
           ],
           findF,
@@ -1464,6 +1559,28 @@ export const genCompareFunctions: GeneratorDef = {
         ),
       ];
     }
+    // Feedback for each wrong option, built from the two feature values.
+    const compareMis = (): Misconception[] => {
+      const method =
+        ft === 'yint'
+          ? 'The $y$-intercept is the output when $x = 0$.'
+          : ft === 'axis'
+            ? 'The axis of symmetry is $x = h$, through the vertex, and farther right means a greater $x$-value.'
+            : ft === 'rate'
+              ? 'For each function, find the output at $x = 2$ minus the output at $x = 0$, divide by $2$, and keep the signs.'
+              : `The ${T.noun} is the $y$-value of the vertex, not its $x$-value.`;
+      const valueOf = (w: 'f' | 'g') => (ft === 'axis' ? `$x = ${(w === 'f' ? fv : gv).toTex()}$` : `$${(w === 'f' ? fv : gv).toTex()}$`);
+      const wrongFn = (w: 'f' | 'g'): [string, MisconceptionTag, string] => [
+        L(w),
+        ft === 'rate' ? 'slope-calc' : 'graph-reading',
+        `Check your values: $${w}$'s ${T.noun} is ${valueOf(w)}. ${method} Find it for $${w === 'f' ? 'g' : 'f'}$ the same way, then compare the two numbers.`,
+      ];
+      return choiceMisList(answer, [
+        wrongFn('f'),
+        wrongFn('g'),
+        [L('same'), ft === 'rate' ? 'slope-calc' : 'graph-reading', `The two functions do not have the same ${T.noun}. ${method} Work out both values as numbers and compare.`],
+      ]);
+    };
     return makeProblem({
       skillId: 'S4.21',
       tags: [],
@@ -1475,7 +1592,7 @@ export const genCompareFunctions: GeneratorDef = {
         { text: `Find the ${T.noun} of $g$.`, why: findG },
         { text: `Compare: $${fv.toTex()}$ and $${gv.toTex()}$.`, why: `${correct}.` },
       ],
-      misconceptions: [],
+      misconceptions: compareMis(),
       ...(steps ? { steps } : {}),
     });
   },

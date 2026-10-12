@@ -6,7 +6,7 @@
  * composing polynomials.
  */
 import type { GeneratorDef, Rng, ProblemStep, Problem, GraphSpec, Block } from '../../core/curriculum/types';
-import type { Misconception } from '../../core/math/answers';
+import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { parseInterval, intervalsEqual } from '../../core/math/answers';
 import { parseExpression } from '../../core/math/parser';
 import { toPoly, Poly } from '../../core/math/poly';
@@ -14,7 +14,7 @@ import { Rational } from '../../core/math/rational';
 import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions } from './util';
 import {
   X, pTex, pPlain, texPoly, checkSolutions, quadRoots, ev, vertexOf, vtxTex, vtxPlain, vtxPoly, factTex, factPoly, rhsPoly, mathBlocks, promptText, graphOf, substituteTex, joinNums, tailTex, coefTex,
-  fixedChoice, choiceMis, numMis, gstep, checkSteps, pickLabel,
+  fixedChoice, choiceMis, choiceMisList, numMis, gstep, checkSteps, pickLabel,
 } from './u4-common';
 
 const SOL_HINT = 'Like x = 3, -5 or 2 ± sqrt(5), or none';
@@ -301,6 +301,8 @@ interface ConceptQ {
   ask: string;
   correct: string;
   wrong: string[];
+  /** Feedback for each wrong option, with its tag (same order as `wrong`). */
+  fb?: Array<[MisconceptionTag, string]>;
 }
 
 export const genInterpretNotation: GeneratorDef = {
@@ -354,10 +356,46 @@ export const genInterpretNotation: GeneratorDef = {
     } else {
       const target = rng.pick([16, 20, 24, 30, 40].filter((x) => Q(x).lt(ev(h, tv, 't'))));
       const pool: ConceptQ[] = [
-        { ask: 'What does $h(0)$ represent?', correct: `The height of ${thing} at the moment it is ${who.verb}`, wrong: [`The time when ${thing} hits the ground`, `The greatest height ${thing} reaches`, `The speed of ${thing} when it is ${who.verb}`] },
-        { ask: `Which equation would you solve to find when ${thing} hits the ground?`, correct: '$h(t) = 0$', wrong: ['$h(0) = t$', '$t = 0$', '$h(t) = 16$'] },
-        { ask: `Which would you do to find when ${thing} is ${target} feet high?`, correct: `Solve $h(t) = ${target}$`, wrong: [`Find $h(${target})$`, `Solve $h(t) = 0$`, `Find $h(0) + ${target}$`] },
-        { ask: `What does a solution of $h(t) = ${target}$ tell you?`, correct: `A time when ${thing} is ${target} feet above the ground`, wrong: [`The height of ${thing} after ${target} seconds`, `How far ${thing} travels in ${target} seconds`, `The greatest height of ${thing}`] },
+        {
+          ask: 'What does $h(0)$ represent?',
+          correct: `The height of ${thing} at the moment it is ${who.verb}`,
+          wrong: [`The time when ${thing} hits the ground`, `The greatest height ${thing} reaches`, `The speed of ${thing} when it is ${who.verb}`],
+          fb: [
+            ['graph-reading', `The $0$ in $h(0)$ is the input, a time of $0$ seconds. Hitting the ground is about the output: it happens when the height is $0$.`],
+            ['other', `The greatest height happens at the vertex, partway through the flight, not at $t = 0$. $h(0)$ is the output when the time is $0$ seconds.`],
+            ['units', `The function $h$ gives a height in feet, not a speed. $h(0)$ is the value of $h$ when $t = 0$.`],
+          ],
+        },
+        {
+          ask: `Which equation would you solve to find when ${thing} hits the ground?`,
+          correct: '$h(t) = 0$',
+          wrong: ['$h(0) = t$', '$t = 0$', '$h(t) = 16$'],
+          fb: [
+            ['equation-setup', `$h(0) = t$ mixes up the input and the output: $h(0)$ is the starting height, not a time. When ${thing} lands, which quantity is $0$, the time or the height?`],
+            ['equation-setup', `$t = 0$ is the moment ${thing} is ${who.verb}, not when it lands. When it hits the ground, which quantity is $0$, the time or the height?`],
+            ['equation-setup', `The $16$ comes from the $-16$ in front of $t^{2}$, which is about gravity, not a height. Ask yourself what the height is when ${thing} is on the ground.`],
+          ],
+        },
+        {
+          ask: `Which would you do to find when ${thing} is ${target} feet high?`,
+          correct: `Solve $h(t) = ${target}$`,
+          wrong: [`Find $h(${target})$`, `Solve $h(t) = 0$`, `Find $h(0) + ${target}$`],
+          fb: [
+            ['graph-reading', `$h(${target})$ is the height after ${target} seconds, because the number in the parentheses is the time. Here ${target} feet is a height, which is an output of $h$.`],
+            ['equation-setup', `Solving $h(t) = 0$ finds when ${thing} hits the ground, at a height of $0$ feet. You want the time for a different height.`],
+            ['equation-setup', `$h(0) + ${target}$ is a height, ${target} feet above the starting height. The question asks for a time.`],
+          ],
+        },
+        {
+          ask: `What does a solution of $h(t) = ${target}$ tell you?`,
+          correct: `A time when ${thing} is ${target} feet above the ground`,
+          wrong: [`The height of ${thing} after ${target} seconds`, `How far ${thing} travels in ${target} seconds`, `The greatest height of ${thing}`],
+          fb: [
+            ['graph-reading', `That would be $h(${target})$, with ${target} as the input. In $h(t) = ${target}$, the ${target} is the output, a height.`],
+            ['units', `$h$ gives the height above the ground, not a distance traveled, and the ${target} in $h(t) = ${target}$ is a height, not a number of seconds.`],
+            ['other', `Nothing in $h(t) = ${target}$ is about the highest point. Think about what the letter you solve for, $t$, stands for.`],
+          ],
+        },
       ];
       q = rng.pick(pool);
     }
@@ -414,7 +452,7 @@ export const genInterpretNotation: GeneratorDef = {
         { text: 'Identify the input and output.', why: '$t$ is time in seconds; $h(t)$ is height in feet.' },
         { text: `So the answer is: ${q.correct}`, why: difficulty === 1 ? `The input inside the parentheses is the time, and the value $${H.toTex()}$ is the height at that time.` : 'Match each part of the notation to time or height.' },
       ],
-      misconceptions: [],
+      misconceptions: q.fb ? choiceMisList(answer, q.wrong.map((w, i): [string, MisconceptionTag, string] => [w, q.fb![i][0], q.fb![i][1]])) : [],
     });
   },
   verify(pr) {
@@ -508,7 +546,9 @@ export const genVertexAxis: GeneratorDef = {
           `Compare $f(x) = ${ftex}$ with vertex form $a(x - h)^{2} + k$. What is $h$?`,
           numSpec(h),
           ['In vertex form, $h$ is the number **subtracted** from $x$ inside the parentheses.', 'Adding a number is the same as subtracting its opposite: $x + 3 = x - (-3)$.', 'The vertex is where the inside of the parentheses equals $0$.', `Solve $${inside} = 0$.`],
-          `$${inside} = x - ${h.isNegative() ? `(${hTex})` : hTex}$, so $h = ${hTex}$: the inside is $0$ when $x = ${hTex}$.`,
+          h.isNegative()
+            ? `Rewrite $${inside}$ as $x - (${hTex})$ to match $x - h$, so $h = ${hTex}$: the inside is $0$ when $x = ${hTex}$.`
+            : `$${inside}$ matches $x - h$ with $${hTex}$ in the place of $h$, so $h = ${hTex}$: the inside is $0$ when $x = ${hTex}$.`,
           numMis(h, [{ value: h.neg(), tag: 'vertex-sign', feedback: 'Watch the sign: $(x - 3)^{2}$ has $h = 3$, and $(x + 3)^{2}$ has $h = -3$.' }]),
         ),
       );
@@ -926,6 +966,13 @@ export const genGraphFeatures: GeneratorDef = {
     if (rng.bool()) {
       const correct = up ? END.upUp : END.downDown;
       const answer = makeChoice(rng, correct, Object.values(END).filter((e) => e !== correct));
+      const mixed = 'That describes a graph that goes one way on the far left and the other way on the far right, like a line. The two arms of a parabola always point the same way.';
+      const misconceptions = choiceMisList(answer, [
+        [END.upUp, 'graph-reading', 'That describes a parabola that opens up, with both arms pointing up. Look again at which way this graph opens.'],
+        [END.downDown, 'graph-reading', 'That describes a parabola that opens down, with both arms pointing down. Look again at which way this graph opens.'],
+        [END.downUp, 'graph-reading', mixed],
+        [END.upDown, 'graph-reading', mixed],
+      ]);
       return makeProblem({
         skillId: 'S4.15',
         tags: ['graph'],
@@ -936,7 +983,7 @@ export const genGraphFeatures: GeneratorDef = {
           { text: `The parabola opens ${up ? 'up' : 'down'}.`, why: `Its leading coefficient is ${up ? 'positive' : 'negative'}.` },
           { text: `Both arms point ${up ? 'up' : 'down'}.`, why: correct },
         ],
-        misconceptions: [],
+        misconceptions,
       });
     }
     const askPos = !up; // opens down: positive between zeros; opens up: negative between zeros
@@ -1458,6 +1505,41 @@ function ruleToPoly(f: Poly, tex: string): Poly {
 
 const PARENT = X([0, 0, 1]);
 
+/** Feedback for describing g with the transformations `wrong` when the rule really applies `correct`. */
+function tfMis(correct: Tf[], wrong: Tf[]): [MisconceptionTag, string] {
+  const find = <T extends Tf['t']>(tfs: Tf[], t: T) => tfs.find((x): x is Extract<Tf, { t: T }> => x.t === t);
+  const parts: string[] = [];
+  let tag: MisconceptionTag | null = null;
+  const add = (tg: MisconceptionTag, text: string) => {
+    tag ??= tg;
+    parts.push(text);
+  };
+  const [cR, wR] = [find(correct, 'reflect'), find(wrong, 'reflect')];
+  const [cV, wV] = [find(correct, 'vscale'), find(wrong, 'vscale')];
+  const [cH, wH] = [find(correct, 'hscale'), find(wrong, 'hscale')];
+  const [cU, wU] = [find(correct, 'up'), find(wrong, 'up')];
+  const [cS, wS] = [find(correct, 'right'), find(wrong, 'right')];
+  // a shift offered for a rule that only multiplies f(x): the shift is the whole mistake
+  if (wU && !cU && !cS && !wS) return ['other', 'Multiplying $f(x)$ by a number stretches, compresses or flips the graph. It does not shift the graph up or down; that comes from adding a number to $f(x)$.'];
+  if (cR && !wR) add('sign-error', 'That choice leaves out the reflection: a negative sign in front of $f(x)$ flips the graph across the $x$-axis.');
+  if (!cR && wR) add('sign-error', 'There is no negative sign in front of $f(x)$, so the graph is not reflected across the $x$-axis.');
+  if (wV && !cV) {
+    if (cH) add('other', 'The number multiplies $x$ inside the parentheses, so it changes the graph horizontally, not vertically.');
+    else add('other', 'The rule multiplies $f(x)$ only by $-1$, so the graph keeps its shape: there is no stretch or compression.');
+  }
+  if (wV && cV && !wV.k.eq(cV.k)) {
+    const big = cV.k.gt(1);
+    add('other', `Multiplying $f(x)$ by a number whose size is ${big ? 'greater than $1$' : 'between $0$ and $1$'} moves every point ${big ? 'farther from' : 'closer to'} the $x$-axis, so the graph is ${big ? 'stretched, not compressed' : 'compressed, not stretched'}.`);
+  }
+  if (wH && cH && !wH.c.eq(cH.c)) add('other', 'A number multiplying $x$ inside the parentheses works the opposite way from how it looks: $f(2x)$ squeezes the graph toward the $y$-axis, and $f(\\frac{1}{2}x)$ stretches it away.');
+  if (wU && !cU) add('other', 'The change is inside the parentheses with $x$, so the graph moves left or right, not up or down.');
+  if (wS && !cS) add('other', 'The change is added outside $f$, so the graph moves up or down, not left or right.');
+  if (wS && cS && wS.n !== cS.n) add('vertex-sign', 'Check the horizontal shift: a change inside the parentheses works opposite to how it looks, so $f(x - 3)$ moves the graph right and $f(x + 3)$ moves it left.');
+  if (wU && cU && wU.n !== cU.n) add('sign-error', 'Check the vertical shift: adding a positive number to $f(x)$ moves the graph up, and subtracting moves it down.');
+  if (!parts.length) add('other', 'Test one point: pick a point on $f$, find where it goes on $g$, and compare with that description.');
+  return [tag ?? 'other', parts.join(' ')];
+}
+
 export const genTransformDescribe: GeneratorDef = {
   id: 'u4.transform-describe',
   skillId: 'S4.17',
@@ -1575,7 +1657,7 @@ export const genTransformDescribe: GeneratorDef = {
         { text: 'Look at where the change is.', tex: rule, why: hasScale ? 'A number multiplying $x$ inside changes the inputs: $f(kx)$ squeezes the graph toward the $y$-axis when $k > 1$ and stretches it away when $0 < k < 1$, the opposite of what the number suggests.' : hasH ? 'A change inside the parentheses changes the inputs, so it moves the graph horizontally, opposite to the sign you see.' : 'A change outside $f$ changes the outputs, so it moves or stretches the graph vertically.' },
         { text: correct, why: tfs.some((t) => t.t === 'hscale') ? `For example, $g$ reaches the vertex value when the inside equals ${vertexOf(f).h.toTex()}, which happens at $x = ${vertexOf(g).h.toTex()}$.` : tfs.every((t) => t.t === 'vscale' || t.t === 'reflect') ? `For example, the point $(1, ${ev(f, 1).toTex()})$ on $f$ moves to $(1, ${ev(g, 1).toTex()})$: every $y$-value is multiplied by the same number.` : `For example, the vertex of $f$ at $(${vertexOf(f).h.toTex()}, ${vertexOf(f).k.toTex()})$ moves to $(${vertexOf(g).h.toTex()}, ${vertexOf(g).k.toTex()})$.` },
       ],
-      misconceptions: [],
+      misconceptions: choiceMisList(answer, wrongs.map((w): [string, MisconceptionTag, string] => [describe(w), ...tfMis(tfs, w)])),
       ...(steps ? { steps } : {}),
     });
   },
