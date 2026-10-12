@@ -7,12 +7,13 @@ import crypto from 'node:crypto';
 import type { BackupInfo } from '../../shared/api';
 import { AppDatabase, isValidSqlite, loadSqlJs, NewerDatabaseError } from '../db/database';
 import { CURRENT_SCHEMA_VERSION } from '../db/schema';
-import { ServiceContext, today } from './context';
+import { ServiceContext, today, saveNow } from './context';
 import { logActivity } from './records';
 
 export const BACKUP_FORMAT = 'algebra-cc-academy-backup';
 export const BACKUP_FORMAT_VERSION = 1;
 const MAX_BACKUP_CHARS = 200 * 1024 * 1024;
+const NOT_VALID = 'This is not a valid Algebra C&C Academy backup (its data does not match this app). Your current data was not changed.';
 
 interface Envelope {
   format: string;
@@ -29,8 +30,32 @@ function profileNames(db: AppDatabase): string[] {
   return db.all<{ display_name: string }>('SELECT display_name FROM profiles WHERE archived = 0 ORDER BY created_at').map((r) => r.display_name);
 }
 
+const lastAutoBackupDate = new WeakMap<ServiceContext, string>();
+
+/**
+ * Write today's automatic backup if it has not been written yet. Cheap to call often: it only
+ * touches the disk when the local date changes. Never throws (a failure is logged).
+ */
+export function ensureDailyAutoBackup(ctx: ServiceContext): void {
+  let d: string;
+  try {
+    d = today(ctx);
+  } catch {
+    return;
+  }
+  if (lastAutoBackupDate.get(ctx) === d) return;
+  // remember the date first so a failing disk is tried once per day (and at startup), not on every call
+  lastAutoBackupDate.set(ctx, d);
+  try {
+    const made = ctx.db.dailyAutoBackup(d);
+    if (made) ctx.log.info('backup', 'daily automatic backup written');
+  } catch (e) {
+    ctx.log.error('backup', 'daily automatic backup failed', e);
+  }
+}
+
 export function exportBackup(ctx: ServiceContext): { fileName: string; data: string } {
-  ctx.db.flushNow();
+  saveNow(ctx);
   const bytes = ctx.db.exportBytes();
   const env: Envelope = {
     format: BACKUP_FORMAT,
@@ -72,8 +97,15 @@ async function check(ctx: ServiceContext, data: string): Promise<Checked> {
   if (v.version! > CURRENT_SCHEMA_VERSION) return fail('This backup was made by a newer version of the app. Update the app, then restore.');
   const db = await AppDatabase.fromBytes(bytes, ctx.log);
   try {
+    let names: string[];
+    try {
+      // also proves the file has this app's columns, not just its table names
+      names = profileNames(db);
+    } catch {
+      return fail(NOT_VALID);
+    }
     return {
-      info: { ok: true, createdAt: env.createdAt, appVersion: env.appVersion, schemaVersion: v.version, profiles: profileNames(db) },
+      info: { ok: true, createdAt: env.createdAt, appVersion: env.appVersion, schemaVersion: v.version, profiles: names },
       bytes,
     };
   } finally {
@@ -96,7 +128,9 @@ export async function restoreBackup(ctx: ServiceContext, data: string): Promise<
     finalBytes = incoming.exportBytes();
   } catch (e) {
     if (e instanceof NewerDatabaseError) return { ok: false, message: e.message };
-    throw e;
+    // a file whose tables do not match any version of this app (e.g. hand-made or damaged)
+    ctx.log.warn('backup', 'backup could not be upgraded: ' + (e as Error).message);
+    return { ok: false, message: NOT_VALID };
   } finally {
     incoming.close();
   }

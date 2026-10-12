@@ -4,14 +4,14 @@
  * The renderer never receives the answer key for an open problem.
  */
 import type { Difficulty, GeneratorDef, Problem, ProblemRef } from '../../core/curriculum/types';
-import { checkAnswer, answerToText, AnswerSpec } from '../../core/math/answers';
+import { checkAnswer, answerToText, AnswerSpec, requestedFormIssue, CheckResult } from '../../core/math/answers';
 import { produceProblem } from '../../core/engine/problems';
 import { createRng, deriveSeed } from '../../core/engine/rng';
 import { xpForAnswer, XpActivity } from '../../core/engine/xp';
 import { GENERATORS, SKILL_BY_ID, generatorsForSkill } from '../../content';
 import type { ActivityKind, FeedbackView, PracticeView, ProblemView, AnswerKind } from '../../shared/api';
 import { ServiceContext, UserFacingError } from './context';
-import { recordAttempt, recordHint, recomputeSkill, awardXp, recentAnswers } from './records';
+import { recordAttempt, recordHint, recomputeSkill, awardXp } from './records';
 
 export interface ProblemState {
   key: string;
@@ -21,7 +21,14 @@ export interface ProblemState {
   skillId: string;
   review: boolean;
   stepIndex: number;
+  /** wrong tries over the whole problem (all steps) */
   attempts: number;
+  /** wrong tries on the current guided step; XP and "first try" use this, so a slip on step 1 does not make the last step a retry */
+  stepAttempts?: number;
+  /** deferred sets: the last response refused for its form (saving it again keeps it as written) */
+  formRefused?: string;
+  /** the response that completed the previous guided step (to recognize a repeated submit) */
+  prevStepResponse?: string;
   hintLevel: number;
   maxHintLevel: number;
   hintsUsed: number;
@@ -187,16 +194,56 @@ function xpActivity(a: ActivityKind): XpActivity {
   return a as XpActivity;
 }
 
-/** Grade a typed answer for an open problem in immediate-feedback practice. */
-export function submitImmediate(ctx: ServiceContext, profileId: number, lessonId: string | null, ps: PracticeState, key: string, response: string, elapsedMs: number): SubmitOutcome {
+/** Activities whose answers are graded all at once at the end (their misses share one timestamp). */
+const DEFERRED_ACTIVITIES = ['quiz', 'assessment', 'testout'];
+
+/**
+ * Recent answers for the anti-guessing rule ("3 wrong in 30 s"). Deferred quiz, assessment and
+ * test-out answers are left out: they are all recorded at the same instant when the set is graded,
+ * so they say nothing about how fast the student is answering now.
+ */
+export function recentPracticeAnswers(ctx: ServiceContext, profileId: number, sinceMs: number): Array<{ at: number; correct: boolean }> {
+  return ctx.db
+    .all<{ created_at: number; correct: number }>(
+      `SELECT created_at, correct FROM attempts WHERE profile_id = ? AND created_at >= ? AND status IN ('correct','incorrect') AND activity NOT IN (${DEFERRED_ACTIVITIES.map(() => '?').join(',')}) ORDER BY created_at`,
+      [profileId, sinceMs, ...DEFERRED_ACTIVITIES],
+    )
+    .map((r) => ({ at: r.created_at, correct: !!r.correct }));
+}
+
+/**
+ * Time on the current try, measured by the main process from when the problem (or the step, or the
+ * previous wrong try) was shown. The renderer's figure only caps it from above (it can be shorter
+ * after the app was reopened), so a quick retry is always seen as quick.
+ */
+function elapsedFor(ctx: ServiceContext, s: ProblemState, clientMs: number): number {
+  const server = Number.isFinite(s.shownAt) ? ctx.now() - s.shownAt : NaN;
+  const client = Number.isFinite(clientMs) && clientMs > 0 ? clientMs : NaN;
+  const e = Number.isNaN(server) ? client : Number.isNaN(client) ? server : Math.min(server, client);
+  return Math.min(30 * 60_000, Math.max(0, Number.isNaN(e) ? 0 : e));
+}
+
+/**
+ * Grade a typed answer for an open problem in immediate-feedback practice. `stepIndex` is the guided
+ * step the student was looking at: an answer sent for a step that is already done (a repeated click)
+ * is ignored instead of being graded against the next step.
+ */
+export function submitImmediate(ctx: ServiceContext, profileId: number, lessonId: string | null, ps: PracticeState, key: string, response: string, elapsedMs: number, stepIndex?: number): SubmitOutcome {
   const s = findItem(ps, key);
   if (s.state !== 'open') return { resolved: true, correct: s.state === 'correct', xp: 0 };
   const p = getProblem(s.generatorId, s.seed, s.difficulty);
   const stepMode = isStepMode(ps, p);
+  if (stepMode && typeof stepIndex === 'number' && stepIndex !== s.stepIndex) return { resolved: false, correct: false, xp: 0 };
   const { spec, misconceptions } = currentSpec(p, s, stepMode);
   const result = checkAnswer(spec, response, misconceptions);
+  // The same text sent again right after it completed the previous step (no step index from an
+  // older renderer): it was meant for that step, so do not grade it against this one.
+  if (stepMode && stepIndex === undefined && s.stepIndex > 0 && (s.stepAttempts ?? 0) === 0 && s.prevStepResponse === response && result.status !== 'correct' && s.lastFeedback?.status === 'correct' && ctx.now() - s.shownAt < 15_000) {
+    s.prevStepResponse = undefined; // only once: typing it again on purpose is graded
+    return { resolved: false, correct: false, xp: 0 };
+  }
   s.lastResponse = response;
-  const elapsed = Math.min(30 * 60_000, Math.max(0, elapsedMs || ctx.now() - s.shownAt));
+  const elapsed = elapsedFor(ctx, s, elapsedMs);
 
   if (result.status === 'invalid') {
     s.lastFeedback = { status: 'invalid', message: result.message ?? 'That answer could not be read.' };
@@ -210,8 +257,10 @@ export function submitImmediate(ctx: ServiceContext, profileId: number, lessonId
   const isFinalStep = !stepMode || s.stepIndex >= (p.steps?.length ?? 0) - 1;
   if (result.status === 'incorrect') {
     s.attempts++;
-    const msg = result.message ?? ENCOURAGE[(s.attempts - 1) % ENCOURAGE.length];
-    const extra = ps.hintsAllowed && s.hintLevel < 4 && s.attempts >= 2 ? ' Try a hint if you are stuck.' : '';
+    s.stepAttempts = (s.stepAttempts ?? 0) + 1;
+    const tries = stepMode ? s.stepAttempts : s.attempts;
+    const msg = result.message ?? ENCOURAGE[(tries - 1) % ENCOURAGE.length];
+    const extra = ps.hintsAllowed && s.hintLevel < 4 && tries >= 2 ? ' Try a hint if you are stuck.' : '';
     s.lastFeedback = { status: 'incorrect', message: msg + extra, misconception: result.misconception };
     recordAttempt(ctx, base(profileId, lessonId, ps, s, response, 'incorrect', false, elapsed, false, 0, false, stepMode ? s.stepIndex : null, result.misconception));
     s.shownAt = ctx.now();
@@ -222,11 +271,14 @@ export function submitImmediate(ctx: ServiceContext, profileId: number, lessonId
     s.lastFeedback = { status: 'correct', message: p.steps![s.stepIndex].explanation + ' Now the next step.' };
     recordAttempt(ctx, base(profileId, lessonId, ps, s, response, 'correct', true, elapsed, false, 0, false, s.stepIndex));
     s.stepIndex++;
+    s.stepAttempts = 0;
+    s.prevStepResponse = response;
     s.hintLevel = 0;
     s.shownAt = ctx.now();
     return { resolved: false, correct: true, xp: 0 };
   }
-  const attemptNumber = s.attempts + 1;
+  // first try / retry is judged on this question (in guided mode, on this step)
+  const attemptNumber = (stepMode ? s.stepAttempts ?? 0 : s.attempts) + 1;
   const xpRes = xpForAnswer({
     activity: xpActivity(ps.activity),
     correct: true,
@@ -235,7 +287,7 @@ export function submitImmediate(ctx: ServiceContext, profileId: number, lessonId
     attemptNumber,
     isChoice: p.answer.kind === 'choice',
     elapsedMs: elapsed,
-    recent: recentAnswers(ctx, profileId, ctx.now() - 30_000),
+    recent: recentPracticeAnswers(ctx, profileId, ctx.now() - 30_000),
     now: ctx.now(),
   });
   s.state = 'correct';
@@ -278,7 +330,7 @@ function base(profileId: number, lessonId: string | null, ps: PracticeState, s: 
     response,
     status,
     correct,
-    attemptNumber: s.attempts + (correct ? 1 : 0),
+    attemptNumber: (stepIndex !== null ? s.stepAttempts ?? 0 : s.attempts) + (correct ? 1 : 0),
     hintsUsed: s.hintsUsed,
     maxHintLevel: s.maxHintLevel,
     misconception: misconception ?? null,
@@ -323,17 +375,38 @@ export function reveal(ctx: ServiceContext, profileId: number, lessonId: string 
   updateAdaptivity(ps, s, false, s.attempts);
 }
 
-/** Deferred-feedback answer (quiz/assessment): store the response; only unreadable input gets a message. */
+/**
+ * In a deferred set, may this response be saved? An unreadable answer, or one not written in the
+ * form the question asks for, is not saved: the student gets a message that says what to fix
+ * without saying whether the answer is right. Returns null when the response can be saved.
+ */
+export function deferredSaveProblem(spec: AnswerSpec, response: string, r: CheckResult = checkAnswer(spec, response)): { status: 'invalid' | 'wrong-form'; message: string } | null {
+  if (r.status === 'invalid') return { status: 'invalid', message: r.message ?? 'That answer could not be read.' };
+  const formMsg = requestedFormIssue(spec, response) ?? (r.status === 'wrong-form' ? 'Write your answer in the form the question asks for.' : null);
+  return formMsg ? { status: 'wrong-form', message: formMsg } : null;
+}
+
+/**
+ * Deferred-feedback answer (quiz/assessment): save the response. An answer that cannot be read or is
+ * not in the requested form is not saved (a correct value in the wrong form is never graded wrong;
+ * the student rewrites it): the item keeps its earlier saved answer, or stays open if it had none.
+ */
 export function submitDeferred(ps: PracticeState, key: string, response: string): void {
   const s = findItem(ps, key);
   if (s.state !== 'open' && s.state !== 'answered') return;
   const p = getProblem(s.generatorId, s.seed, s.difficulty);
-  const r = checkAnswer(p.answer, response);
-  if (r.status === 'invalid') {
-    s.lastFeedback = { status: 'invalid', message: r.message ?? 'That answer could not be read.' };
-    s.lastResponse = response;
+  const problem = deferredSaveProblem(p.answer, response);
+  // Saving the same wrong-form answer a second time keeps it as written (graded as it is), so a
+  // student is never stuck on a question; an unreadable answer can never be saved.
+  const insisted = problem?.status === 'wrong-form' && s.formRefused === response;
+  if (problem && !insisted) {
+    const kept = s.state === 'answered' ? ' This was not saved; your earlier answer is still saved.' : ' This answer is not saved yet.';
+    const keepAnyway = problem.status === 'wrong-form' ? ' To keep it exactly as it is, save it again.' : '';
+    s.lastFeedback = { status: problem.status, message: problem.message + kept + keepAnyway };
+    s.formRefused = problem.status === 'wrong-form' ? response : undefined;
     return;
   }
+  s.formRefused = undefined;
   s.lastResponse = response;
   s.state = 'answered';
   s.lastFeedback = undefined;

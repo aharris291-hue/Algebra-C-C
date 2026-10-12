@@ -4,9 +4,9 @@
  * server. Either way the same services answer.
  */
 import type { AcademyApi } from '../shared/api';
-import { API_METHODS } from '../shared/api';
+import { API_METHODS, SAVE_STATUS_EVENT } from '../shared/api';
 
-type CallResult = { ok: true; value: unknown } | { ok: false; error: string; userFacing: boolean };
+type CallResult = ({ ok: true; value: unknown } | { ok: false; error: string; userFacing: boolean }) & { saveError?: string };
 
 interface Bridge {
   call(method: string, args: unknown[]): Promise<CallResult>;
@@ -37,6 +37,8 @@ async function httpCall(method: string, args: unknown[]): Promise<CallResult> {
 }
 
 function unwrap(r: CallResult): unknown {
+  // every reply says whether saving to disk is currently failing, so the warning banner appears at once
+  window.dispatchEvent(new CustomEvent(SAVE_STATUS_EVENT, { detail: { saveError: r.saveError } }));
   if (!r.ok) throw new ApiError(r.error, r.userFacing);
   return r.value;
 }

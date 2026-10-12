@@ -8,7 +8,7 @@
  *   invalid          - could not be read; the student is told why and the attempt is not counted
  */
 import { Rational } from './rational';
-import { MathSyntaxError, Node, normalizeInput, parseExpression, variablesOf, isPlainNumberLiteral, isSimpleFraction } from './parser';
+import { MathSyntaxError, Node, normalizeInput, parseExpression, variablesOf, isPlainNumberLiteral, isSimpleFraction, replaceVulgarFractions } from './parser';
 import { Poly, tryPoly } from './poly';
 import { Surd, trySurd, extractPower } from './surd';
 import { numericallyEquivalent, evalNumeric, hasVariableRadical } from './evaluate';
@@ -266,18 +266,41 @@ export function isCompletelyFactored(n: Node): boolean {
   return nonConst >= 1;
 }
 
-/** a(x - h)^2 + k with a, h, k numbers. */
+/** Factors of a product, also looking through division by a constant: (x - 3)^2/2 has factors (x - 3)^2 and 1/2. */
+function scaledFactors(n: Node, out: Node[] = []): Node[] {
+  if (n.type === 'div' && variablesOf(n.right).size === 0) {
+    scaledFactors(n.left, out);
+    out.push({ type: 'div', left: { type: 'num', value: Rational.of(1n, 1n), text: '1' }, right: n.right });
+  } else if (n.type === 'mul') {
+    scaledFactors(n.left, out);
+    scaledFactors(n.right, out);
+  } else if (n.type === 'neg') {
+    scaledFactors(n.arg, out);
+  } else out.push(n);
+  return out;
+}
+
+/** A linear binomial in v with coefficient ±1 and a constant term: x - h, x + 3, or 1 - x (a factored-out -1). */
+function isUnitBinomial(f: Node, v: string): boolean {
+  if (f.type === 'var') return false;
+  const p = tryPoly(f);
+  if (!p || p.variables().length !== 1 || p.degreeIn(v) !== 1) return false;
+  const c = p.coeff(v, 1);
+  return c.eq(1) || c.eq(-1);
+}
+
+/** a(x - h)^2 + k with a, h, k numbers (also (x - h)^2/2 + k, k + a(x - h)^2 and a(h - x)^2 + k). */
 export function isVertexForm(n: Node, v = 'x'): boolean {
   const terms = additiveTerms(n);
   let squareTerms = 0;
   for (const t of terms) {
-    const factors = multiplicativeFactors(t.node);
+    const factors = scaledFactors(t.node);
     const squares = factors.filter((f) => f.type === 'pow' && f.exp.type === 'num' && f.exp.value.eq(2));
     const others = factors.filter((f) => !squares.includes(f));
     if (squares.length === 1) {
       const sq = squares[0] as Extract<Node, { type: 'pow' }>;
       const inner = tryPoly(sq.base);
-      if (!inner || inner.degreeIn(v) !== 1 || inner.variables().length !== 1 || !inner.coeff(v, 1).eq(1)) return false;
+      if (!inner || inner.degreeIn(v) !== 1 || inner.variables().length !== 1 || !inner.coeff(v, 1).abs().eq(1)) return false;
       if (!others.every((o) => tryPoly(o)?.isConstant())) return false;
       squareTerms++;
     } else {
@@ -518,6 +541,13 @@ export function stripFunctionNotation(s: string): string {
   return s.replace(FUNC_PREFIX, 'y ');
 }
 
+/** "C(n) = 5n + 20" answers an equation written "C = 5n + 20": keep the name instead of reading it as y. */
+function keepFunctionName(input: string, target: Relation): string {
+  if (target.lhs.type !== 'var') return input;
+  const name = target.lhs.name;
+  return input.replace(FUNC_PREFIX, (m, f: string) => (f === name ? `${name} ` : m));
+}
+
 export function parseRelations(src: string): { parts: Node[]; texts: string[]; ops: RelOp[] } {
   const s = normalizeInput(stripFunctionNotation(src)).replace(/=</g, '<=').replace(/=>/g, '>=');
   const re = /(<=|>=|<|>|=)/g;
@@ -732,9 +762,24 @@ export function intervalToTex(iv: Interval): string {
 
 const NO_SOLUTION = /^(no( real)? (solution|solutions|roots|zeros)|none|∅|\{\s*\}|no solution\.?)$/i;
 
-export function parseSolutionList(src: string, variable = 'x'): Node[] | 'none' {
-  const s = normalizeInput(src).trim();
-  if (NO_SOLUTION.test(s)) return 'none';
+/** "1,000" -> "1000": a comma followed by exactly three digits (no space) between digits is a thousands separator. */
+export function collapseThousands(s: string): string {
+  return s.replace(/(^|[^\d.])(\d{1,3}(?:,\d{3})+)(?![\d])/g, (_m, pre: string, num: string) => pre + num.replace(/,/g, ''));
+}
+
+/** Does the text contain something that could be a thousands separator ("1,000")? */
+function hasThousands(s: string): boolean {
+  return collapseThousands(s) !== s;
+}
+
+/**
+ * Parse a list of solutions. With `thousands` (the default), "1,000" is one number; without it the
+ * comma separates two solutions. The checker tries both readings when the text is ambiguous.
+ */
+export function parseSolutionList(src: string, variable = 'x', thousands = true): Node[] | 'none' {
+  const s0 = normalizeInput(src).trim();
+  if (NO_SOLUTION.test(s0)) return 'none';
+  const s = thousands ? collapseThousands(s0) : s0;
   let body = s.replace(/^\{(.*)\}$/, '$1');
   // remove "x =" prefixes everywhere
   const varRe = new RegExp(`\\b${variable}\\s*=`, 'g');
@@ -764,7 +809,10 @@ export function parseSolutionList(src: string, variable = 'x'): Node[] | 'none' 
 // ---------------------------------------------------------------------------
 
 function numberValueOf(input: string): { value: Rational | null; literal: boolean; node: Node | null; error?: string } {
-  const s = normalizeInput(input);
+  // "2½" is the mixed number 2 1/2
+  let s = normalizeInput(replaceVulgarFractions(input, (w, f) => `${w} ${f}`));
+  // "1 200" or "1 200 000" (space as a thousands separator): only whole groups of three digits
+  if (/^-?\d{1,3}(?: \d{3})+(?:\.\d+)?$/.test(s)) s = s.replace(/ /g, '');
   // mixed number "2 1/2" or "-2 1/2"
   const mixed = /^(-?)(\d+)\s+(\d+)\s*\/\s*(\d+)$/.exec(s);
   if (mixed) {
@@ -786,30 +834,127 @@ function stripThousands(s: string): string {
   return s.replace(/(\d),(?=\d{3}(?!\d))/g, '$1');
 }
 
+/** Words that change a number's value: "3 dozen" is 36, never 3. */
+const VALUE_WORDS = /\b(dozens?|score|gross|hundreds?|thousands?|millions?|billions?|trillions?|percent|half|halves|thirds?|quarters?|squared|cubed)\b/i;
+
+const SCALE_WORDS: Record<string, bigint> = { dozen: 12n, hundred: 100n, thousand: 1000n, million: 1000000n, billion: 1000000000n };
+const SCALED_COUNT = /^([-+]?\d+(?:\.\d+)?)\s*(dozen|hundred|thousand|million|billion)s?$/i;
+
+/** "thousand dollars" -> factor 1000. */
+function scaledUnit(unit?: string): { factor: Rational; word: string } | null {
+  const m = unit ? /^(hundred|thousand|million|billion)\b/i.exec(unit) : null;
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  const factor = { hundred: 100n, thousand: 1000n, million: 1000000n, billion: 1000000000n }[word]!;
+  return { factor: Rational.of(factor, 1n), word };
+}
+
+function roundPhrase(spec: { roundTo?: number; unit?: string }): string {
+  const n = spec.roundTo ?? 0;
+  return n === 0 ? 'the nearest whole number' : n === 2 && spec.unit === 'dollars' ? 'the nearest cent' : `${n} decimal place${n === 1 ? '' : 's'}`;
+}
+
 function stripUnit(input: string, unit?: string): string {
-  let s = input.trim().replace(/^\$/, '');
+  // "$12.50", "-$12.50", "−$12.50"
+  let s = input.trim().replace(/^([-−‒–—﹣－+]?)\s*\$\s*/, '$1');
   if (unit) {
     const u = unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     s = s.replace(new RegExp(`\\s*${u}\\.?$`, 'i'), '');
+    // "10 thousand" when the unit is "thousand dollars"
+    const scaled = scaledUnit(unit);
+    if (scaled) s = s.replace(new RegExp(`\\s*${scaled.word}s?\\.?$`, 'i'), '');
   }
   // strip trailing common unit words/symbols the student might add
   s = s.replace(/\s*(?:per|\/)\s*(?:hours?|hrs?|h|minutes?|min|seconds?|sec|s|days?|weeks?|wk|months?|mo|years?|yr|miles?|mi|cars?|tickets?|items?|gallons?|gal)\.?$/i, '');
-  s = s.replace(/\s*(%|dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?|milligrams?|mg|grams?|hrs|yrs|people|persons|followers|views|bacteria|cells|customers|fish)\.?$/i, '');
+  // square and cubic units: "3 ft²", "3 ft^2", "3 sq ft", "3 square feet"
+  const LENGTH = '(?:units?|feet|foot|ft|meters?|m|inches|inch|in|centimeters?|cm|yards?|yd|miles?|mi|kilometers?|km)';
+  s = s.replace(new RegExp(`\\s*(?:sq\\.?|square|cubic|cu\\.?)\\s*${LENGTH}\\.?$`, 'i'), '');
+  s = s.replace(new RegExp(`\\s*${LENGTH}\\s*(?:²|³|\\^\\s*[23])$`, 'i'), '');
+  // a percent sign or the word "percent" only when the answer is a percent (or has no unit)
+  if (!unit || /%|percent/i.test(unit)) s = s.replace(/\s*%$/, '');
+  if (unit && /%|percent/i.test(unit)) s = s.replace(/\s*(?:percent|per cent)\.?$/i, '');
+  s = s.replace(/\s*(dollars?|units?|square units|sq units|feet|ft|meters?|m|inches|in|cm|miles?|mi|seconds?|sec|s|hours?|hr|minutes?|min|days?|weeks?|months?|years?|yr|points?|pts|degrees?|gallons?|gal|centimeters?|meters? per second|feet per second|cars?|tickets?|milligrams?|mg|grams?|hrs|yrs|people|persons|followers|views|bacteria|cells|customers|fish)\.?$/i, '');
   // a plain number followed only by words names what was counted ("54 shirts", "12 tote bags"): keep the number
   const counted = /^([-+]?\d[\d,]*(?:\.\d+)?)\s+[a-z][a-z' -]*\.?$/i.exec(s);
-  // (but not words that change the value: "2 pi", "5 thousand")
-  if (counted && !/\b(pi|hundred|thousand|million|billion|trillion|percent|half|halves|thirds?|quarters?|squared|cubed|root)\b/i.test(s)) s = counted[1];
+  // (but not words that change the value: "2 pi", "5 thousand", "3 dozen")
+  if (counted && !/\bpi\b/i.test(s) && !VALUE_WORDS.test(s) && !/\b(root)\b/i.test(s)) s = counted[1];
   return s;
 }
 
 function checkMisconceptions(spec: AnswerSpec, input: string, list: Misconception[] | undefined): CheckResult | null {
   if (!list) return null;
   for (const m of list) {
-    const alt: AnswerSpec = withValue(spec, m.answer);
-    const r = checkCore(alt, input, true);
-    if (r.status === 'correct' || r.status === 'wrong-form') return bad(m.feedback, m.tag);
+    // one malformed entry never hides the ones after it
+    try {
+      const alt: AnswerSpec = withValue(spec, m.answer);
+      const r = checkCore(alt, input, true);
+      if (r.status === 'correct' || r.status === 'wrong-form') return bad(m.feedback, m.tag);
+    } catch {
+      continue;
+    }
   }
   return null;
+}
+
+/**
+ * Split a list written by a generator or a student: "a|b|c", "(a, b)", "a, b", "x = 3, y = -2",
+ * "3 or -2", "{1, 2}". Commas inside parentheses do not split. With `thousands`, "1,000" stays one number.
+ */
+export function splitList(src: string, thousands = false): string[] {
+  let s = normalizeInput(src).trim();
+  if (s.includes('|')) return s.split('|').map((x) => x.trim());
+  if (thousands) s = collapseThousands(s);
+  const wrapped = /^[({]([\s\S]*)[)}]$/.exec(s);
+  if (wrapped && balanced(wrapped[1])) s = wrapped[1].trim();
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  const push = () => {
+    const t = cur.trim().replace(/^[a-zA-Z]\s*=\s*/, '');
+    out.push(t);
+    cur = '';
+  };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '(') depth++;
+    if (c === ')') depth--;
+    if (depth === 0 && (c === ',' || c === ';')) {
+      push();
+      continue;
+    }
+    if (depth === 0) {
+      const w = /^\s+(or|and)\s+/i.exec(s.slice(i));
+      if (w) {
+        push();
+        i += w[0].length - 1;
+        continue;
+      }
+    }
+    cur += c;
+  }
+  push();
+  return out.filter((x) => x.length > 0);
+}
+
+function balanced(s: string): boolean {
+  let d = 0;
+  for (const c of s) {
+    if (c === '(') d++;
+    if (c === ')' && --d < 0) return false;
+  }
+  return d === 0;
+}
+
+/** Two coordinates from "(3, -2)", "3, -2", "x = 3, y = -2" or "(1,200, 5)". */
+function pointParts(src: string): string[] {
+  const plain = splitList(src);
+  if (plain.length === 2 || !hasThousands(src)) return plain;
+  return splitList(src, true);
+}
+
+/** The answer spec a misconception answer stands for (same kind and options as the real answer). */
+export function misconceptionSpec(spec: AnswerSpec, answer: string): AnswerSpec {
+  return withValue(spec, answer);
 }
 
 function withValue(spec: AnswerSpec, value: string): AnswerSpec {
@@ -821,17 +966,26 @@ function withValue(spec: AnswerSpec, value: string): AnswerSpec {
     case 'interval':
       return { ...spec, value } as AnswerSpec;
     case 'point': {
-      const [x, y] = value.split('|');
+      const [x, y] = pointParts(value);
+      if (x === undefined || y === undefined) throw new Error('misconception is not a point: ' + value);
       return { ...spec, x, y };
     }
     case 'region-point': {
       // a misconception is one specific wrong point
-      const [x, y] = value.split('|');
+      const [x, y] = pointParts(value);
+      if (x === undefined || y === undefined) throw new Error('misconception is not a point: ' + value);
       return { kind: 'point', x, y };
     }
-    case 'solutions':
+    case 'solutions': {
+      if (value.trim() === '' || NO_SOLUTION.test(value.trim())) return { ...spec, values: [] };
+      const vals = splitList(value).flatMap((v) => {
+        const pm = v.replace(/\+\/-|\+-|±/g, '±');
+        return pm.includes('±') ? [pm.replace('±', '+'), pm.replace('±', '-')] : [v];
+      });
+      return { ...spec, values: vals };
+    }
     case 'sequence-terms':
-      return { ...spec, values: value === '' ? [] : value.split('|') } as AnswerSpec;
+      return { ...spec, values: value === '' ? [] : splitList(value) } as AnswerSpec;
     case 'choice':
       return { ...spec, correct: value };
   }
@@ -846,7 +1000,9 @@ export function checkAnswer(spec: AnswerSpec, input: string, misconceptions?: Mi
     if (e instanceof MathSyntaxError) return invalid(e.friendly);
     return invalid('That answer could not be read. Check how it is typed.');
   }
-  if (r.status === 'incorrect') {
+  // An answer the checker could read but not use here (e.g. "y < -1" when the answer is about x) may
+  // still be a known misconception with its own targeted feedback.
+  if (r.status === 'incorrect' || r.status === 'invalid') {
     let m: CheckResult | null = null;
     try {
       m = checkMisconceptions(spec, input, misconceptions);
@@ -854,10 +1010,114 @@ export function checkAnswer(spec: AnswerSpec, input: string, misconceptions?: Mi
       m = null;
     }
     if (m) return m;
+    if (r.status === 'invalid') return r;
     const approx = decimalApproximation(spec, input);
     if (approx) return approx;
   }
   return r;
+}
+
+/**
+ * Is the input written in the form the question asks for, whatever its value? Used where feedback is
+ * deferred (quizzes, assessments): an answer in the wrong form is not saved, and the student is asked
+ * to rewrite it without learning whether it is right. Returns a neutral instruction, or null when the
+ * form is fine (or the input cannot be read; the checker reports that).
+ */
+export function requestedFormIssue(spec: AnswerSpec, input: string): string | null {
+  try {
+    return formIssueCore(spec, input);
+  } catch {
+    return null;
+  }
+}
+
+const EQUATION_FORM_TEXT: Record<Exclude<EquationForm, 'any'>, string> = {
+  'slope-intercept': 'Write your answer in slope-intercept form, y = mx + b.',
+  standard: 'Write your answer in standard form, Ax + By = C, with integers A, B and C.',
+  'point-slope': 'Write your answer in point-slope form, y - y₁ = m(x - x₁).',
+  vertex: 'Write your answer in vertex form, y = a(x - h)² + k.',
+  factored: 'Write your answer in factored form, y = a(x - p)(x - q).',
+  exponential: 'Write your answer in the form y = a(b)ˣ.',
+  'quadratic-standard': 'Write your answer in the form y = ax² + bx + c.',
+};
+
+function formIssueCore(spec: AnswerSpec, rawInput: string): string | null {
+  if (rawInput.trim() === '') return null;
+  switch (spec.kind) {
+    case 'number': {
+      const scaled = scaledUnit(spec.unit);
+      const input = stripUnit(rawInput, spec.unit).replace(/^\s*[a-zA-Z]\s*=\s*/, '');
+      if (SCALED_COUNT.test(input)) return 'Write your answer as a single number.';
+      if (VALUE_WORDS.test(input)) return null;
+      const got = numberValueOf(input);
+      if (got.error) return null;
+      if (scaled && (/\$/.test(rawInput) || (got.value && got.value.abs().ge(scaled.factor)))) return `Give the answer in ${spec.unit}: for example, $5,000 is written as 5.`;
+      if (got.value === null) {
+        if (!got.node || spec.roundTo === undefined) return null;
+        const vars = variablesOf(got.node);
+        if (vars.size === 0 || (vars.size === 1 && vars.has('π'))) return `Round your answer to ${roundPhrase(spec)}.`;
+        return null;
+      }
+      return got.literal ? null : 'Simplify your answer to a single number.';
+    }
+    case 'expression': {
+      const f = spec.form ?? 'any';
+      if (f === 'any') return null;
+      const input = stripFunctionNotation(stripThousands(normalizeInput(rawInput)))
+        .replace(/^\s*y\s*=\s*/i, '')
+        .replace(/^\s*[a-zA-Z](?:_?\{?[a-zA-Z0-9]{1,3}\}?)?\s*(?:\(\s*[a-zA-Z0-9]+\s*\))?\s*=\s*/, '');
+      const n = parseExpression(input);
+      const target = parseExpression(spec.value);
+      const allowed = spec.variables ?? [...variablesOf(target)];
+      if ([...variablesOf(n)].some((u) => !allowed.includes(u))) return null;
+      if (f === 'expanded' && !isExpandedForm(n)) return 'Write your answer multiplied out, with like terms combined.';
+      if (f === 'factored' && !isCompletelyFactored(n)) return 'Write your answer completely factored.';
+      if (f === 'vertex' && !isVertexForm(n, allowed[0] ?? 'x')) return 'Write your answer in vertex form, a(x - h)² + k.';
+      if (f === 'exponent-simplified') {
+        const es = isExponentSimplified(n);
+        if (!es.ok) return `Write your answer fully simplified. ${es.reason ?? ''}`.trim();
+      }
+      if (f === 'simplified-radical') {
+        const sr = isSimplifiedRadical(n);
+        if (!sr.ok) return `Write your answer in simplest radical form. ${sr.reason ?? ''}`.trim();
+      }
+      return null;
+    }
+    case 'equation': {
+      const f = spec.form ?? 'any';
+      if (f === 'any') return null;
+      const target = parseRelation(spec.value);
+      const raw = keepFunctionName(stripThousands(rawInput), target);
+      let got: Relation;
+      try {
+        got = parseRelation(raw);
+      } catch (e) {
+        if (!/[=<>]/.test(raw) && target.lhs.type === 'var') got = parseRelation(`${target.lhs.name} = ${raw}`);
+        else throw e;
+      }
+      if (got.op !== '=') return null;
+      return equationFormCheck(got, f) ? EQUATION_FORM_TEXT[f] : null;
+    }
+    case 'inequality': {
+      if (spec.form !== 'solved') return null;
+      const target = parseRelation(spec.value);
+      const got = parseRelation(rawInput);
+      if (got.op === '=') return null;
+      const tv = [...new Set([...variablesOf(target.lhs), ...variablesOf(target.rhs)])];
+      const v = spec.variable ?? (tv.length === 1 ? tv[0] : 'x');
+      const alone = (n: Node) => n.type === 'var' && n.name === v;
+      const other = alone(got.lhs) ? got.rhs : alone(got.rhs) ? got.lhs : null;
+      const op = other ? tryPoly(other) : null;
+      if (!other || !op || op.degreeIn(v) !== 0) return `Write your answer solved for ${v}, with ${v} by itself on one side, like ${v} ≥ 3.`;
+      if (op.variables().length > 0 && !isExpandedForm(other)) return `Simplify the side without ${v}.`;
+      return null;
+    }
+    case 'interval':
+      if (spec.form === 'set-builder' && !/^\s*\{.*\}\s*$/.test(rawInput)) return 'Write your answer in set-builder notation, like {x | x >= 2}.';
+      return null;
+    default:
+      return null;
+  }
 }
 
 /** A typed decimal that is close to an exact irrational answer gets a pointer to the exact form. */
@@ -907,17 +1167,37 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
       const exact = exactValue(spec.value);
       if (!exact || !exact.isRational()) throw new Error('number spec must be rational: ' + spec.value);
       const target = exact.rationalPart();
-      const got = numberValueOf(input);
+      const scaledCount = SCALED_COUNT.exec(input);
+      const word = scaledCount ? null : VALUE_WORDS.exec(input);
+      if (word && /\d/.test(input)) return quiet ? bad() : invalid(`Type the value as a single number, without the word "${word[1]}".`);
+      // "3 dozen" is 36 (a value to simplify), never 3
+      const got = scaledCount ? { value: Rational.parseDecimal(scaledCount[1]).mul(Rational.of(SCALE_WORDS[scaledCount[2].toLowerCase()], 1n)), literal: false, node: null } : numberValueOf(input);
       if (got.error) return invalid(got.error);
       if (got.value === null) {
         if (got.node) {
-          const sv = trySurd(got.node);
-          if (sv && !sv.isRational()) return bad();
-          if (variablesOf(got.node).size > 0) return invalid('This answer should be a number, without variables.');
+          const vars = variablesOf(got.node);
+          const onlyPi = vars.size === 1 && vars.has('π');
+          if (vars.size === 0 || onlyPi) {
+            // an exact irrational value (√61, 100√29, 4π) typed for a "round to ..." question
+            const approx = evalNumeric(got.node, { π: Math.PI });
+            const t = target.toNumber();
+            if (spec.roundTo !== undefined && Number.isFinite(approx) && Math.abs(approx - t) <= 1e-9 * Math.max(1, Math.abs(t))) {
+              return form(`That's the exact value. Now round it to ${roundPhrase(spec)}.`);
+            }
+            const sv = trySurd(got.node);
+            if ((sv && !sv.isRational()) || (onlyPi && Number.isFinite(approx))) return bad();
+          }
+          if (vars.size > 0) return invalid('This answer should be a number, without variables.');
         }
         return invalid('Type a number, like 12, -3.5, or 7/4.');
       }
       const v = got.value;
+      const scaled = scaledUnit(spec.unit);
+      if (scaled && !v.eq(target)) {
+        // "$10,000" for an answer in thousands of dollars
+        if (v.eq(target.mul(scaled.factor))) return form(`That amount is right, but the answer is in ${spec.unit}. Write how many ${scaled.word}s: for example, $5,000 is 5 ${spec.unit}.`);
+        if (/\$/.test(rawInput) || v.abs().ge(scaled.factor)) return bad(`Check the units: the answer is in ${spec.unit}. For example, $5,000 is written as 5.`, 'units');
+      }
       if (spec.roundTo !== undefined) {
         const rounded = target.round(spec.roundTo);
         if (v.eq(target) || v.eq(rounded)) return got.literal ? ok() : form('That has the right value. Now simplify it to a single number.');
@@ -925,7 +1205,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
         if (v.round(spec.roundTo).eq(rounded) && v.sub(target).abs().le(Rational.of(1n, 10n ** BigInt(spec.roundTo)))) {
           return ok(`Correct. Rounded to ${spec.roundTo} decimal place${spec.roundTo === 1 ? '' : 's'}, that's ${rounded.toDecimalString(spec.roundTo)}.`);
         }
-        if (v.sub(target).abs().lt(1)) return bad(`Close. Check your rounding: round to ${spec.roundTo === 0 ? 'the nearest whole number' : spec.roundTo === 2 && spec.unit === 'dollars' ? 'the nearest cent' : `${spec.roundTo} decimal place${spec.roundTo === 1 ? '' : 's'}`}, and only at the very end.`, 'other');
+        if (v.sub(target).abs().lt(1)) return bad(`Close. Check your rounding: round to ${roundPhrase(spec)}, and only at the very end.`, 'other');
         return bad();
       }
       if (v.eq(target)) {
@@ -955,7 +1235,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
 
     case 'expression': {
       // Expression answers never contain "=", so a leading "y =", "f(x) =", "C(m) =" or "a_n =" is just a label.
-      const input = stripFunctionNotation(stripThousands(rawInput))
+      const input = stripFunctionNotation(stripThousands(normalizeInput(rawInput)))
         .replace(/^\s*y\s*=\s*/i, '')
         .replace(/^\s*[a-zA-Z](?:_?\{?[a-zA-Z0-9]{1,3}\}?)?\s*(?:\(\s*[a-zA-Z0-9]+\s*\))?\s*=\s*/, '');
       const n = parseExpression(input);
@@ -984,7 +1264,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
 
     case 'equation': {
       const target = parseRelation(spec.value);
-      rawInput = stripThousands(rawInput);
+      rawInput = keepFunctionName(stripThousands(rawInput), target);
       let got: Relation;
       try {
         got = parseRelation(rawInput);
@@ -997,7 +1277,13 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
       if (got.op !== '=') return quiet ? bad() : invalid('This answer should be an equation with an = sign.');
       const tVars = new Set([...variablesOf(target.lhs), ...variablesOf(target.rhs)]);
       const gVars = new Set([...variablesOf(got.lhs), ...variablesOf(got.rhs)]);
-      const extra = [...gVars].filter((v) => !tVars.has(v));
+      // a variable with a zero coefficient (y = 0x + 3) is not really used
+      const gDiff = (() => {
+        const l = tryPoly(got.lhs);
+        const r = tryPoly(got.rhs);
+        return l && r ? new Set(l.sub(r).variables()) : null;
+      })();
+      const extra = [...gVars].filter((v) => !tVars.has(v) && (!gDiff || gDiff.has(v)));
       if (extra.length && !quiet) return invalid(`Use the variables ${[...tVars].sort().join(' and ')}. I see ${extra.join(', ')}.`);
       if (!equationsEquivalentImpl(got, target)) return bad();
       const f = spec.form ?? 'any';
@@ -1041,8 +1327,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
     }
 
     case 'region-point': {
-      const s = normalizeInput(rawInput).trim().replace(/^\(/, '').replace(/\)$/, '');
-      const parts = s.split(',');
+      const parts = pointParts(rawInput);
       if (parts.length !== 2) return invalid('Type an ordered pair like (3, -2).');
       const x = exactValue(parts[0]);
       const y = exactValue(parts[1]);
@@ -1060,8 +1345,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
     }
 
     case 'point': {
-      const s = normalizeInput(rawInput).trim().replace(/^\(/, '').replace(/\)$/, '');
-      const parts = s.split(',');
+      const parts = pointParts(rawInput);
       if (parts.length !== 2) return invalid('Type an ordered pair like (3, -2).');
       const x = exactValue(parts[0]);
       const y = exactValue(parts[1]);
@@ -1074,46 +1358,19 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
     }
 
     case 'solutions': {
-      const variable = spec.variable ?? 'x';
-      const got = parseSolutionList(rawInput, variable);
-      const target = spec.values.map((v) => parseExpression(v));
-      if (got === 'none') return target.length === 0 ? ok() : bad();
-      if (target.length === 0) return bad();
-      const used = got.flatMap((g) => [...variablesOf(g)]);
-      if (used.length) return invalid('Each solution should be a number.');
-      const matches = (g: Node, t: Node): boolean => {
-        const gs = trySurd(g);
-        const ts = trySurd(t);
-        if (gs && ts && gs.equals(ts)) return true;
-        if (spec.roundTo !== undefined) {
-          const tv = ts ? ts.toNumber() : evalNumeric(t);
-          const gv = gs ? gs.toNumber() : evalNumeric(g);
-          const factor = Math.pow(10, spec.roundTo);
-          const tr = Math.round(tv * factor) / factor;
-          return Math.abs(gv - tr) < 1e-9 || (Math.abs(gv - tv) <= 0.5 / factor + 1e-12 && Math.round(gv * factor) / factor === tr);
+      // "1,000 or -2": read "1,000" as one number, and also as two when that is what fits
+      if (hasThousands(normalizeInput(rawInput))) {
+        const a = checkSolutions(spec, rawInput, true);
+        if (a.status === 'correct') return a;
+        let b: CheckResult | null = null;
+        try {
+          b = checkSolutions(spec, rawInput, false);
+        } catch {
+          b = null;
         }
-        if (!gs || !ts) {
-          const a = evalNumeric(g);
-          const b = evalNumeric(t);
-          return Number.isFinite(a) && Math.abs(a - b) < 1e-12 * Math.max(1, Math.abs(b));
-        }
-        return false;
-      };
-      // dedupe target (double roots)
-      const uniqT: Node[] = [];
-      for (const t of target) if (!uniqT.some((u) => matches(u, t) && matches(t, u))) uniqT.push(t);
-      const uniqG: Node[] = [];
-      const sameExact = (u: Node, g: Node) => {
-        const a = trySurd(u);
-        const b = trySurd(g);
-        return a !== null && b !== null && a.equals(b);
-      };
-      for (const g of got) if (!uniqG.some((u) => sameExact(u, g))) uniqG.push(g);
-      const allGotValid = uniqG.every((g) => uniqT.some((t) => matches(g, t)));
-      const allTargetsFound = uniqT.every((t) => uniqG.some((g) => matches(g, t)));
-      if (allGotValid && allTargetsFound) return ok();
-      if (allGotValid && !allTargetsFound) return bad('What you found is a solution, but there is another one. Look for every solution.', 'missing-solution');
-      return bad();
+        return b && b.status === 'correct' ? b : a;
+      }
+      return checkSolutions(spec, rawInput, false);
     }
 
     case 'interval': {
@@ -1131,23 +1388,104 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
     }
 
     case 'sequence-terms': {
-      const parts = normalizeInput(rawInput)
-        .split(/,/.test(rawInput) ? /\s*,\s*/ : /\s+/)
-        .filter((p) => p.length > 0);
-      if (parts.length !== spec.values.length) return invalid(`Type ${spec.values.length} terms separated by commas.`);
-      for (let i = 0; i < parts.length; i++) {
-        const g = exactValue(parts[i]);
-        const t = exactValue(spec.values[i])!;
-        if (!g) return invalid(`Term ${i + 1} should be a number.`);
-        if (!g.equals(t)) return bad();
+      const norm = normalizeInput(rawInput);
+      const split = (t: string) => t.split(/,/.test(t) ? /\s*,\s*/ : /\s+/).filter((p) => p.length > 0);
+      const readings = [split(norm)];
+      // "1,200, 2,400, 4,800": thousands separators
+      if (hasThousands(norm)) readings.push(split(collapseThousands(norm)));
+      let first: CheckResult | null = null;
+      for (const parts of readings) {
+        const r = sequenceTerms(spec.values, parts);
+        if (r.status === 'correct') return r;
+        if (!first || (first.status === 'invalid' && r.status !== 'invalid')) first = r;
       }
-      return ok();
+      return first!;
     }
   }
 }
 
+function sequenceTerms(values: string[], parts: string[]): CheckResult {
+  if (parts.length !== values.length) return invalid(`Type ${values.length} terms separated by commas.`);
+  for (let i = 0; i < parts.length; i++) {
+    const g = exactValue(parts[i]);
+    const t = exactValue(values[i])!;
+    if (!g) return invalid(`Term ${i + 1} should be a number.`);
+    if (!g.equals(t)) return bad();
+  }
+  return ok();
+}
+
+
+function checkSolutions(spec: Extract<AnswerSpec, { kind: 'solutions' }>, rawInput: string, thousands: boolean): CheckResult {
+  const variable = spec.variable ?? 'x';
+  const got = parseSolutionList(rawInput, variable, thousands);
+  const target = spec.values.map((v) => parseExpression(v));
+  if (got === 'none') return target.length === 0 ? ok() : bad();
+  if (target.length === 0) return bad();
+  const used = got.flatMap((g) => [...variablesOf(g)]);
+  if (used.length) return invalid('Each solution should be a number.');
+  const matches = (g: Node, t: Node): boolean => {
+    const gs = trySurd(g);
+    const ts = trySurd(t);
+    if (gs && ts && gs.equals(ts)) return true;
+    if (spec.roundTo !== undefined) {
+      const tv = ts ? ts.toNumber() : evalNumeric(t);
+      const gv = gs ? gs.toNumber() : evalNumeric(g);
+      const factor = Math.pow(10, spec.roundTo);
+      const tr = Math.round(tv * factor) / factor;
+      return Math.abs(gv - tr) < 1e-9 || (Math.abs(gv - tv) <= 0.5 / factor + 1e-12 && Math.round(gv * factor) / factor === tr);
+    }
+    if (!gs || !ts) {
+      const a = evalNumeric(g);
+      const b = evalNumeric(t);
+      return Number.isFinite(a) && Math.abs(a - b) < 1e-12 * Math.max(1, Math.abs(b));
+    }
+    return false;
+  };
+  // dedupe target (double roots)
+  const uniqT: Node[] = [];
+  for (const t of target) if (!uniqT.some((u) => matches(u, t) && matches(t, u))) uniqT.push(t);
+  const uniqG: Node[] = [];
+  const sameExact = (u: Node, g: Node) => {
+    const a = trySurd(u);
+    const b = trySurd(g);
+    return a !== null && b !== null && a.equals(b);
+  };
+  for (const g of got) if (!uniqG.some((u) => sameExact(u, g))) uniqG.push(g);
+  const allGotValid = uniqG.every((g) => uniqT.some((t) => matches(g, t)));
+  const allTargetsFound = uniqT.every((t) => uniqG.some((g) => matches(g, t)));
+  if (allGotValid && allTargetsFound) return ok();
+  if (allGotValid && !allTargetsFound) return bad('What you found is a solution, but there is another one. Look for every solution.', 'missing-solution');
+  return bad();
+    }
+
 function equationFormCheck(got: Relation, f: EquationForm): CheckResult | null {
   if (f === 'any') return null;
+  // a = b and b = a are the same equation in the same form: accept either side order
+  const r1 = equationFormCheckOriented(got, f);
+  if (!r1 || (f !== 'standard' && f !== 'point-slope')) return r1;
+  const r2 = equationFormCheckOriented({ lhs: got.rhs, rhs: got.lhs, op: got.op, lhsText: got.rhsText, rhsText: got.lhsText }, f);
+  return r2 ? r1 : null;
+}
+
+/** mx + b with each part written once (m may be 0, as in y = 0x + 3). */
+function isSlopeInterceptSide(side: Node): boolean {
+  const p = tryPoly(side);
+  if (!p || p.degree() > 1 || p.variables().some((v) => v !== 'x')) return false;
+  const seen = new Set<number>();
+  for (const t of additiveTerms(side)) {
+    if (!isMonomial(t.node)) return false;
+    const tp = tryPoly(t.node);
+    if (!tp) return false;
+    const deg = variablesOf(t.node).size === 0 ? 0 : 1;
+    if (deg === 1 && tp.degree() > 1) return false;
+    if (seen.has(deg)) return false;
+    seen.add(deg);
+  }
+  return true;
+}
+
+function equationFormCheckOriented(got: Relation, f: EquationForm): CheckResult | null {
   const yIsolated = (side: Node) => side.type === 'var' && side.name === 'y';
   const otherSide = yIsolated(got.lhs) ? got.rhs : yIsolated(got.rhs) ? got.lhs : null;
   switch (f) {
@@ -1155,11 +1493,11 @@ function equationFormCheck(got: Relation, f: EquationForm): CheckResult | null {
       if (!otherSide) return form('That equation is equivalent. Now solve it for y, so it reads y = mx + b.');
       const p = tryPoly(otherSide);
       if (!p || p.degree() > 1 || p.variables().some((v) => v !== 'x')) return form('Write it as y = mx + b.');
-      if (!isExpandedForm(otherSide)) return form("That's equivalent. Now simplify the right side to mx + b.");
+      if (!isSlopeInterceptSide(otherSide)) return form("That's equivalent. Now simplify the right side to mx + b.");
       return null;
     }
     case 'standard': {
-      // Ax + By = C, integers, variables on the left only
+      // Ax + By = C, integers, variables on one side only
       const l = tryPoly(got.lhs);
       const r = tryPoly(got.rhs);
       if (!l || !r) return form('Write it as Ax + By = C.');
@@ -1169,20 +1507,17 @@ function equationFormCheck(got: Relation, f: EquationForm): CheckResult | null {
       return null;
     }
     case 'point-slope': {
-      // y - y1 = m(x - x1)
+      // y - y1 = m(x - x1); also m(x - x1)/k, -m(x1 - x), and the sides swapped
       const l = tryPoly(got.lhs);
       if (!l || l.degreeIn('x') !== 0 || !l.coeff('y', 1).eq(1)) return form("That's equivalent. Write it in point-slope form, y - y₁ = m(x - x₁).");
       const rhs = got.rhs;
       const rp = tryPoly(rhs);
       if (!rp || rp.degreeIn('y') !== 0) return form('Write it as y - y₁ = m(x - x₁).');
       if (rp.isConstant()) return null; // horizontal line y - b = 0 accepted
-      const factors = multiplicativeFactors(rhs);
-      const hasBinomial = factors.some((fct) => {
-        const p = tryPoly(fct);
-        return p && p.degreeIn('x') === 1 && p.coeff('x', 1).eq(1) && !(fct.type === 'var');
-      });
-      const isBareX = factors.some((fct) => fct.type === 'var' && fct.name === 'x');
-      if (!hasBinomial && !isBareX) return form("That's equivalent. Write it in point-slope form, y - y₁ = m(x - x₁).");
+      const factors = scaledFactors(rhs);
+      const nonConst = factors.filter((fct) => variablesOf(fct).size > 0);
+      const ok1 = nonConst.length === 1 && (isUnitBinomial(nonConst[0], 'x') || (nonConst[0].type === 'var' && nonConst[0].name === 'x'));
+      if (!ok1) return form("That's equivalent. Write it in point-slope form, y - y₁ = m(x - x₁).");
       return null;
     }
     case 'vertex': {

@@ -53,24 +53,114 @@ export const MISCONCEPTION_LABELS: Record<string, string> = {
 // Shared calculations
 // ---------------------------------------------------------------------------
 
-export function gradeFor(ctx: ServiceContext, profileId: number): GradeResult {
-  const rows = ctx.db.all<{ kind: string; ref_id: string; score: number; max_score: number; finished_at: number }>(
-    "SELECT kind, ref_id, score, max_score, finished_at FROM assessments WHERE profile_id = ? AND status = 'completed' AND max_score > 0",
+interface GradedRow {
+  kind: string;
+  ref_id: string;
+  score: number;
+  max_score: number;
+  finished_at: number;
+}
+
+/** Completed graded work in time order (the same rows feed the grade and the grade trend). */
+function gradedRows(ctx: ServiceContext, profileId: number): GradedRow[] {
+  return ctx.db.all<GradedRow>(
+    "SELECT kind, ref_id, score, max_score, finished_at FROM assessments WHERE profile_id = ? AND status = 'completed' AND max_score > 0 AND kind IN ('quiz','test-out','unit-assessment','semester-assessment') ORDER BY finished_at, id",
     [profileId],
   );
-  const pick = (kinds: string[]): ScoredItem[] => rows.filter((r) => kinds.includes(r.kind)).map((r) => ({ refId: r.ref_id, score: r.score, maxScore: r.max_score, finishedAt: r.finished_at }));
-  // A passed test-out stands in for that lesson's quiz; a failed test-out is practice, not a grade.
-  const testOuts = rows.filter((r) => r.kind === 'test-out' && r.score / r.max_score >= 0.85 - 1e-9).map((r) => ({ refId: r.ref_id, score: r.score, maxScore: r.max_score, finishedAt: r.finished_at }));
-  const prog = ctx.db.get<{ started: number; done: number }>(
-    "SELECT COUNT(*) AS started, SUM(CASE WHEN practice_complete = 1 OR status = 'tested_out' THEN 1 ELSE 0 END) AS done FROM lesson_progress WHERE profile_id = ?",
+}
+
+/** One instructional lesson's practice record: when it was started and when its practice was done. */
+interface PracticeRecord {
+  day: number;
+  startedAt: number;
+  /** independent practice completed (or the lesson completed / tested out); null = not yet */
+  doneAt: number | null;
+}
+
+function practiceRecords(ctx: ServiceContext, profileId: number): { lessons: PracticeRecord[]; dayStarts: Array<{ day: number; startedAt: number }> } {
+  const rows = ctx.db.all<{ lesson_id: string; status: string; state_json: string; started_at: number; updated_at: number; completed_at: number | null; practice_complete: number }>(
+    'SELECT lesson_id, status, state_json, started_at, updated_at, completed_at, practice_complete FROM lesson_progress WHERE profile_id = ?',
     [profileId],
-  )!;
+  );
+  const lessons: PracticeRecord[] = [];
+  const dayStarts: Array<{ day: number; startedAt: number }> = [];
+  for (const r of rows) {
+    const meta = LESSON_BY_ID.get(r.lesson_id);
+    if (!meta) continue;
+    dayStarts.push({ day: meta.day, startedAt: Number(r.started_at) });
+    // only instructional lessons have independent practice; review, assessment and project days don't
+    if (meta.kind !== 'lesson') continue;
+    const st = safeParse(r.state_json) as { practiceCompletedAt?: number | null; independent?: { complete?: boolean } | null };
+    let doneAt: number | null = null;
+    if (typeof st.practiceCompletedAt === 'number') doneAt = st.practiceCompletedAt;
+    else if (r.status === 'completed' || r.status === 'tested_out') doneAt = Number(r.completed_at ?? r.updated_at);
+    else if (Number(r.practice_complete) === 1 || st.independent?.complete) doneAt = Number(r.updated_at);
+    // a tested-out lesson counts as done from when it was tested out
+    if (r.status === 'tested_out' && r.completed_at !== null) doneAt = Math.min(doneAt ?? Infinity, Number(r.completed_at));
+    lessons.push({ day: meta.day, startedAt: Number(r.started_at), doneAt });
+  }
+  return { lessons, dayStarts };
+}
+
+/**
+ * Practice completion as of a moment: of the instructional lessons started by then, the share whose
+ * independent practice was complete. The lesson the student is working on right now (practice not
+ * finished, nothing later started) is left out, so opening a lesson never lowers the grade; a lesson
+ * left unfinished while the student moved on to a later day counts as incomplete.
+ */
+export function practiceAsOf(rec: ReturnType<typeof practiceRecords>, at: number): { lessonsStarted: number; lessonsPracticeComplete: number } {
+  let started = 0;
+  let done = 0;
+  for (const l of rec.lessons) {
+    if (l.startedAt > at) continue;
+    const isDone = l.doneAt !== null && l.doneAt <= at;
+    const movedOn = rec.dayStarts.some((d) => d.day > l.day && d.startedAt <= at);
+    if (!isDone && !movedOn) continue;
+    started++;
+    if (isDone) done++;
+  }
+  return { lessonsStarted: started, lessonsPracticeComplete: done };
+}
+
+const scored = (r: GradedRow): ScoredItem => ({ refId: r.ref_id, score: r.score, maxScore: r.max_score, finishedAt: r.finished_at });
+// A passed test-out stands in for that lesson's quiz; a failed test-out is practice, not a grade.
+const countsAsQuiz = (r: GradedRow) => r.kind === 'quiz' || (r.kind === 'test-out' && r.score / r.max_score >= 0.85 - 1e-9);
+
+function gradeFromRows(rows: GradedRow[], practice: { lessonsStarted: number; lessonsPracticeComplete: number }): GradeResult {
   return computeGrade({
-    quizAttempts: [...pick(['quiz']), ...testOuts],
-    unitAssessmentAttempts: pick(['unit-assessment']),
-    semesterAssessmentAttempts: pick(['semester-assessment']),
-    practice: { lessonsStarted: Number(prog.started), lessonsPracticeComplete: Number(prog.done ?? 0) },
+    quizAttempts: rows.filter(countsAsQuiz).map(scored),
+    unitAssessmentAttempts: rows.filter((r) => r.kind === 'unit-assessment').map(scored),
+    semesterAssessmentAttempts: rows.filter((r) => r.kind === 'semester-assessment').map(scored),
+    practice,
   });
+}
+
+export function gradeFor(ctx: ServiceContext, profileId: number): GradeResult {
+  return gradeFromRows(gradedRows(ctx, profileId), practiceAsOf(practiceRecords(ctx, profileId), Infinity));
+}
+
+/**
+ * The grade as it stood at the end of each day with graded work (practice completion as of that
+ * moment too), ending with today's grade, so the last point always equals the current grade.
+ */
+export function gradeTrendFor(ctx: ServiceContext, profileId: number): Array<{ date: string; percent: number }> {
+  const rows = gradedRows(ctx, profileId);
+  const rec = practiceRecords(ctx, profileId);
+  const trend: Array<{ date: string; percent: number }> = [];
+  const push = (date: string, percent: number | null) => {
+    if (percent === null) return;
+    const last = trend[trend.length - 1];
+    if (last && last.date === date) last.percent = percent;
+    else trend.push({ date, percent });
+  };
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const g = gradeFromRows(rows.slice(0, i + 1), practiceAsOf(rec, r.finished_at));
+    push(localDate(r.finished_at, ctx.tzOffset(r.finished_at)), g.percent);
+  }
+  const current = gradeFor(ctx, profileId).percent;
+  if (current !== null && trend.length && trend[trend.length - 1].percent !== current) push(today(ctx), current);
+  return trend;
 }
 
 export function skillViews(ctx: ServiceContext, profileId: number): SkillMasteryView[] {
@@ -95,9 +185,13 @@ function atLeast(stage: MasteryStage, min: MasteryStage): boolean {
   return STAGE_ORDER.indexOf(stage) >= STAGE_ORDER.indexOf(min);
 }
 
+/**
+ * Active study minutes between two local dates (inclusive). Each day is rounded to whole minutes
+ * first and ranges add up days, so today + this week + every week always sum to the all-time total.
+ */
 function minutesBetween(ctx: ServiceContext, profileId: number, from: string, to: string): number {
-  const r = ctx.db.get<{ s: number }>('SELECT COALESCE(SUM(active_seconds), 0) AS s FROM study_time WHERE profile_id = ? AND local_date >= ? AND local_date <= ?', [profileId, from, to])!;
-  return Math.round(Number(r.s) / 60);
+  const rows = ctx.db.all<{ s: number }>('SELECT SUM(active_seconds) AS s FROM study_time WHERE profile_id = ? AND local_date >= ? AND local_date <= ? GROUP BY local_date', [profileId, from, to]);
+  return rows.reduce((a, r) => a + Math.round(Number(r.s ?? 0) / 60), 0);
 }
 
 function completedBetween(ctx: ServiceContext, profileId: number, fromMs: number, toMs: number): Array<{ id: string; title: string }> {
@@ -152,9 +246,34 @@ export function paceFor(ctx: ServiceContext, profileId: number): Pace {
   return { status, plannedDay, completedDays, detail };
 }
 
+function qualifyingDays(ctx: ServiceContext, profileId: number): string[] {
+  return ctx.db.all<{ local_date: string }>('SELECT local_date FROM activity_days WHERE profile_id = ? AND qualifying = 1', [profileId]).map((r) => r.local_date);
+}
+
 function streakFor(ctx: ServiceContext, profileId: number) {
-  const days = ctx.db.all<{ local_date: string }>('SELECT local_date FROM activity_days WHERE profile_id = ? AND qualifying = 1', [profileId]).map((r) => r.local_date);
-  return computeStreak(days, today(ctx));
+  return computeStreak(qualifyingDays(ctx, profileId), today(ctx));
+}
+
+/**
+ * The streak a weekly report shows. This week: the current streak (as on the dashboard). A past
+ * week: the streak as it stood at the end of that week's last study day, so the report doesn't
+ * change with today's streak; a past week with no study day shows the streak at the week's end.
+ */
+function weekStreak(ctx: ServiceContext, profileId: number, ws: string, we: string): number {
+  const t = today(ctx);
+  const all = qualifyingDays(ctx, profileId);
+  if (dayDiff(we, t) <= 0) return computeStreak(all, t).current;
+  const days = all.filter((d) => d <= we);
+  const inWeek = days.filter((d) => d >= ws).sort();
+  return computeStreak(days, inWeek.length ? inWeek[inWeek.length - 1] : we).current;
+}
+
+/** A real calendar date written YYYY-MM-DD. */
+function isValidDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
 function xpBetween(ctx: ServiceContext, profileId: number, fromDate: string, toDate: string): number {
@@ -274,27 +393,8 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
     missed: a.max_score - a.score,
   }));
 
-  // grade trend: the grade as it stood after each graded assessment
-  const gradeTrend: Array<{ date: string; percent: number }> = [];
-  {
-    const rows = [...assessRows].reverse();
-    const prog = { started: 0, done: 0 };
-    const acc: Record<string, ScoredItem[]> = { quiz: [], unit: [], sem: [] };
-    for (const r of rows) {
-      const item = { refId: r.ref_id, score: r.score, maxScore: r.max_score, finishedAt: r.finished_at };
-      if (r.kind === 'quiz' || (r.kind === 'test-out' && r.score / r.max_score >= 0.85 - 1e-9)) acc.quiz.push(item);
-      else if (r.kind === 'unit-assessment') acc.unit.push(item);
-      else if (r.kind === 'semester-assessment') acc.sem.push(item);
-      else continue;
-      const g = computeGrade({ quizAttempts: acc.quiz, unitAssessmentAttempts: acc.unit, semesterAssessmentAttempts: acc.sem, practice: { lessonsStarted: prog.started, lessonsPracticeComplete: prog.done } });
-      if (g.percent !== null) {
-        const d = localDate(r.finished_at, ctx.tzOffset(r.finished_at));
-        const last = gradeTrend[gradeTrend.length - 1];
-        if (last && last.date === d) last.percent = g.percent;
-        else gradeTrend.push({ date: d, percent: g.percent });
-      }
-    }
-  }
+  // grade trend: the grade as it stood after each day of graded work, ending at the current grade
+  const gradeTrend = gradeTrendFor(ctx, profileId);
 
   const masteryByUnit = UNITS.map((u) => {
     const us = skills.filter((s) => s.unitId === u.id);
@@ -314,7 +414,7 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
     const w = addDays(ws, -7 * i);
     byWeek.push({ weekStart: w, minutes: minutesBetween(ctx, profileId, w, addDays(w, 6)), lessons: completedBetween(ctx, profileId, startOfLocalDate(ctx, w), startOfLocalDate(ctx, addDays(w, 7))).length });
   }
-  const totalMinutes = Math.round(Number(ctx.db.get<{ s: number }>('SELECT COALESCE(SUM(active_seconds),0) AS s FROM study_time WHERE profile_id = ?', [profileId])!.s) / 60);
+  const totalMinutes = minutesBetween(ctx, profileId, '0000-01-01', '9999-12-31');
 
   const att = ctx.db.get<{ n: number; first: number; firstOk: number }>(
     "SELECT COUNT(*) AS n, SUM(CASE WHEN counted = 1 THEN 1 ELSE 0 END) AS first, SUM(CASE WHEN counted = 1 AND correct = 1 AND attempt_number = 1 AND max_hint_level = 0 THEN 1 ELSE 0 END) AS firstOk FROM attempts WHERE profile_id = ? AND status != 'invalid'",
@@ -426,8 +526,9 @@ export function describeActivity(type: string, d: Record<string, unknown>): stri
 
 export function getWeeklyReport(ctx: ServiceContext, profileId: number, week?: string): WeeklyReport {
   const profile = getProfile(ctx, profileId);
+  // validate before any date arithmetic: a malformed or impossible date gets a friendly message
+  if (week !== undefined && week !== null && week !== '' && (typeof week !== 'string' || !isValidDate(week))) throw new UserFacingError('Choose a valid week (a date written YYYY-MM-DD).');
   const ws = week ? weekStart(week) : weekStart(today(ctx));
-  if (week && !/^\d{4}-\d{2}-\d{2}$/.test(week)) throw new UserFacingError('Choose a valid week.');
   const we = addDays(ws, 6);
   const from = startOfLocalDate(ctx, ws);
   const to = startOfLocalDate(ctx, addDays(ws, 7));
@@ -451,7 +552,7 @@ export function getWeeklyReport(ctx: ServiceContext, profileId: number, week?: s
   const course = getCourse(ctx, profileId).flatMap((u) => u.lessons);
   const next = course.find((c) => c.status !== 'completed' && c.status !== 'tested_out');
   const recommendedFocus = [...needsAttention.slice(0, 2).map((n) => `Practice: ${n}`), ...due.slice(0, 2).map((n) => `Review: ${n}`), ...(next ? [`Next lesson: ${next.title}`] : [])];
-  const streak = streakFor(ctx, profileId);
+  const streak = weekStreak(ctx, profileId, ws, we);
   const xpEarned = xpBetween(ctx, profileId, ws, we);
   const parts: string[] = [];
   parts.push(lessons.length ? `${profile.displayName} completed ${lessons.length} lesson${lessons.length === 1 ? '' : 's'} and studied ${minutes} minutes this week.` : `${profile.displayName} did not complete a lesson this week (${minutes} minutes of study).`);
@@ -473,7 +574,7 @@ export function getWeeklyReport(ctx: ServiceContext, profileId: number, week?: s
     improvements,
     needsAttention,
     recommendedFocus,
-    streak: streak.current,
+    streak,
     xpEarned,
     summary: parts.join(' '),
   };

@@ -79,12 +79,30 @@ export function isValidSqlite(sql: SqlJsStatic, bytes: Uint8Array): { ok: boolea
   }
 }
 
+/** Automatic backups in `dir`, oldest written first (by modification time, then name). */
+export function autoBackupsOldestFirst(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.sqlite'))
+    .map((f) => {
+      const full = path.join(dir, f);
+      return { full, f, m: fs.statSync(full).mtimeMs };
+    })
+    .sort((a, b) => a.m - b.m || (a.f < b.f ? -1 : a.f > b.f ? 1 : 0))
+    .map((x) => x.full);
+}
+
 export class AppDatabase {
   private dirty = false;
   private timer: NodeJS.Timeout | null = null;
   private inTx = false;
   persistDelayMs = 300;
   lastPersistError: Error | null = null;
+  /** consecutive failed saves; drives the retry backoff */
+  private persistFailures = 0;
+  /** retry delays after a failed background save (ms); the last one repeats */
+  persistRetryDelaysMs = [1_000, 2_000, 5_000, 10_000, 30_000];
 
   private constructor(
     private sql: SqlJsStatic,
@@ -106,10 +124,8 @@ export class AppDatabase {
     fs.mkdirSync(dir, { recursive: true });
     const main = path.join(dir, 'academy.sqlite');
     const candidates: Array<{ file: string; tag?: OpenResult['recoveredFrom'] }> = [{ file: main }, { file: main + '.tmp', tag: 'tmp' }, { file: main + '.prev', tag: 'prev' }];
-    const autoDir = path.join(dir, 'backups', 'auto');
-    if (fs.existsSync(autoDir)) {
-      for (const f of fs.readdirSync(autoDir).filter((x) => x.endsWith('.sqlite')).sort().reverse()) candidates.push({ file: path.join(autoDir, f), tag: 'auto-backup' });
-    }
+    // newest written first (by write order, not by the date in the name: the clock may have moved back)
+    for (const f of autoBackupsOldestFirst(path.join(dir, 'backups', 'auto')).reverse()) candidates.push({ file: f, tag: 'auto-backup' });
     const anyExists = candidates.some((c) => fs.existsSync(c.file));
     if (!anyExists) {
       const db = new AppDatabase(sql, new sql.Database(), dir, log, now);
@@ -242,20 +258,44 @@ export class AppDatabase {
     }
   }
 
-  private schedulePersist(): void {
+  private schedulePersist(delayMs = this.persistDelayMs): void {
     if (!this.dir) return;
     if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
+      // never throws: a failed background save keeps the data in memory and retries
+      this.persistNow();
+    }, delayMs);
+    // a retry loop for a failing disk must not keep the process alive on its own (quit flushes explicitly)
+    if (this.persistFailures > 0) this.timer.unref?.();
+  }
+
+  /**
+   * Save now without throwing. On failure the change stays in memory (still dirty),
+   * `lastPersistError` is set so the UI can warn, and a retry is scheduled with backoff.
+   * Returns true when everything is on disk. Services that need an immediate save
+   * (finished quiz/assessment/day, PIN changes, new profiles) call this.
+   */
+  persistNow(): boolean {
+    try {
       this.flushNow();
-    }, this.persistDelayMs);
+      return true;
+    } catch {
+      const delays = this.persistRetryDelaysMs;
+      const delay = delays[Math.min(delays.length - 1, this.persistFailures - 1)] ?? 1_000;
+      this.schedulePersist(delay);
+      return false;
+    }
   }
 
   exportBytes(): Uint8Array {
     return this.db.export();
   }
 
-  /** Write the database to disk now (atomic). */
+  /** Called after each successful save (used for the daily automatic backup check). */
+  onSaved?: () => void;
+
+  /** Write the database to disk now (atomic). Throws on failure; see persistNow(). */
   flushNow(): void {
     if (this.timer) {
       clearTimeout(this.timer);
@@ -276,10 +316,15 @@ export class AppDatabase {
       if (fs.existsSync(main)) fs.renameSync(main, main + '.prev');
       fs.renameSync(tmp, main);
       this.dirty = false;
+      if (this.lastPersistError) this.log.info('db', 'save succeeded again after an earlier failure');
       this.lastPersistError = null;
+      this.persistFailures = 0;
+      this.onSaved?.();
     } catch (e) {
       this.lastPersistError = e as Error;
-      this.log.error('db', 'save failed: ' + (e as Error).message);
+      this.persistFailures++;
+      // log the first failure and then only occasionally, so retries do not flood the log
+      if (this.persistFailures === 1 || this.persistFailures % 20 === 0) this.log.error('db', `save failed (${this.persistFailures}x): ` + (e as Error).message);
       throw e;
     }
   }
@@ -300,9 +345,16 @@ export class AppDatabase {
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `academy-${localDate}.sqlite`);
     if (fs.existsSync(file)) return null;
+    const existing = autoBackupsOldestFirst(dir);
     fs.writeFileSync(file, this.db.export());
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sqlite')).sort();
-    for (const f of files.slice(0, Math.max(0, files.length - keep))) fs.unlinkSync(path.join(dir, f));
+    // Order backups by when they were written, not by the date in the name: after the system
+    // clock moves back, the file just written must count as the newest. Its mtime is set past
+    // every existing backup so the order survives even when the clock went backwards.
+    const newestMs = existing.reduce((m, f) => Math.max(m, fs.statSync(f).mtimeMs), 0);
+    const stamp = Math.max(Date.now(), newestMs + 1000);
+    fs.utimesSync(file, stamp / 1000, stamp / 1000);
+    const files = autoBackupsOldestFirst(dir);
+    for (const f of files.slice(0, Math.max(0, files.length - keep))) if (f !== file) fs.unlinkSync(f);
     return file;
   }
 
@@ -312,7 +364,7 @@ export class AppDatabase {
     this.db.close();
     this.db = next;
     this.dirty = true;
-    this.flushNow();
+    this.persistNow();
   }
 
   close(): void {

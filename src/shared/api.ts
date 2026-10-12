@@ -92,12 +92,20 @@ export interface DiagnosticView {
   canReview: boolean;
 }
 
+/**
+ * Every call result carries `saveError` (a friendly message) while the latest changes could not
+ * be written to disk. The renderer's API client re-announces it as this window event with
+ * detail `{ saveError?: string }` (undefined once saving works again); App shows the banner.
+ */
+export const SAVE_STATUS_EVENT = 'academy:save-status';
+
 export interface AppStatus {
   firstRun: boolean; // no parent PIN yet
   version: string;
   dataDir: string;
   recoveredFrom?: string;
   migratedFrom?: number;
+  /** friendly warning while the latest changes are not on disk; absent when everything is saved */
   persistError?: string;
 }
 

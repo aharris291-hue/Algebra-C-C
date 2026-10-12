@@ -10,7 +10,7 @@ import { Rational } from '../../core/math/rational';
 import { linearTex, linearPlain, decTex, polyTex } from '../../core/math/format';
 import { Poly, toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
-import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr, numberMisconceptions } from './util';
+import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr, numberMisconceptions, stringMisconceptions } from './util';
 import { buildContext, DECREASING_KEYS, type LinearContext } from './u1-contexts';
 import { numStep, choiceStep, finalStep, stepErrors, choiceMisc, minusHint } from './u1-steps';
 
@@ -785,10 +785,11 @@ export const genConvertForms: GeneratorDef = {
         { text: 'Substitute the point and slope into point-slope form.', tex: `y - ${sub(y1)} = ${m.toTex()}(x - ${sub(x1)})`, why: 'Point-slope form is built directly from a point and a slope.' },
         { text: 'Simplify the signs.', tex: pointSlopeTex, why: x1.isNegative() || y1.isNegative() ? 'Subtracting a negative is the same as adding.' : 'Both coordinates are positive, so the subtractions stay as they are.' },
       ],
-      misconceptions: [
+      // distinct from the key and from each other (when x1 = -y1 both mistakes give the same equation)
+      misconceptions: stringMisconceptions(pointSlopePlain, [
         { answer: `y - (${x1.toString()}) = (${m.toString()})(x - (${y1.toString()}))`, tag: 'graph-reading' as const, feedback: 'The $y$-coordinate goes with $y$, and the $x$-coordinate goes with $x$.' },
         { answer: `y + (${y1.toString()}) = (${m.toString()})(x + (${x1.toString()}))`, tag: 'sign-error' as const, feedback: 'Point-slope form subtracts the coordinates: $y - y_1$ and $x - x_1$.' },
-      ].filter((mc) => !equationsEquivalent(parseRelation(mc.answer), parseRelation(pointSlopePlain))),
+      ]),
     });
   },
   verify(pr) {

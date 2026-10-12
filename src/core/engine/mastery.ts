@@ -8,7 +8,14 @@
  *   window), so early mistakes are not a permanent penalty.
  * - Independent, first-try, no-hint work counts most; hints and retries count less;
  *   quizzes and assessments carry more weight than practice.
- * - MASTERED has hysteresis: one miss during spaced review does not remove it.
+ * - MASTERED has hysteresis: a single miss (even on a unit assessment or an easy quiz item)
+ *   never removes it; it drops only after repeated misses pull the recent score down.
+ * - Placement: answers from the diagnostic count 1.5x toward the minimum-evidence rule, so two
+ *   correct placement answers can establish a starting stage (never MASTERED, which needs
+ *   quiz/assessment evidence spread over time).
+ * - Spaced review follows 2, 4, 7, 14, 30 days. Only an answer given once the skill is due
+ *   (at or after nextReviewAt) counts as a review; practice before then just keeps the date
+ *   measured from the latest correct work.
  */
 
 export type MasteryStage = 'NOT_STARTED' | 'LEARNING' | 'DEVELOPING' | 'PROFICIENT' | 'MASTERED';
@@ -56,8 +63,12 @@ export const MASTERY_POLICY = {
   masteredMinIndependent: 4,
   /** Mastered means retained: independent correct work must span at least this long (a later study day). */
   masteredMinSpanMs: 20 * 60 * 60 * 1000,
-  /** a MASTERED skill only drops when the recent score falls below this */
+  /** a MASTERED skill only drops when the recent score falls below this ... */
   masteredDropBelow: 0.7,
+  /** ... AND at least this many answers since it became MASTERED (within the window) were misses */
+  masteredDropMinMisses: 2,
+  /** weight of a diagnostic answer toward learningMinEvidence (2 placement answers = 3) */
+  placementEvidenceWeight: 1.5,
   reviewIntervalsDays: [2, 4, 7, 14, 30],
 };
 
@@ -96,7 +107,8 @@ function baseStage(history: Evidence[], score: number): MasteryStage {
   if (history.length === 0) return 'NOT_STARTED';
   const recent = history.slice(-MASTERY_POLICY.window);
   const indep = recent.filter(isIndependent).length;
-  if (history.length < MASTERY_POLICY.learningMinEvidence || score < MASTERY_POLICY.developingMinScore) return 'LEARNING';
+  const evidenceAmount = history.reduce((n, e) => n + (e.activity === 'diagnostic' ? MASTERY_POLICY.placementEvidenceWeight : 1), 0);
+  if (evidenceAmount < MASTERY_POLICY.learningMinEvidence || score < MASTERY_POLICY.developingMinScore) return 'LEARNING';
   if (score < MASTERY_POLICY.proficientMinScore || indep < MASTERY_POLICY.proficientMinIndependent) return 'DEVELOPING';
   const formalCorrect = recent.some((e) => isFormal(e) && e.correct);
   const indepTimes = recent.filter(isIndependent).map((e) => e.at);
@@ -111,26 +123,57 @@ export function computeSkillState(evidence: Evidence[]): SkillState {
   const history: Evidence[] = [];
   let stage: MasteryStage = 'NOT_STARTED';
   let masteredAt: number | null = null;
+  let masteredIdx = -1; // index in history where the current MASTERED run began
   let nextReviewAt: number | null = null;
   let reviewStreak = 0;
   let score = 0;
+  const ivs = MASTERY_POLICY.reviewIntervalsDays;
+  const intervalMs = (streak: number) => ivs[Math.min(ivs.length - 1, streak)] * DAY;
   for (const e of sorted) {
     history.push(e);
+    const idx = history.length - 1;
     score = recentScore(history);
     let s = baseStage(history, score);
-    if (stage === 'MASTERED' && s !== 'MASTERED' && score >= MASTERY_POLICY.masteredDropBelow) s = 'MASTERED';
-    if (s === 'MASTERED' && stage !== 'MASTERED') masteredAt = e.at;
-    if (s !== 'MASTERED') masteredAt = null;
+    if (stage === 'MASTERED' && s !== 'MASTERED') {
+      // hysteresis: leave MASTERED only after repeated misses (never after one) that pull the score down
+      const windowStart = Math.max(masteredIdx + 1, history.length - MASTERY_POLICY.window);
+      const missesSince = history.slice(windowStart).filter((h) => !h.correct).length;
+      if (score >= MASTERY_POLICY.masteredDropBelow || missesSince < MASTERY_POLICY.masteredDropMinMisses) s = 'MASTERED';
+    }
+    if (s === 'MASTERED' && stage !== 'MASTERED') {
+      masteredAt = e.at;
+      masteredIdx = idx;
+    }
+    if (s !== 'MASTERED') {
+      masteredAt = null;
+      masteredIdx = -1;
+    }
+    const wasReviewable = stage === 'PROFICIENT' || stage === 'MASTERED';
     stage = s;
 
-    // spaced review scheduling
+    // spaced review scheduling (2, 4, 7, 14, 30 days)
     if (stage === 'PROFICIENT' || stage === 'MASTERED') {
-      if (e.activity === 'review' || e.activity === 'assessment' || e.activity === 'quiz' || e.activity === 'testout') {
-        reviewStreak = e.correct ? reviewStreak + 1 : 0;
+      if (!wasReviewable || nextReviewAt === null) {
+        // just reached PROFICIENT: first review after the first interval
+        reviewStreak = 0;
+        nextReviewAt = e.at + intervalMs(0);
+      } else if (e.at >= nextReviewAt) {
+        // the skill was due: this answer is a spaced review
+        if (e.correct) {
+          reviewStreak += 1;
+          nextReviewAt = e.at + intervalMs(reviewStreak);
+        } else {
+          reviewStreak = 0;
+          nextReviewAt = e.at + DAY;
+        }
+      } else if (e.correct) {
+        // practice before the review is due: keep the interval, measured from the latest correct work
+        nextReviewAt = Math.max(nextReviewAt, e.at + intervalMs(reviewStreak));
+      } else {
+        // a miss before the review is due: start the interval ladder again, review tomorrow
+        reviewStreak = 0;
+        nextReviewAt = e.at + DAY;
       }
-      const ivs = MASTERY_POLICY.reviewIntervalsDays;
-      const idx = Math.min(ivs.length - 1, reviewStreak + (stage === 'MASTERED' ? 1 : 0));
-      nextReviewAt = e.correct ? e.at + ivs[idx] * DAY : e.at + DAY;
     } else if (stage === 'DEVELOPING' || stage === 'LEARNING') {
       reviewStreak = 0;
       nextReviewAt = e.at + DAY;

@@ -65,9 +65,11 @@ Problems are reproducible: an attempt stores `generatorId + seed + difficulty`, 
 
 Location: `%APPDATA%\Algebra C&C Learning Academy\data\academy.sqlite` (Electron `userData`), separate from `C:\Program Files\...`, so installs/updates/uninstalls never touch it.
 
-Persistence: every change runs in a SQLite transaction in memory; the database is then exported and written to `academy.sqlite.tmp`, flushed (`fsync`), and atomically renamed over `academy.sqlite`. The previous file is kept as `academy.sqlite.prev`. A crash at any point leaves either the old or the new complete file. Writes are batched within ~300 ms and flushed immediately for assessments and on quit.
+Persistence: every change runs in a SQLite transaction in memory; the database is then exported and written to `academy.sqlite.tmp`, flushed (`fsync`), and atomically renamed over `academy.sqlite`. The previous file is kept as `academy.sqlite.prev`. A crash at any point leaves either the old or the new complete file. Writes are batched within ~300 ms and flushed immediately for assessments and on quit (services call `saveNow(ctx)` from `services/context.ts`, i.e. `db.persistNow()`).
 
-Daily automatic backups (last 14 days) go to `...\backups\auto\`. A safety backup is always created before a restore or a schema migration.
+A failed save never throws out of the background timer: the data stays in memory (still dirty), `lastPersistError` is set, and the save is retried with backoff (1, 2, 5, 10, then every 30 s). While saving is failing, every IPC call result carries `saveError` (a friendly message) and `getStatus().persistError` reports it; the renderer shows a red banner (immediately via the `academy:save-status` window event, otherwise at the next 15 s status check) and removes it once a save succeeds. `flushNow()` still throws, for callers that must know (quit, tests).
+
+Daily automatic backups go to `...\backups\auto\`. The date is checked on every API call and after every save, so an app left open for days still makes one per day. Pruning keeps the 14 most recently *written* files (ordered by modification time, which is forced forward past the existing backups), so a backup written after the system clock moved back is kept, and recovery tries the most recently written first. A safety backup is always created before a restore or a schema migration.
 
 ### Schema (version 1)
 

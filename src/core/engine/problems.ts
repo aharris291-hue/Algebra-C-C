@@ -7,7 +7,7 @@
  * A problem that fails is rejected and the next seed is tried (spec §41, §44).
  */
 import type { Difficulty, GeneratorDef, Problem, ProblemStep } from '../curriculum/types';
-import { checkAnswer, AnswerSpec, exactValue, fixedPlaces } from '../math/answers';
+import { checkAnswer, AnswerSpec, Misconception, exactValue, fixedPlaces, misconceptionSpec } from '../math/answers';
 import { createRng, deriveSeed } from './rng';
 
 /** Text that the checker should accept as the key for a spec. */
@@ -32,6 +32,29 @@ export function canonicalInput(spec: AnswerSpec): string {
     case 'sequence-terms':
       return spec.values.join(', ');
   }
+}
+
+/**
+ * Each misconception, typed the way a student would write it, must be recognized as that
+ * misconception (its own tag), so its targeted feedback can actually be shown.
+ */
+export function misconceptionReachErrors(spec: AnswerSpec, list: Misconception[] | undefined, where = ''): string[] {
+  const errs: string[] = [];
+  const pre = where ? `${where}: ` : '';
+  for (const m of list ?? []) {
+    let typed: string;
+    try {
+      typed = canonicalInput(misconceptionSpec(spec, m.answer));
+    } catch (e) {
+      errs.push(`${pre}misconception "${m.answer}" is not written as a ${spec.kind} answer (${(e as Error).message})`);
+      continue;
+    }
+    const r = checkAnswer(spec, typed, list);
+    if (r.status !== 'incorrect' || r.misconception !== m.tag) {
+      errs.push(`${pre}misconception "${m.answer}" (${m.tag}) typed as "${typed}" is not recognized: ${r.status}${r.misconception ? ' ' + r.misconception : ''}`);
+    }
+  }
+  return errs;
 }
 
 function leaksAnswer(hint: string, spec: AnswerSpec): boolean {
@@ -60,6 +83,7 @@ export function validateStep(step: ProblemStep, where: string): string[] {
     const r = checkAnswer(step.answer, m.answer);
     if (r.status === 'correct' || r.status === 'wrong-form') errs.push(`${where}: misconception "${m.answer}" is actually correct`);
   }
+  errs.push(...misconceptionReachErrors(step.answer, step.misconceptions, where));
   if (!step.explanation) errs.push(`${where}: missing explanation`);
   return errs;
 }
@@ -85,6 +109,7 @@ export function validateProblem(p: Problem, gen: GeneratorDef): string[] {
     if (!m.feedback) errs.push('misconception without feedback');
     if (leaksAnswer(m.feedback, p.answer)) errs.push('misconception feedback reveals the answer');
   }
+  errs.push(...misconceptionReachErrors(p.answer, p.misconceptions));
   if (!p.solution.length) errs.push('missing worked solution');
   p.steps?.forEach((s, i) => errs.push(...validateStep(s, `step ${i + 1}`)));
   try {
