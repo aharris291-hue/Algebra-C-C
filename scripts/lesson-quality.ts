@@ -83,7 +83,7 @@ export function auditLesson(l: LessonContent): LessonQuality {
     for (let s = 1; s <= 12; s++) {
       const { problem } = produceProblem(gen, s * 104729 + Number(d), Number(d) as Difficulty);
       sampled++;
-      if (problem.misconceptions.length > 0 || problem.answer.kind === 'choice') withMisc++;
+      if (problem.misconceptions.length > 0 || problem.steps?.some((st) => st.misconceptions?.length)) withMisc++;
       if (l.guided.some((r) => r.generator === id && String(r.difficulty) === d)) {
         guidedSampled++;
         if (problem.steps?.length) guidedSteps++;
