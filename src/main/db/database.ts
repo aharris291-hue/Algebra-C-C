@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import initSqlJs, { Database as SqlJsDatabase, SqlJsStatic, SqlValue } from 'sql.js';
-import { MIGRATIONS, CURRENT_SCHEMA_VERSION, REQUIRED_TABLES } from './schema';
+import { MIGRATIONS, currentSchemaVersion, REQUIRED_TABLES } from './schema';
 import type { Logger } from '../logger';
 
 export type Row = Record<string, SqlValue>;
@@ -21,6 +21,22 @@ export class NewerDatabaseError extends Error {
   }
 }
 export class DatabaseOpenError extends Error {}
+/** No copy of the student data (main, interrupted save, previous save, daily backups) could be read. */
+export class NoReadableDatabaseError extends DatabaseOpenError {
+  constructor() {
+    super('No readable copy of the student database was found.');
+  }
+}
+/** A schema migration failed; nothing on disk was changed (a safety backup was written first). */
+export class MigrationError extends DatabaseOpenError {
+  constructor(
+    readonly fromVersion: number,
+    readonly failedVersion: number,
+    cause: Error,
+  ) {
+    super(`The student data could not be updated for this version of the app (step ${failedVersion} failed: ${cause.message}). Nothing was changed; the data is still as it was.`);
+  }
+}
 
 let SQL: SqlJsStatic | null = null;
 
@@ -141,12 +157,14 @@ export class AppDatabase {
         log.warn('db', `candidate ${path.basename(c.file)} rejected: ${check.reason}`);
         continue;
       }
-      if (check.version! > CURRENT_SCHEMA_VERSION) throw new NewerDatabaseError(check.version!);
+      if (check.version! > currentSchemaVersion()) throw new NewerDatabaseError(check.version!);
       const db = new AppDatabase(sql, new sql.Database(bytes), dir, log, now);
       let migratedFrom: number | undefined;
-      if (check.version! < CURRENT_SCHEMA_VERSION) {
+      if (check.version! < currentSchemaVersion()) {
+        // a copy of the data exactly as it was, before anything is changed
         db.safetyBackup(`pre-migration-v${check.version}`);
         migratedFrom = check.version;
+        // the migration runs in memory; nothing is written to disk unless every step succeeds
         db.migrate(check.version!, appVersion);
       }
       if (c.tag) {
@@ -158,7 +176,7 @@ export class AppDatabase {
       db.flushNow();
       return { db, recoveredFrom: c.tag, migratedFrom, created: false };
     }
-    throw new DatabaseOpenError('No readable copy of the student database was found. Restore from a backup file in Parent Mode.');
+    throw new NoReadableDatabaseError();
   }
 
   /** Open an in-memory database from bytes (used to inspect backups). */
@@ -170,14 +188,14 @@ export class AppDatabase {
   /** Bring an in-memory database (e.g. a backup being restored) up to the current schema. */
   upgradeInMemory(appVersion: string): number | undefined {
     const v = this.schemaVersion();
-    if (v > CURRENT_SCHEMA_VERSION) throw new NewerDatabaseError(v);
-    if (v === CURRENT_SCHEMA_VERSION) return undefined;
+    if (v > currentSchemaVersion()) throw new NewerDatabaseError(v);
+    if (v === currentSchemaVersion()) return undefined;
     this.migrate(v, appVersion);
     return v;
   }
 
   private migrate(from: number, appVersion: string): void {
-    for (const m of MIGRATIONS.filter((x) => x.version > from)) {
+    for (const m of [...MIGRATIONS].sort((a, b) => a.version - b.version).filter((x) => x.version > from)) {
       this.db.exec('BEGIN');
       try {
         this.db.exec(m.sql);
@@ -188,8 +206,13 @@ export class AppDatabase {
         this.db.exec('COMMIT');
         this.log.info('db', `migrated to schema ${m.version}: ${m.description}`);
       } catch (e) {
-        this.db.exec('ROLLBACK');
-        throw e;
+        try {
+          this.db.exec('ROLLBACK');
+        } catch {
+          /* the failed statement already ended the transaction */
+        }
+        this.log.error('db', `migration to schema ${m.version} failed`, e);
+        throw from === 0 ? e : new MigrationError(from, m.version, e as Error);
       }
     }
     this.setMeta('app_version', appVersion);

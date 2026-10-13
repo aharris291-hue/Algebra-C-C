@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import type { CourseUnit, SkillMasteryView } from '../../shared/api';
 import { api, errorMessage } from '../api';
+import { isDoneForProgress } from '../../shared/progress';
 import { KIND_LABEL, STAGE_LABEL } from '../labels';
 
 const STATUS_LABEL: Record<string, string> = { locked: 'Locked', available: 'Ready', in_progress: 'In progress', completed: 'Complete', tested_out: 'Tested out', coming_soon: 'Coming in a later version' };
@@ -14,7 +15,7 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
     api.getCourse(props.profileId).then(
       (u) => {
         setUnits(u);
-        const cur = u.find((x) => x.lessons.some((l) => l.status !== 'completed' && l.status !== 'tested_out'));
+        const cur = u.find((x) => x.lessons.some((l) => !isDoneForProgress(l)));
         setOpen(cur?.id ?? u[0]?.id ?? null);
       },
       (e) => setError(errorMessage(e)),
@@ -53,6 +54,11 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                   <span className="lesson-name">
                     {l.title}
                     {l.kind !== 'lesson' && <span className="tag">{KIND_LABEL[l.kind]}</span>}
+                    {l.optional && (
+                      <span className="tag tag-ok" data-testid="optional-review" title="Every lesson in this unit is done and its skills are Proficient or better. You can do this review for extra practice or go straight on.">
+                        Optional: you already showed these skills
+                      </span>
+                    )}
                   </span>
                   <span className="lesson-status">
                     {STATUS_LABEL[l.status]}
@@ -65,7 +71,7 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                       </button>
                     )}
                     {l.kind !== 'lesson' && l.hasContent && l.status !== 'locked' && l.status !== 'coming_soon' && (
-                      <button className={`btn btn-small ${l.status === 'completed' ? '' : 'btn-primary'}`} onClick={() => props.onOpenLesson(l.id, false, l.kind)}>
+                      <button className={`btn btn-small ${l.status === 'completed' || l.optional ? '' : 'btn-primary'}`} onClick={() => props.onOpenLesson(l.id, false, l.kind)}>
                         {l.status === 'in_progress' ? 'Continue' : l.status === 'completed' ? 'Open' : 'Start'}
                       </button>
                     )}

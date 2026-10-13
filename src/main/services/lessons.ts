@@ -6,8 +6,10 @@ import crypto from 'node:crypto';
 import type { LessonContent, LessonMeta, ProblemRef } from '../../core/curriculum/types';
 import { LESSON_CONTENT, LESSON_BY_ID, LESSONS, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, generatorsForSkill, GENERATORS, CAPSTONE_CONTENT } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
-import { MAX_UNIT_ASSESSMENT_ATTEMPTS } from '../../core/engine/grading';
-import { isStruggling, STAGE_ORDER } from '../../core/engine/mastery';
+import { summarizeSkills, nextStepFor } from '../../core/engine/results';
+import { MAX_UNIT_ASSESSMENT_ATTEMPTS, TEST_OUT_PASS } from '../../core/engine/grading';
+import { isDoneForProgress } from '../../shared/progress';
+import { isStruggling, STAGE_ORDER, type MasteryStage } from '../../core/engine/mastery';
 import type { LessonView, ResultsView, SectionId, TeachAgainView, CourseUnit, CourseLesson, LessonStatus, SkillChange, OnboardingState } from '../../shared/api';
 import { LESSON_SECTIONS } from '../../shared/api';
 import { ServiceContext, UserFacingError, today, saveNow } from './context';
@@ -30,7 +32,7 @@ import {
   findItem,
   getProblem,
 } from './practice';
-import { recordTeachAgain, bumpDay, awardXp, awardXpOnce, logActivity, skillStates, evidenceFor, storedStage, recomputeSkill } from './records';
+import { recordTeachAgain, bumpDay, awardXp, awardXpOnce, logActivity, skillStates, evidenceFor, storedStage, recomputeSkill, storeResultsSummary, withRowSummary } from './records';
 import { answerToText } from '../../core/math/answers';
 import { checkAchievements } from './achievements';
 
@@ -49,7 +51,8 @@ export interface LessonState {
   results: ResultsView | null;
   quizAttempts: number;
   passed: boolean;
-  remediation: { reason: string; skills: string[]; practice: PracticeState; done: boolean } | null;
+  /** refreshers: prerequisite skills below Proficient that get a short refresher first (see startRemediation) */
+  remediation: { reason: string; skills: string[]; practice: PracticeState; done: boolean; refreshers?: string[] } | null;
   teachAgainUsed: string[];
   xp: number;
   testOutResult: { passed: boolean; percent: number } | null;
@@ -76,7 +79,7 @@ interface ProgressRow {
   completed_at: number | null;
 }
 
-export const TEST_OUT_PASS = 0.85;
+export { TEST_OUT_PASS };
 /**
  * Timed activities (quizzes, assessments) record active time, not wall-clock time: each gap
  * between two actions counts up to this much, and a gap that runs backwards (the clock was
@@ -222,11 +225,18 @@ export interface LessonStatusInfo {
   unlockAttempts: number;
   /** a Show What You Know was already finished for this lesson */
   testOutTried: boolean;
+  /**
+   * A unit review the student may skip: every lesson of its unit is completed or tested out and every
+   * skill it reviews is at Proficient or above. It stays open, and the day after it unlocks anyway.
+   * Assessments are never optional.
+   */
+  optional?: boolean;
 }
 
 export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<string, LessonStatusInfo> {
   const rows = ctx.db.all<{ lesson_id: string; status: string; quiz_best: number | null; state_json: string }>('SELECT lesson_id, status, quiz_best, state_json FROM lesson_progress WHERE profile_id = ?', [profileId]);
   const byId = new Map(rows.map((r) => [r.lesson_id, r]));
+  const stages = new Map(ctx.db.all<{ skill_id: string; stage: string }>('SELECT skill_id, stage FROM skill_state WHERE profile_id = ?', [profileId]).map((r) => [r.skill_id, r.stage]));
   const out = new Map<string, LessonStatusInfo>();
   let prevUnlocks = true; // first lesson is available
   for (const l of LESSONS) {
@@ -251,11 +261,22 @@ export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<stri
     else if (r) status = 'in_progress';
     else if (!prevUnlocks) status = 'locked';
     else status = hasContent ? 'available' : 'coming_soon';
-    out.set(l.id, { status, quizBest: r?.quiz_best ?? null, quizAttempts: attempts, unlockAttempts, testOutTried });
-    // the next lesson unlocks when this one is finished, or after two honest quiz attempts so a student is never stuck
-    prevUnlocks = status === 'completed' || status === 'tested_out' || unlockAttempts >= 2;
+    const optional = l.kind === 'unit-review' && status !== 'locked' && status !== 'completed' && reviewIsOptional(l, out, stages);
+    out.set(l.id, { status, quizBest: r?.quiz_best ?? null, quizAttempts: attempts, unlockAttempts, testOutTried, ...(optional ? { optional } : {}) });
+    // the next lesson unlocks when this one is finished, or after two honest quiz attempts so a student is
+    // never stuck; an optional review (everything in the unit already shown) can be skipped
+    prevUnlocks = status === 'completed' || status === 'tested_out' || unlockAttempts >= 2 || optional;
   }
   return out;
+}
+
+/** See LessonStatusInfo.optional. `before` holds the statuses of every earlier day. */
+function reviewIsOptional(review: LessonMeta, before: Map<string, LessonStatusInfo>, stages: Map<string, string>): boolean {
+  const lessons = LESSONS.filter((x) => x.unitId === review.unitId && x.kind === 'lesson' && x.day < review.day);
+  if (!lessons.length) return false;
+  if (!lessons.every((x) => ['completed', 'tested_out'].includes(before.get(x.id)?.status ?? ''))) return false;
+  const skills = review.skillsAssessed.length ? review.skillsAssessed : lessons.flatMap((x) => x.skillsTaught);
+  return skills.every((s) => STAGE_ORDER.indexOf((stages.get(s) ?? 'NOT_STARTED') as MasteryStage) >= STAGE_ORDER.indexOf('PROFICIENT'));
 }
 
 export function isLessonPlayable(l: LessonMeta): boolean {
@@ -305,13 +326,14 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
         !s.testOutTried &&
         (s.status === 'available' || s.status === 'in_progress' || (s.status === 'locked' && prereqOk)),
       suggestedTestOut: suggested.has(l.id) && s.status !== 'completed' && s.status !== 'tested_out' ? true : undefined,
+      optional: s.optional ? true : undefined,
       // unit/semester assessments show the score that counts toward the grade, not a later practice retake
       quizBest: l.kind === 'unit-assessment' || l.kind === 'semester-assessment' ? (counted.get(l.id) ?? null) : s.quizBest,
       standards: l.standards,
     };
     const unit = units.get(u.id)!;
     unit.lessons.push(cl);
-    if (s.status === 'completed' || s.status === 'tested_out') unit.completedCount++;
+    if (isDoneForProgress(cl)) unit.completedCount++;
   }
   for (const unit of units.values()) {
     const skills = LESSONS.filter((l) => l.unitId === unit.id).flatMap((l) => l.skillsTaught);
@@ -529,7 +551,8 @@ export function advanceSection(ctx: ServiceContext, profileId: number, lessonId:
       finishLessonIfPassed(ctx, profileId, meta, st);
       return;
     }
-    const next = LESSON_SECTIONS[idx + 1];
+    // a passed Show What You Know shows its results (feedback), then the summary: it has no remediation step
+    const next = cur === 'feedback' && st.mode === 'testout' && st.passed ? 'summary' : LESSON_SECTIONS[idx + 1];
     st.section = next;
     ensurePractice(ctx, profileId, st, meta, content, next);
   });
@@ -722,8 +745,9 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       assessmentId,
     ]);
 
-    const missedSkills = [...new Set(items.filter((i) => !i.correct).map((i) => i.skillId))];
-    const didWell = [...new Set(items.filter((i) => i.correct).map((i) => i.skillName))].filter((n) => !missedSkills.map((s) => SKILL_BY_ID.get(s)?.name).includes(n));
+    const summary = summarizeSkills(items.map((i) => ({ skill: i.skillId, correct: i.correct })));
+    const missedSkills = summary.needsPractice;
+    const didWell = summary.didWell.map((s) => SKILL_BY_ID.get(s)?.name ?? s);
     const needsPractice = missedSkills.map((s) => SKILL_BY_ID.get(s)?.name ?? s);
 
     if (testOut) {
@@ -732,7 +756,9 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
         xp += awardXpOnce(ctx, profileId, XP_POLICY.testOutPass, 'test-out', lessonId);
         st.passed = true;
         st.sectionsDone = [...LESSON_SECTIONS];
-        st.section = 'summary';
+        // show the results first (score, each missed item with its correct answer and solution, next step);
+        // continuing from there goes to the summary
+        st.section = 'feedback';
         ctx.db.run("UPDATE lesson_progress SET status = 'tested_out', tested_out = 1, completed_at = ?, quiz_best = MAX(COALESCE(quiz_best, 0), ?) WHERE profile_id = ? AND lesson_id = ?", [finishedAt, percent, profileId, lessonId]);
         logActivity(ctx, profileId, 'test-out', { lessonId, title: meta.title, percent });
       } else {
@@ -775,15 +801,7 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       logActivity(ctx, profileId, 'quiz', { lessonId, title: meta.title, percent, passed });
     }
     st.xp += xp;
-    const nextStep = testOut
-      ? passed
-        ? 'You tested out! Move on to the next lesson.'
-        : 'No problem. Work through the lesson; it will make the quiz much easier.'
-      : passed
-        ? missedSkills.length
-          ? `Review the corrections for ${needsPractice.join(', ')}, then finish the lesson.`
-          : 'Great work. Finish the lesson and move on.'
-        : `Use Teach Me Again and the targeted practice on ${needsPractice.join(', ')}, then retake the quiz.`;
+    const nextStep = nextStepFor({ kind: testOut ? 'test-out' : 'quiz', passed, needsPractice, missed: graded.filter((g) => !g.correct).length, attemptNumber });
     st.results = {
       kind: testOut ? 'test-out' : 'quiz',
       title: testOut ? `Show What You Know: ${meta.title}` : `${meta.title} Quiz`,
@@ -802,6 +820,7 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       xpEarned: xp,
       canRetake: !testOut && !passed,
     };
+    storeResultsSummary(ctx, assessmentId, st.results);
     st.quizLastActionAt = null;
     checkAchievements(ctx, profileId);
   });
@@ -825,6 +844,13 @@ export function startRemediation(ctx: ServiceContext, profileId: number, lessonI
     const skills = [...new Set(missed.map((m) => m.skillId))];
     const ps = newPractice('remediation', { seedBase: nextSeed(st), hintsAllowed: true });
     const refs: ProblemRef[] = [];
+    // A missed skill often rests on an earlier one that is not solid yet: a prerequisite below
+    // Proficient gets a short refresher first (one easy problem, plus its worked example in the view).
+    const refreshers = remediationRefreshers(ctx, profileId, skills);
+    for (const r of refreshers) {
+      const gens = generatorsForSkill(r);
+      refs.push({ generator: gens[nextSeed(st) % gens.length].id, difficulty: 1 });
+    }
     for (const s of skills) {
       // check prerequisite readiness: if the skill is still LEARNING, start at the easiest level
       const stage = storedStage(ctx, profileId, s);
@@ -841,9 +867,39 @@ export function startRemediation(ctx: ServiceContext, profileId: number, lessonI
       skills,
       practice: ps,
       done: false,
+      refreshers,
     };
     st.section = 'mastery';
   });
+}
+
+/** At most this many prerequisite refreshers in one round of targeted practice. */
+export const MAX_REFRESHERS = 2;
+
+/**
+ * Prerequisites of the missed skills that are below Proficient (and are not missed skills
+ * themselves, which get their own practice), weakest first, at most MAX_REFRESHERS.
+ */
+export function remediationRefreshers(ctx: ServiceContext, profileId: number, missedSkills: string[]): string[] {
+  const out: Array<{ id: string; rank: number; order: number }> = [];
+  for (const s of missedSkills) {
+    for (const p of SKILL_BY_ID.get(s)?.prerequisites ?? []) {
+      if (missedSkills.includes(p) || out.some((o) => o.id === p) || generatorsForSkill(p).length === 0) continue;
+      const rank = STAGE_ORDER.indexOf(storedStage(ctx, profileId, p));
+      if (rank < STAGE_ORDER.indexOf('PROFICIENT')) out.push({ id: p, rank, order: out.length });
+    }
+  }
+  // weakest first; a skill never practiced (NOT_STARTED) is unknown rather than weak, so it comes after LEARNING/DEVELOPING
+  const key = (o: { rank: number }) => (o.rank === 0 ? 2.5 : o.rank);
+  return out.sort((a, b) => key(a) - key(b) || a.order - b.order).slice(0, MAX_REFRESHERS).map((o) => o.id);
+}
+
+/** The lesson that teaches a skill and its first (introductory) worked example, for a refresher. */
+function refresherView(skillId: string): NonNullable<LessonView['remediation']>['refreshers'][number] {
+  const lesson = LESSONS.find((l) => l.kind === 'lesson' && l.skillsTaught.includes(skillId) && LESSON_CONTENT.has(l.id));
+  const content = lesson ? LESSON_CONTENT.get(lesson.id)! : null;
+  const example = content ? (content.examples.find((e) => e.kind === 'introductory') ?? content.examples[0]) : undefined;
+  return { skillId, skillName: SKILL_BY_ID.get(skillId)?.name ?? skillId, lessonId: lesson?.id, lessonTitle: lesson?.title, example };
 }
 
 export function retakeQuiz(ctx: ServiceContext, profileId: number, lessonId: string): LessonView {
@@ -947,9 +1003,11 @@ export function buildView(ctx: ServiceContext, profileId: number, lessonId: stri
         },
     teachAgainOptions: closedBook ? [] : content.teachMeAgain.map((t) => ({ approach: t.approach, title: t.title, used: st.teachAgainUsed.includes(t.approach) })),
     practice: ps && ps !== st.corrections && ps !== st.remediation?.practice ? practiceView(ps, suggestion) : null,
-    results: st.results,
+    results: withRowSummary(ctx, profileId, lessonId, st.results?.kind === 'test-out' ? 'test-out' : 'quiz', st.results),
     corrections: st.corrections ? practiceView(st.corrections) : null,
-    remediation: st.remediation ? { active: !st.remediation.done, reason: st.remediation.reason, skills: st.remediation.skills.map((s) => SKILL_BY_ID.get(s)?.name ?? s) } : null,
+    remediation: st.remediation
+      ? { active: !st.remediation.done, reason: st.remediation.reason, skills: st.remediation.skills.map((s) => SKILL_BY_ID.get(s)?.name ?? s), refreshers: (st.remediation.refreshers ?? []).map(refresherView) }
+      : null,
     xpThisLesson: st.xp,
     canAdvance: sectionComplete(st, st.section) && st.mode !== 'testout' && !(st.section === 'summary' && (row?.status === 'completed' || row?.status === 'tested_out')),
     advanceBlockedReason: blockedReason(st, st.section),

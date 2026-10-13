@@ -7,10 +7,10 @@ import type { GeneratorDef, Rng, Difficulty, Block, GraphSpec, Problem } from '.
 import type { Misconception } from '../../core/math/answers';
 import { parseRelation, equationsEquivalent, parseInterval } from '../../core/math/answers';
 import { Rational } from '../../core/math/rational';
-import { linearTex, linearPlain, decTex, polyTex } from '../../core/math/format';
+import { linearTex, linearPlain, decTex, polyTex, coefTex } from '../../core/math/format';
 import { Poly, toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
-import { Q, p, math, makeProblem, numStr, sub, makeChoice, choiceLabel, texToExpr, numberMisconceptions, stringMisconceptions } from './util';
+import { Q, p, math, makeProblem, numStr, sub, coefPlain, makeChoice, choiceLabel, texToExpr, numberMisconceptions, stringMisconceptions } from './util';
 import { buildContext, DECREASING_KEYS, type LinearContext } from './u1-contexts';
 import { numStep, choiceStep, finalStep, stepErrors, choiceMisc, minusHint } from './u1-steps';
 
@@ -564,7 +564,7 @@ function xTerm(c: Rational): string {
   return c.eq(1) ? 'x' : c.eq(-1) ? '-x' : `${c.toTex()}x`;
 }
 function standardPlain(A: Rational, B: Rational, C: Rational): string {
-  return `${A.toString()}x + ${B.toString()}y = ${C.toString()}`.replace(/\+ -/g, '- ');
+  return `${coefPlain(A)}x + ${coefPlain(B)}y = ${C.toString()}`.replace(/\+ -/g, '- ');
 }
 function gcd(a: bigint, b: bigint): bigint {
   a = a < 0n ? -a : a;
@@ -867,17 +867,17 @@ export const genIntercepts: GeneratorDef = {
       hints: [
         askX ? 'The $x$-intercept is where the line crosses the $x$-axis. Every point on the $x$-axis has $y = 0$.' : 'The $y$-intercept is where the line crosses the $y$-axis. Every point on the $y$-axis has $x = 0$.',
         askX ? 'Substitute $y = 0$ into the equation.' : 'Substitute $x = 0$ into the equation.',
-        askX ? `With $y = 0$ the equation becomes $${A.toTex()}x = ${C.toTex()}$${difficulty === 1 ? ' after you move the constant' : ''}. Solve for $x$.` : `With $x = 0$ the equation becomes $${B.toTex()}y = ${C.toTex()}$. Solve for $y$.`,
+        askX ? `With $y = 0$ the equation becomes $${coefTex(A)}x = ${C.toTex()}$${difficulty === 1 ? ' after you move the constant' : ''}. Solve for $x$.` : `With $x = 0$ the equation becomes $${coefTex(B)}y = ${C.toTex()}$. Solve for $y$.`,
         askX ? 'Write the answer as $(x, 0)$.' : 'Write the answer as $(0, y)$.',
       ],
       solution: askX
         ? [
-            { text: 'Substitute $y = 0$.', tex: difficulty === 1 ? `0 = ${eqTex.slice(4)}` : `${A.toTex()}x + ${B.toTex()}(0) = ${C.toTex()}`, why: 'On the $x$-axis, $y$ is 0.' },
+            { text: 'Substitute $y = 0$.', tex: difficulty === 1 ? `0 = ${eqTex.slice(4)}` : `${coefTex(A)}x ${B.isNegative() ? '-' : '+'} ${B.abs().toTex()}(0) = ${C.toTex()}`, why: 'On the $x$-axis, $y$ is 0.' },
             { text: 'Solve for $x$.', tex: `x = ${xInt.toTex()}`, why: difficulty === 1 ? 'Undo the constant, then divide by the slope.' : `Divide both sides by $${A.toTex()}$.` },
             { text: 'Write the intercept as a point.', tex: `(${xInt.toTex()}, 0)` },
           ]
         : [
-            { text: 'Substitute $x = 0$.', tex: difficulty === 1 ? `y = ${A.neg().toTex()}(0)${C.isNegative() ? ' - ' + C.abs().toTex() : ' + ' + C.toTex()}` : `${A.toTex()}(0) + ${B.toTex()}y = ${C.toTex()}`, why: 'On the $y$-axis, $x$ is 0.' },
+            { text: 'Substitute $x = 0$.', tex: difficulty === 1 ? `y = ${A.neg().toTex()}(0)${C.isNegative() ? ' - ' + C.abs().toTex() : ' + ' + C.toTex()}` : `${A.toTex()}(0) ${B.isNegative() ? '-' : '+'} ${coefTex(B.abs())}y = ${C.toTex()}`, why: 'On the $y$-axis, $x$ is 0.' },
             { text: 'Solve for $y$.', tex: `y = ${yInt.toTex()}`, why: difficulty === 1 ? 'In $y = mx + b$, the $y$-intercept is $b$.' : `Divide both sides by $${B.toTex()}$.` },
             { text: 'Write the intercept as a point.', tex: `(0, ${yInt.toTex()})` },
           ],
@@ -904,8 +904,8 @@ export const genIntercepts: GeneratorDef = {
           askX ? 'Substitute $y = 0$ into the equation and solve. What is $x$?' : 'Substitute $x = 0$ into the equation and solve. What is $y$?',
           askX ? xInt : yInt,
           askX
-            ? ['Replace $y$ with 0. That term disappears.', difficulty === 1 ? 'You get $0 = mx + b$. Undo the constant first.' : `You get $${A.toTex()}x = ${C.toTex()}$.`, difficulty === 1 ? 'Then divide by the slope.' : `Divide both sides by $${A.toTex()}$.`, 'A fraction answer is fine.']
-            : ['Replace $x$ with 0. That term disappears.', difficulty === 1 ? 'In $y = mx + b$, what is left when $x = 0$?' : `You get $${B.toTex()}y = ${C.toTex()}$.`, difficulty === 1 ? 'Only the constant term is left.' : `Divide both sides by $${B.toTex()}$.`, 'A fraction answer is fine.'],
+            ? ['Replace $y$ with 0. That term disappears.', difficulty === 1 ? 'You get $0 = mx + b$. Undo the constant first.' : `You get $${coefTex(A)}x = ${C.toTex()}$.`, difficulty === 1 ? 'Then divide by the slope.' : `Divide both sides by $${A.toTex()}$.`, 'A fraction answer is fine.']
+            : ['Replace $x$ with 0. That term disappears.', difficulty === 1 ? 'In $y = mx + b$, what is left when $x = 0$?' : `You get $${coefTex(B)}y = ${C.toTex()}$.`, difficulty === 1 ? 'Only the constant term is left.' : `Divide both sides by $${B.toTex()}$.`, 'A fraction answer is fine.'],
           askX ? 'With $y = 0$ only the $x$-term and the constant are left, so solving gives the crossing point on the $x$-axis.' : 'With $x = 0$ the $x$-term vanishes, so what is left gives the crossing point on the $y$-axis.',
           askX
             ? [
@@ -1213,7 +1213,7 @@ function whichGraphProblem(rng: Rng): Problem {
       numStep(
         'What is the slope $m$?',
         m,
-        ['In $y = mx + b$, the slope is the number multiplied by $x$.', 'If there is only a minus sign in front of $x$, the slope is $-1$.', 'If nothing is written in front of $x$, the slope is 1.', 'A positive slope rises from left to right; a negative slope falls.'],
+        ['In $y = mx + b$, the slope is the number multiplied by $x$.', 'If there is only a minus sign in front of $x$, read $-x$ as $-1 \\cdot x$.', 'If nothing is written in front of $x$, read $x$ as $1 \\cdot x$.', 'A positive slope rises from left to right; a negative slope falls.'],
         `The slope $${m.toTex()}$ means the line ${m.isNegative() ? 'falls' : 'rises'} ${m.abs().toTex()} for every 1 step to the right.`,
         [
           { value: b, tag: 'formula-error', feedback: 'That is the constant term, the $y$-intercept. The slope multiplies $x$.' },
@@ -1460,7 +1460,7 @@ export const genKeyFeatures: GeneratorDef = {
         numStep(
           `Find the $x$-intercept: solve $${rule} = 0$. What is $x$?`,
           r,
-          ['The $x$-intercept is where the output is 0.', 'Undo the constant term first.', 'Then divide by the slope.', 'A fraction answer is fine.'],
+          ['The $x$-intercept is the input that makes the output $0$.', 'Undo the constant term first.', 'Then divide by the slope.', 'A fraction answer is fine.'],
           'A line changes sign only where it crosses the $x$-axis, so this is the boundary of the interval.',
           [
             { value: r.neg(), tag: 'sign-error', feedback: 'Check the signs when you solve.' },

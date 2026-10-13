@@ -94,7 +94,7 @@ export const genSlopePoints: GeneratorDef = {
         {
           prompt: [p(`Divide: slope $= \\dfrac{\\text{rise}}{\\text{run}} = ${frac(dy, dx)}$. Simplify.`)],
           answer: { kind: 'number', value: numStr(m) },
-          hints: ['Divide the rise by the run.', dy.isZero() ? 'A rise of 0 divided by any run is 0.' : dy.isNegative() || dx.isNegative() ? 'A negative divided by a positive is negative; a negative divided by a negative is positive.' : 'The rise and the run are both positive, so the slope is positive.', 'Simplify the fraction by dividing top and bottom by a common factor.', 'If it does not divide evenly, a simplified fraction is fine.'],
+          hints: ['Divide the rise by the run.', dy.isZero() ? 'The rise is 0: the line does not go up or down. Think about what 0 shared among any number of steps gives.' : dy.isNegative() || dx.isNegative() ? 'A negative divided by a positive is negative; a negative divided by a negative is positive.' : 'The rise and the run are both positive, so the slope is positive.', 'Simplify the fraction by dividing top and bottom by a common factor.', 'If it does not divide evenly, a simplified fraction is fine.'],
           misconceptions: slopeMisconceptions(dy, dx),
           explanation: `Rise over run is the change in $y$ for each 1-unit change in $x$, so the slope is $${m.toTex()}$.`,
         },
@@ -398,8 +398,8 @@ export const genRateContext: GeneratorDef = {
         `Divide the change in output by $${decTex(dx)}$. If the output went down, the rate is negative.`,
       ],
       solution: [
-        { text: 'Find the change in the output.', tex: `${decTex(y2)} - ${decTex(y1)} = ${decTex(dy)}`, why: 'Subtract in the same order as the inputs (later minus earlier).' },
-        { text: 'Find the change in the input.', tex: `${decTex(a2)} - ${decTex(a1)} = ${decTex(dx)}` },
+        { text: 'Find the change in the output.', tex: `${decTex(y2)} - ${y1.isNegative() ? `(${decTex(y1)})` : decTex(y1)} = ${decTex(dy)}`, why: 'Subtract in the same order as the inputs (later minus earlier).' },
+        { text: 'Find the change in the input.', tex: `${decTex(a2)} - ${a1.isNegative() ? `(${decTex(a1)})` : decTex(a1)} = ${decTex(dx)}` },
         { text: 'Divide.', tex: `\\frac{${decTex(dy)}}{${decTex(dx)}} = ${decTex(rate)}`, why: `The rate is ${decTex(rate)} ${ctx.rateUnit}: ${ctx.rateMeaning}.` },
       ],
       misconceptions: numberMisconceptions(rate, [
@@ -412,14 +412,14 @@ export const genRateContext: GeneratorDef = {
         numStep(
           `How much does the output change from the first row to the second? (${ctx.outUnit === '%' ? 'percentage points' : ctx.outUnit})`,
           dy,
-          ['The change in output is later output minus earlier output.', `The outputs are $${decTex(y1)}$ and $${decTex(y2)}$.`, `Compute $${decTex(y2)} - ${decTex(y1)}$.`, 'If the amount goes down, the change is negative.'],
+          ['The change in output is later output minus earlier output.', `The outputs are $${decTex(y1)}$ and $${decTex(y2)}$.`, `Compute $${decTex(y2)} - ${y1.isNegative() ? `(${decTex(y1)})` : decTex(y1)}$.`, 'If the amount goes down, the change is negative.'],
           `Subtracting the earlier output from the later one gives the change, $${decTex(dy)}$.`,
           [{ value: dy.neg(), tag: 'sign-error', feedback: 'Subtract in order: later minus earlier. Is the amount going up or down?' }],
         ),
         numStep(
           `How much does the input change? (${ctx.inUnits})`,
           dx,
-          ['The change in input is later input minus earlier input.', `The inputs are $${decTex(a1)}$ and $${decTex(a2)}$.`, `Compute $${decTex(a2)} - ${decTex(a1)}$.`, `This is the number of ${ctx.inUnits} that passed.`],
+          ['The change in input is later input minus earlier input.', `The inputs are $${decTex(a1)}$ and $${decTex(a2)}$.`, `Compute $${decTex(a2)} - ${a1.isNegative() ? `(${decTex(a1)})` : decTex(a1)}$.`, `This is the number of ${ctx.inUnits} that passed.`],
           `Between the two rows, $${decTex(dx)}$ ${ctx.inUnits} pass.`,
           [{ value: dx.neg(), tag: 'sign-error', feedback: 'Subtract in the same order as the outputs: later minus earlier.' }],
         ),

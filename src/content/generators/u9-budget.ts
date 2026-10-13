@@ -11,7 +11,7 @@
 import type { Block, CapstoneContent, GeneratorDef, GraphSpec, Problem, Rng } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
 import { linearPlain } from '../../core/math/format';
-import { Q, p, makeProblem, makeChoice, choiceLabel, money, numStr, numberMisconceptions, stringMisconceptions, texValue } from './util';
+import { Q, p, projectTasks, makeProblem, makeChoice, choiceLabel, money, numStr, numberMisconceptions, stringMisconceptions, texValue } from './util';
 import { holds } from './u2-common';
 
 const N_PARTS = 9;
@@ -764,7 +764,7 @@ const task9: GeneratorDef = {
 
 // ---------------------------------------------------------------------------
 
-export const CAP_BUDGET_GENERATORS: GeneratorDef[] = [task1, task2, task3, task4, task5, task6, task7, task8, task9];
+export const CAP_BUDGET_GENERATORS: GeneratorDef[] = projectTasks([task1, task2, task3, task4, task5, task6, task7, task8, task9]);
 
 export const CAP_BUDGET: CapstoneContent = {
   lessonId: 'U9L01',

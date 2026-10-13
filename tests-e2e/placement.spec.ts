@@ -5,6 +5,7 @@
  * suggestions on the course map, and the parent's view.
  */
 import { test, expect, Page } from '@playwright/test';
+import { fillAnswer } from './graph-helper';
 
 let profileId = 0;
 const lessonId = 'DIAGNOSTIC';
@@ -45,7 +46,7 @@ async function enter(page: Page, art: ReturnType<Page['locator']>, value: string
       await act(page, () => art.getByRole('button', { name: /Save answer/ }).click());
     } else await act(page, () => radio.click());
   } else {
-    await art.locator('input.answer-input').fill(value);
+    await fillAnswer(art, value);
     await act(page, () => art.getByRole('button', { name: deferred ? /Save answer/ : 'Check answer' }).click());
   }
 }
@@ -99,7 +100,7 @@ async function newProfile(page: Page, name: string) {
 
 async function submitDiag(page: Page, art: ReturnType<Page['locator']>, value: string) {
   if (value.startsWith('#choice:')) await art.getByRole('radio').nth(Number(value.slice(8))).click();
-  else await art.locator('input.answer-input').fill(value);
+  else await fillAnswer(art, value);
   await act(page, () => art.getByRole('button', { name: 'Submit answer' }).click());
 }
 

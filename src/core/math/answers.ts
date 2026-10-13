@@ -12,6 +12,7 @@ import { MathSyntaxError, Node, normalizeInput, parseExpression, variablesOf, is
 import { Poly, tryPoly } from './poly';
 import { Surd, trySurd, extractPower } from './surd';
 import { numericallyEquivalent, evalNumeric, hasVariableRadical } from './evaluate';
+import { type GraphAnswer, checkGraph, graphWithOverride, graphAnswerText } from './graphAnswer';
 
 export type ExpressionForm =
   | 'any'
@@ -60,6 +61,8 @@ export type MisconceptionTag =
   | 'formula-error'
   | 'statistics-concept'
   | 'units'
+  | 'graph-scale'
+  | 'axis-labels'
   | 'other';
 
 export type AnswerSpec =
@@ -67,7 +70,10 @@ export type AnswerSpec =
       kind: 'number';
       /** exact value as parser input, e.g. "-7/2", "3" or "2.5" */
       value: string;
-      /** If set, an approximation rounded to this many decimal places is expected (exact also accepted). */
+      /**
+       * If set, an approximation rounded to this many decimal places is expected. A typed decimal that
+       * rounds to it is accepted; an exact irrational value (√61) gets the wrong-form message "round it".
+       */
       roundTo?: number;
       unit?: string;
     }
@@ -84,7 +90,9 @@ export type AnswerSpec =
   | { kind: 'solutions'; values: string[]; variable?: string; roundTo?: number; display?: 'set' }
   | { kind: 'interval'; value: string; form?: 'any' | 'set-builder' } // interval notation, set-builder or inequality accepted; 'set-builder' asks for {x | ...}
   | { kind: 'choice'; options: { id: string; label: string }[]; correct: string }
-  | { kind: 'sequence-terms'; values: string[] };
+  | { kind: 'sequence-terms'; values: string[] }
+  /** a graph the student draws on a grid (labels, scales, points, boundary and shading): see graphAnswer.ts */
+  | GraphAnswer;
 
 export type CheckStatus = 'correct' | 'wrong-form' | 'incorrect' | 'invalid';
 
@@ -118,8 +126,29 @@ export function exactValue(s: string | Node): Surd | null {
   return trySurd(n);
 }
 
-/** Decide equivalence of two expressions (any variables). */
-export function expressionsEquivalent(a: Node, b: Node): boolean {
+/** True if the expression takes any square root (of a number or of an expression in a variable). */
+function hasRadical(n: Node): boolean {
+  switch (n.type) {
+    case 'num':
+    case 'var':
+      return false;
+    case 'func':
+      return n.name === 'sqrt' || hasRadical(n.arg);
+    case 'neg':
+      return hasRadical(n.arg);
+    case 'pow':
+      return hasRadical(n.base) || hasRadical(n.exp);
+    default:
+      return hasRadical(n.left) || hasRadical(n.right);
+  }
+}
+
+/**
+ * Decide equivalence of two expressions (any variables). `radicalConvention`: the question is about
+ * simplifying radicals, where the course convention (stated in Unit 3) is that variables under a
+ * radical represent non-negative numbers, so √(x²) = x there.
+ */
+export function expressionsEquivalent(a: Node, b: Node, radicalConvention = false): boolean {
   const pa = tryPoly(a);
   const pb = tryPoly(b);
   if (pa && pb) return pa.equals(pb);
@@ -131,8 +160,11 @@ export function expressionsEquivalent(a: Node, b: Node): boolean {
     if (sa && sb) return sa.equals(sb);
   }
   const vars = [...new Set([...va, ...vb])].sort();
-  // Course convention (stated in Unit 3): variables under a radical represent non-negative numbers.
-  const r = numericallyEquivalent(a, b, vars, hasVariableRadical(a) || hasVariableRadical(b));
+  // Two radical forms (x√x and √(x³), 3x√2 and √(18x²)) are compared on non-negative inputs, and so
+  // is everything in a simplify-the-radical question (the course convention). Otherwise both sides
+  // must agree at every input where both are defined, negative ones included: x is not √(x²) = |x|.
+  const radicalForms = (hasVariableRadical(a) || hasVariableRadical(b)) && hasRadical(a) && hasRadical(b);
+  const r = numericallyEquivalent(a, b, vars, radicalConvention || radicalForms);
   return r === true;
 }
 
@@ -1013,12 +1045,44 @@ function withValue(spec: AnswerSpec, value: string): AnswerSpec {
       return { ...spec, values: value === '' ? [] : splitList(value) } as AnswerSpec;
     case 'choice':
       return { ...spec, correct: value };
+    case 'graph':
+      return graphWithOverride(spec, value);
+  }
+}
+
+/** How close a wrong number must be to count as "close": within 5% of the answer. */
+export const NEAR_MISS_RELATIVE = 0.05;
+
+/**
+ * Is a wrong answer actually close to the right one? Only numeric answers can be: the value read
+ * from the input is within NEAR_MISS_RELATIVE (5%) of the exact answer, with the same sign, and the
+ * answer is not 0 (where a relative error means nothing). Every other wrong answer (a different
+ * number, a sign error, an unreadable input, any expression, equation or choice) is not close.
+ * Used to choose "Close. Look at it once more." over neutral encouragement.
+ */
+export function isNearMiss(spec: AnswerSpec, input: string): boolean {
+  if (spec.kind !== 'number') return false;
+  try {
+    const target = exactValue(spec.value);
+    if (!target || !target.isRational()) return false;
+    const t = target.rationalPart().toNumber();
+    const raw = stripUnit(input, spec.unit).replace(/^\s*[a-zA-Z]\s*=\s*/, '');
+    const got = numberValueOf(raw);
+    let v: number;
+    if (got.value !== null) v = got.value.toNumber();
+    else if (got.node && variablesOf(got.node).size === 0) v = evalNumeric(got.node);
+    else return false;
+    if (!Number.isFinite(v) || !Number.isFinite(t) || t === 0 || v === t) return false;
+    if (Math.sign(v) !== Math.sign(t)) return false;
+    return Math.abs(v - t) <= NEAR_MISS_RELATIVE * Math.abs(t);
+  } catch {
+    return false;
   }
 }
 
 export function checkAnswer(spec: AnswerSpec, input: string, misconceptions?: Misconception[]): CheckResult {
   const r = checkAnswerAsTyped(spec, input, misconceptions);
-  if (r.status !== 'invalid') return r;
+  if (r.status !== 'invalid' || spec.kind === 'graph') return r;
   // "1 200x", "1 200, 2 400", "(1 200, 5)": a space as a thousands separator, when the answer cannot be read otherwise
   const alt = collapseSpaceThousands(normalizeInput(input));
   if (alt === normalizeInput(input)) return r;
@@ -1218,6 +1282,13 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
     case 'choice':
       return rawInput === spec.correct ? ok() : bad();
 
+    case 'graph': {
+      const g = checkGraph(spec, rawInput);
+      if (g.status === 'correct') return ok();
+      if (g.status === 'invalid') return invalid(g.message ?? 'Draw your graph on the grid first.');
+      return bad(quiet ? undefined : g.message, g.tag);
+    }
+
     case 'number': {
       // "x = 4/3" answers a "solve for x" question: a single-letter label is fine
       const input = stripUnit(rawInput, spec.unit).replace(/^\s*[a-zA-Z]\s*=\s*/, '');
@@ -1238,7 +1309,11 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
             // an exact irrational value (√61, 100√29, 4π) typed for a "round to ..." question
             const approx = evalNumeric(got.node, { π: Math.PI });
             const t = target.toNumber();
-            if (spec.roundTo !== undefined && Number.isFinite(approx) && Math.abs(approx - t) <= 1e-9 * Math.max(1, Math.abs(t))) {
+            // (the key of a rounded item is often stored already rounded, e.g. 7.8 for √61: the exact
+            // value counts when it rounds to the key, the same rule a typed decimal is held to)
+            const roundsToKey =
+              spec.roundTo !== undefined && Number.isFinite(approx) && Math.abs(approx - t) <= Math.pow(10, -spec.roundTo) && Math.abs(Math.round(approx * Math.pow(10, spec.roundTo)) / Math.pow(10, spec.roundTo) - target.round(spec.roundTo).toNumber()) < 1e-9;
+            if (spec.roundTo !== undefined && Number.isFinite(approx) && (Math.abs(approx - t) <= 1e-9 * Math.max(1, Math.abs(t)) || roundsToKey)) {
               return form(`That's the exact value. Now round it to ${roundPhrase(spec)}.`);
             }
             const sv = trySurd(got.node);
@@ -1303,7 +1378,7 @@ function checkCore(spec: AnswerSpec, rawInput: string, quiet: boolean): CheckRes
       if (extra.length > 0) {
         return quiet ? bad() : invalid(`Use only the variable${allowed.length === 1 ? '' : 's'} ${allowed.join(', ') || '(none)'} in this answer. I see ${extra.join(', ')}.`);
       }
-      if (!expressionsEquivalent(n, target)) return bad();
+      if (!expressionsEquivalent(n, target, spec.form === 'simplified-radical')) return bad();
       const f = spec.form ?? 'any';
       if (f === 'expanded' && !isExpandedForm(n)) return form("That's equivalent. Now multiply out and combine like terms.");
       if (f === 'factored' && !isCompletelyFactored(n)) return form("That's equivalent, but it isn't completely factored yet.");
@@ -1685,6 +1760,8 @@ export function answerToText(spec: AnswerSpec): string {
       return spec.options.find((o) => o.id === spec.correct)?.label ?? spec.correct;
     case 'sequence-terms':
       return spec.values.join(', ');
+    case 'graph':
+      return graphAnswerText(spec);
   }
 }
 

@@ -35,10 +35,16 @@ Run the newer Setup.exe. There is no need to uninstall first. Progress is kept. 
 **"This data was saved by a newer version of the app."**
 An older version was installed over a newer one. Install the newest Setup.exe again. Older versions cannot read newer data, and the app refuses rather than risk damaging it.
 
-**"The student data could not be opened."** or **"No readable copy of the student database was found."**
-On every start the app tries, in order: the current save, an interrupted save, the previous save, then each daily backup, newest first. This message means none of them could be read.
-1. If you have a backup file (`.accbackup`), reinstall if needed, then restore it in Parent Mode.
-2. Otherwise, send `logs\app.log` and the whole `data` folder to whoever supports the app. Do not delete anything.
+**"The student data could not be opened." (no readable copy was found)**
+On every start the app tries, in order: the current save, an interrupted save, the previous save, then each daily backup, newest first. This message means none of them could be read. Parent Mode cannot open without data, so the message itself offers three buttons:
+1. **Restore from a backup file…**: choose a `.accbackup` file (for example from a USB drive). It gets the same checks as a restore in Parent Mode; if it fails, nothing is changed and you can choose another file. After a restore the Parent PIN is the one set when the backup was made.
+2. **Start fresh**: the app starts with empty progress and first-time setup (it asks you to confirm first). You can still restore a backup file later in Parent Mode.
+3. **Quit**: nothing is changed. Send `logs\app.log` and the whole `data` folder to whoever supports the app.
+
+Restoring and starting fresh never delete the unreadable files: they are moved, unchanged, into a folder named `unreadable-<date and time>` inside the `data` folder (daily backups into its `auto` subfolder). Keep that folder until everything looks right.
+
+**"The student data could not be updated for this version of the app."**
+An upgrade step failed. Nothing was changed: the data is still as it was, and a copy was saved in `data\backups\safety\pre-migration-...` first. Reinstall the previous version, or send `logs\app.log` to whoever supports the app.
 
 **A yellow banner says the app "restored your progress" from an earlier save.**
 The newest save was damaged, probably by a power cut or a crash while saving, and the app recovered automatically. At most the last few answers are lost. The damaged file is kept as `academy.sqlite.corrupt-<number>`, for diagnosis. You can delete it once everything looks right.
@@ -78,6 +84,9 @@ The old progress is not deleted; it stays in `data-old`. To bring it back, renam
 - Fractions and terminating decimals are both accepted, and mixed numbers like `3 1/2` are accepted. Repeating decimals are not exact, so type them as fractions.
 - If it still looks wrong, note the lesson and the problem text. Every problem's numbers can be reproduced from the record, so it can be checked and fixed.
 
+**"Something went wrong on this screen."**
+A screen hit an unexpected error. Work is saved as the student goes, so nothing is lost: choose **Return to dashboard** (or **Reload the app**) and carry on. The error is written to `logs\app.log` (lines tagged `[renderer]`, without names or answers); send that file to whoever supports the app if it keeps happening.
+
 **The next lesson is locked.**
 A lesson unlocks when the one before it is completed or tested out of, or after two honest quiz attempts, so a student is never stuck. **Show What You Know** lets a student test out of a lesson early.
 
@@ -85,7 +94,10 @@ A lesson unlocks when the one before it is completed or tested out of, or after 
 It disappears once it has been taken or skipped. A parent can offer it again: Parent Mode → Students & goals → *Offer it again*.
 
 **Study time looks low.**
-Time counts only while the app window is visible and the student has used the keyboard or mouse in the last 90 seconds. Time spent with the window minimized or idle is not counted.
+Only learning time counts: time in a lesson, on a review, assessment or project day, in the diagnostic, or in practice. Time on the dashboard, course map, skills list or settings is not study time and does not count toward the daily goal or the streak. Time also counts only while the app window is visible and the student has used the keyboard or mouse in the last 90 seconds. Time spent with the window minimized or idle is not counted.
+
+**"The Parent PIN was just changed."**
+A Parent Mode screen was still using the old PIN. Leave Parent Mode and open it again with the new PIN. This never counts as a wrong PIN.
 
 ## Moving to a new computer
 

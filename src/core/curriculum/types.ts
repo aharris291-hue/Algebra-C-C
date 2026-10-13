@@ -192,6 +192,12 @@ export interface GeneratorDef {
   id: string;
   skillId: string;
   description: string;
+  /**
+   * A capstone project task (Unit 9). Its problem only makes sense inside its project (it shares the
+   * project's seeded situation and builds on earlier parts), so it is realized only on its project day:
+   * never for a skill in practice, reviews, assessments, remediation, spaced review or the diagnostic.
+   */
+  projectOnly?: boolean;
   generate(rng: Rng, difficulty: Difficulty): Problem;
   /**
    * Independent mathematical verification of a generated problem: re-derives the

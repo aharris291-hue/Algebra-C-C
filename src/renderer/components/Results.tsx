@@ -3,6 +3,7 @@ import type { ResultsView } from '../../shared/api';
 import { Blocks, Steps } from './Blocks';
 import { Inline } from './RichText';
 import { STAGE_LABEL } from '../labels';
+import { describeGraphResponse } from '../../core/math/graphAnswer';
 
 function fmtDuration(ms: number): string {
   const m = Math.round(ms / 60000);
@@ -80,7 +81,7 @@ export function Results({ r }: { r: ResultsView }) {
               </summary>
               <Blocks blocks={it.prompt} />
               <p>
-                Your answer: <code>{it.response || '(blank)'}</code>
+                Your answer: <code>{(it.response.startsWith('{') && describeGraphResponse(it.response)) || it.response || '(blank)'}</code>
               </p>
               {!it.correct && (
                 <>

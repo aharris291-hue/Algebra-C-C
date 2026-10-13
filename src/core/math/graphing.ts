@@ -6,6 +6,8 @@
  */
 import { parseExpression, variablesOf, Node } from './parser';
 import { evalNumeric } from './evaluate';
+import { Rational } from './rational';
+import { fiveNumber, mean, median, sorted, variance } from './stats';
 
 export type GraphEntry =
   | { kind: 'function'; expr: string; ast: Node }
@@ -226,4 +228,54 @@ export function linearRegression(pts: Array<{ x: number; y: number }>): { m: num
   if (sxx === 0) return null;
   const m = sxy / sxx;
   return { m, b: my - m * mx, r: syy === 0 ? NaN : sxy / Math.sqrt(sxx * syy) };
+}
+
+export interface OneVarStats {
+  n: number;
+  mean: number;
+  /** population standard deviation σx (the course convention), and the sample standard deviation sx */
+  sd: number;
+  sampleSd: number | null;
+  min: number;
+  q1: number | null;
+  median: number;
+  q3: number | null;
+  max: number;
+  iqr: number | null;
+}
+
+/**
+ * One-variable statistics of a typed list (like a calculator's 1-Var Stats), computed exactly with the
+ * course conventions in stats.ts: quartiles are the medians of the lower and upper halves (the median
+ * left out when n is odd; they need at least 4 values) and σx is the population standard deviation.
+ * Values may be separated by commas, spaces, semicolons or new lines.
+ */
+export function oneVarStats(text: string): { stats: OneVarStats | null; bad: string[] } {
+  const tokens = text.split(/[\s,;]+/).filter(Boolean);
+  const bad: string[] = [];
+  const xs: Rational[] = [];
+  for (const t of tokens) {
+    if (/^[-+]?(\d+\.?\d*|\.\d+)$/.test(t)) xs.push(Rational.parseDecimal(t));
+    else bad.push(t);
+  }
+  if (!xs.length) return { stats: null, bad };
+  const f = xs.length >= 4 ? fiveNumber(xs) : null;
+  const s = sorted(xs);
+  const v = variance(xs);
+  const n = xs.length;
+  return {
+    stats: {
+      n,
+      mean: mean(xs).toNumber(),
+      sd: Math.sqrt(v.toNumber()),
+      sampleSd: n > 1 ? Math.sqrt(v.mul(n).div(n - 1).toNumber()) : null,
+      min: s[0].toNumber(),
+      q1: f ? f.q1.toNumber() : null,
+      median: median(xs).toNumber(),
+      q3: f ? f.q3.toNumber() : null,
+      max: s[n - 1].toNumber(),
+      iqr: f ? f.q3.sub(f.q1).toNumber() : null,
+    },
+    bad,
+  };
 }

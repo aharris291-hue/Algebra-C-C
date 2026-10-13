@@ -288,7 +288,14 @@ export const genDomainRange: GeneratorDef = {
         misc.push({ iv: other, tag: 'graph-reading', feedback: askDomain ? 'Those are the $y$-values (the range). The domain uses the $x$-values.' : 'Those are the $x$-values (the domain). The range uses the $y$-values.' });
       }
       misc.push({ iv: ALL, tag: 'interval-endpoint', feedback: 'This graph does not go on forever in both directions. Look at where it starts or stops.' });
+    } else {
+      // a line drawn with arrows: the usual slips are stopping at the edge of the grid or at 0
+      const lo = askDomain ? spec.xMin : spec.yMin;
+      const hi = askDomain ? spec.xMax : spec.yMax;
+      misc.push({ iv: { lo: Q(lo), loClosed: true, hi: Q(hi), hiClosed: true }, tag: 'graph-reading', feedback: 'The grid only shows part of the line. The arrows mean it keeps going past the edges.' });
+      misc.push({ iv: { lo: Q(0), loClosed: true, hi: null, hiClosed: false }, tag: 'interval-endpoint', feedback: 'The line also continues to the other side of the axis. Follow both arrows.' });
     }
+    const lineMisc = misc;
     return makeProblem({
       skillId: 'S1.11',
       tags: ['graph'],
@@ -303,7 +310,9 @@ export const genDomainRange: GeneratorDef = {
       ],
       solution: [
         { text: askDomain ? 'Read the inputs from left to right.' : 'Read the outputs from bottom to top.', why: askDomain ? 'Domain means all possible inputs.' : 'Range means all possible outputs.' },
-        { text: shape === 'line' ? 'A non-horizontal line keeps going in both directions, so it uses every real number.' : 'Check each end: included (filled dot), excluded (open circle), or continuing forever.', why: 'The type of bracket shows whether an endpoint is part of the set.' },
+        shape === 'line'
+          ? { text: 'A non-horizontal line keeps going in both directions, so it uses every real number.', why: `The arrows show the line continues past the edges of the grid, so there is no smallest or largest ${askDomain ? 'input' : 'output'} and no endpoint to include or leave out.` }
+          : { text: 'Check each end: included (filled dot), excluded (open circle), or continuing forever.', why: 'The type of bracket shows whether an endpoint is part of the set.' },
         { text: `The ${word} is:`, tex: `${intervalToTex(key)}` },
       ],
       misconceptions: ivMisconceptions(key, [...misc, ...(shape === 'line' ? [] : [{ iv: flipped, tag: 'interval-endpoint' as const, feedback: 'Check each endpoint: a filled dot is included (bracket), an open circle is not (parenthesis).' }])]),
@@ -319,7 +328,7 @@ export const genDomainRange: GeneratorDef = {
             'A side that goes on forever uses $\\infty$ or $-\\infty$, always with a parenthesis.',
           ],
           shape === 'line' ? 'A non-horizontal line reaches every real number, so the set is $(-\\infty, \\infty)$.' : 'The bracket type shows whether each endpoint is part of the set, and infinity is never reached.',
-          ivMisconceptions(key, shape === 'line' ? [] : [{ iv: flipped, tag: 'interval-endpoint' as const, feedback: 'Check each endpoint: a filled dot is included (bracket), an open circle is not (parenthesis).' }]),
+          ivMisconceptions(key, shape === 'line' ? lineMisc : [{ iv: flipped, tag: 'interval-endpoint' as const, feedback: 'Check each endpoint: a filled dot is included (bracket), an open circle is not (parenthesis).' }]),
           notationHint,
         ),
       ],

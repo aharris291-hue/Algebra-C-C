@@ -602,7 +602,7 @@ export const genMultiplyRadicals: GeneratorDef = {
         answer = surdPlain(value);
         tex = `\\sqrt{${b}}\\left(\\sqrt{${c}} ${k < 0 ? '-' : '+'} ${Math.abs(k)}\\right)`;
         solution = [
-          { text: 'Distribute the root to each term in the parentheses.', tex: `${tex} = \\sqrt{${b}}\\cdot\\sqrt{${c}} ${k < 0 ? '-' : '+'} ${Math.abs(k)}\\sqrt{${b}}`, why: 'The distributive property: $a(b + c) = ab + ac$.' },
+          { text: 'Distribute the root to each term in the parentheses.', tex: `${tex} = \\sqrt{${b}}\\cdot\\sqrt{${c}} ${k < 0 ? '-' : '+'} ${Math.abs(k) === 1 ? '' : Math.abs(k)}\\sqrt{${b}}`, why: 'The distributive property: $a(b + c) = ab + ac$.' },
           { text: 'Multiply and simplify.', tex: `= ${value.toTex()}`, why: `$\\sqrt{${b}}\\cdot\\sqrt{${c}} = \\sqrt{${b * c}}$.` },
         ];
         misc.push({ answer: `sqrt(${b * c}) ${k < 0 ? '-' : '+'} ${Math.abs(k)}`, tag: 'distribution', feedback: `Multiply **both** terms by $\\sqrt{${b}}$, including the $${Math.abs(k)}$.` });
@@ -615,7 +615,7 @@ export const genMultiplyRadicals: GeneratorDef = {
         answer = String(value);
         tex = `\\left(${k} + \\sqrt{${b}}\\right)\\left(${k} - \\sqrt{${b}}\\right)`;
         solution = [
-          { text: 'Multiply each term in the first group by each term in the second.', tex: `${k * k} - ${k}\\sqrt{${b}} + ${k}\\sqrt{${b}} - ${b}`, why: '$\\sqrt{' + b + '}\\cdot\\sqrt{' + b + '} = ' + b + '$.' },
+          { text: 'Multiply each term in the first group by each term in the second.', tex: `${k * k} - ${k === 1 ? '' : k}\\sqrt{${b}} + ${k === 1 ? '' : k}\\sqrt{${b}} - ${b}`, why: '$\\sqrt{' + b + '}\\cdot\\sqrt{' + b + '} = ' + b + '$.' },
           { text: 'The middle terms cancel.', tex: `= ${k * k} - ${b} = ${value}`, why: 'These are conjugates: $(a + b)(a - b) = a^2 - b^2$, so the result is rational.' },
         ];
         misc.push({ answer: String(k * k + b), tag: 'sign-error', feedback: `The last product is $(+\\sqrt{${b}})(-\\sqrt{${b}}) = -${b}$, so subtract it.` });

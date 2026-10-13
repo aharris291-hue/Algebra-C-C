@@ -7,7 +7,8 @@ import path from 'node:path';
 import { FileLogger } from './logger';
 import { boot, Booted } from './bootstrap';
 import { dispatch } from './dispatch';
-import { NewerDatabaseError, DatabaseOpenError } from './db/database';
+import { NewerDatabaseError, DatabaseOpenError, NoReadableDatabaseError } from './db/database';
+import { STARTUP_RECOVERY, startupChoiceFor, startFresh, restoreAtStartup, MAX_STARTUP_BACKUP_BYTES } from './db/startup-recovery';
 
 const log = new FileLogger(path.join(app.getPath('userData'), 'logs'));
 let booted: Booted | null = null;
@@ -32,19 +33,86 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
+/**
+ * Open the student data. When no copy can be read, Parent Mode cannot be reached, so the startup
+ * error itself offers: restore from a backup file (checked exactly like a Parent Mode restore),
+ * start fresh, or quit. The unreadable files are never deleted (see db/startup-recovery.ts).
+ */
+async function openData(dataDir: string): Promise<Booted | null> {
+  for (;;) {
+    try {
+      return await boot(dataDir, log, app.getVersion());
+    } catch (e) {
+      log.error('startup', 'database open failed', e);
+      if (!(e instanceof NoReadableDatabaseError)) {
+        const msg =
+          e instanceof NewerDatabaseError
+            ? e.message
+            : e instanceof DatabaseOpenError
+              ? `${e.message}\n\nYour data folder is:\n${dataDir}`
+              : 'The student data could not be opened. Details were written to the log file.';
+        dialog.showErrorBox(STARTUP_RECOVERY.title, msg);
+        return null;
+      }
+      const { response } = await dialog.showMessageBox({
+        type: 'error',
+        title: STARTUP_RECOVERY.title,
+        message: STARTUP_RECOVERY.message,
+        detail: `${STARTUP_RECOVERY.detail}\n\nData folder: ${dataDir}`,
+        buttons: [...STARTUP_RECOVERY.buttons],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      });
+      const choice = startupChoiceFor(response);
+      if (choice === 'quit') return null;
+      if (choice === 'fresh') {
+        const confirm = await dialog.showMessageBox({
+          type: 'warning',
+          title: STARTUP_RECOVERY.title,
+          message: 'Start fresh with empty progress?',
+          detail: `The unreadable files are not deleted: they are moved into a folder named "unreadable-…" in\n${dataDir}\nYou will set up a new Parent PIN. You can still restore a backup file later in Parent Mode.`,
+          buttons: ['Start fresh', 'Back'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        });
+        if (confirm.response === 0) startFresh(dataDir, log, Date.now());
+        continue;
+      }
+      // restore from a backup file
+      const pick = await dialog.showOpenDialog({ title: 'Choose a backup file', properties: ['openFile'], filters: [{ name: 'Academy backup', extensions: ['accbackup'] }] });
+      if (pick.canceled || !pick.filePaths[0]) continue;
+      let message: string;
+      try {
+        if (fs.statSync(pick.filePaths[0]).size > MAX_STARTUP_BACKUP_BYTES) message = 'That file is too large to be a backup.';
+        else {
+          const r = await restoreAtStartup(dataDir, fs.readFileSync(pick.filePaths[0], 'utf8'), log, app.getVersion(), Date.now());
+          if (r.ok) {
+            await dialog.showMessageBox({
+              type: 'info',
+              title: STARTUP_RECOVERY.title,
+              message: `Restored ${r.profiles.length} student profile(s) from the backup file.`,
+              detail: `The Parent PIN is the one that was set when the backup was made.${r.keptIn ? `\n\nThe unreadable files were kept in:\n${r.keptIn}` : ''}`,
+              noLink: true,
+            });
+            continue;
+          }
+          message = r.message;
+        }
+      } catch (err) {
+        log.error('startup', 'restore at startup failed', err);
+        message = 'That file could not be read.';
+      }
+      await dialog.showMessageBox({ type: 'error', title: STARTUP_RECOVERY.title, message: 'That backup file cannot be used.', detail: `${message}\n\nNothing was changed.`, noLink: true });
+    }
+  }
+}
+
 async function start(): Promise<void> {
   const dataDir = path.join(app.getPath('userData'), 'data');
-  try {
-    booted = await boot(dataDir, log, app.getVersion());
-  } catch (e) {
-    log.error('startup', 'database open failed', e);
-    const msg =
-      e instanceof NewerDatabaseError
-        ? e.message
-        : e instanceof DatabaseOpenError
-          ? `${e.message}\n\nYour data folder is:\n${dataDir}`
-          : 'The student data could not be opened. Details were written to the log file.';
-    dialog.showErrorBox('Algebra C&C Learning Academy', msg);
+  booted = await openData(dataDir);
+  if (!booted) {
     app.quit();
     return;
   }

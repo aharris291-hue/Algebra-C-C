@@ -36,9 +36,10 @@ Shared pure code (no Electron, no DOM), fully unit-tested in Node:
   src/core/curriculum/  data types
   src/core/engine/      mastery, grading, XP/levels, streaks, scheduling, reports
   src/content/          standards, catalog (90 days), lesson content, generators
+  src/shared/progress.ts isDoneForProgress: the one rule for "done" in progress numbers
 ```
 
-The renderer never computes or writes grades, mastery, XP or completion. It sends student *actions* (answer submitted, hint requested, Teach Me Again opened, section finished); the main process checks answers, records attempts, and derives everything else. That is how Student Mode is prevented from editing records (spec §26) and how both dashboards share one source of truth (spec §45).
+The renderer never computes or writes grades, mastery, XP or completion. It sends student *actions* (answer submitted, hint requested, Teach Me Again opened, section finished); the main process checks answers, records attempts, and derives everything else. That is how Student Mode is prevented from editing records (spec §26) and how both dashboards share one source of truth (spec §45). Every progress number (current unit and week, semester %, pace, Coming up, milestones, the course map's days done) counts a course day as done with `isDoneForProgress` (completed, tested out, or an optional unit review the student may skip), so the student and parent views always agree.
 
 `src/harness/` runs the same services behind a local HTTP endpoint so the real UI can be tested end-to-end in Chromium (Playwright) on any OS. It is a development tool only and is not shipped.
 
@@ -49,6 +50,8 @@ The renderer never computes or writes grades, mastery, XP or completion. It send
 - `src/content/lessons/<unitId>/<lessonId>.ts`: lesson content (goal, need-to-know, instruction, worked examples with *why* for each step, Teach Me Again variants, guided/independent/quiz problem plans, summary, mastery criteria).
 - `src/content/generators/`: seeded problem generators. Each generator returns a `Problem` (prompt, exact answer spec, 4-level hints, worked solution, misconception answers, optional guided steps) **and** a `verify()` that re-derives the answer by an independent route. Problems that fail verification are rejected and regenerated, never shown (spec §41, §44).
 - Assessments are assembled from blueprints that reference generators, so retakes get fresh but equivalent problems.
+- Capstone project tasks (Unit 9) are marked `projectOnly`: they share their project's seeded situation, so `generatorsForSkill` never offers them for a skill (practice, reviews, assessments, remediation, spaced review, diagnostic); they appear only on their project day.
+- Hints and misconception feedback are checked for giving away the answer (`leaksAnswer` in `problems.ts`): "= key", "answer is key", a bound with any relation symbol before the key (TeX or Unicode, e.g. "y ≤ 102"), and "is key" closing a sentence. A problem that leaks is rejected like any failed verification.
 
 Problems are reproducible: an attempt stores `generatorId + seed + difficulty`, so any stored attempt can be regenerated exactly for review and audits.
 
@@ -56,9 +59,9 @@ Problems are reproducible: an attempt stores `generatorId + seed + difficulty`, 
 
 - `Rational` (BigInt) for exact arithmetic. No floating-point comparisons in grading.
 - `parser.ts` reads student input (implicit multiplication, unicode symbols, √, ∛, |x|) and gives friendly syntax messages. Thousands separators: "1,200" anywhere, and "1 200" (a space before exactly three digits) as a second reading when the answer cannot be read as typed.
-- Equivalence: polynomials compared by exact canonical form; constant radicals compared in an exact `Surd` field (`6√2 == √72`); other expressions by deterministic numeric sampling.
+- Equivalence: polynomials compared by exact canonical form; constant radicals compared in an exact `Surd` field (`6√2 == √72`); other expressions by deterministic numeric sampling with a 1e-12 relative tolerance, at negative inputs too wherever both sides are defined (so √(x²) is not x and 2^x + 1e-10 is not 2^x). Only a simplify-the-radical question, or two radical forms of an expression with a variable under a radical, is compared on non-negative inputs (the course convention that variables under a radical are non-negative). An exact irrational value typed for a rounded answer gets the wrong-form message "round it".
 - Forms: expanded, completely factored, vertex form, simplified radical, slope-intercept, point-slope, standard form. A correct-but-wrong-form answer is never marked wrong; the student is asked to finish rewriting.
-- Answer kinds: number (exact or rounded), expression, equation, inequality (half-plane equivalence; a compound inequality like -2 < x < 5 as the set it describes), ordered pair, solution set (with ±, double roots, "no real solutions"), interval (interval, set-builder, or inequality notation), sequence terms, multiple choice.
+- Answer kinds: number (exact or rounded), expression, equation, inequality (half-plane equivalence; a compound inequality like -2 < x < 5 as the set it describes), ordered pair, solution set (with ±, double roots, "no real solutions"), interval (interval, set-builder, or inequality notation), sequence terms, multiple choice, and a drawn graph (labels, scales, points, boundary and shading; see `graphAnswer.ts` and GRADING.md).
 - Misconceptions: each problem lists answers produced by specific errors (sign, reciprocal slope, rise/run swap, distribution, etc.). Matching one gives targeted feedback without revealing the answer, and the tag is stored for the Parent Dashboard.
 
 ## 5. Local database (spec §27-29, §42)
@@ -71,18 +74,18 @@ A failed save never throws out of the background timer: the data stays in memory
 
 Daily automatic backups go to `...\backups\auto\`. The date is checked on every API call and after every save, so an app left open for days still makes one per day. Pruning keeps the 14 most recently *written* files (ordered by modification time, which is forced forward past the existing backups), so a backup written after the system clock moved back is kept, and recovery tries the most recently written first. A safety backup is always created before a restore or a schema migration.
 
-### Schema (version 1)
+### Schema (version 2)
 
 | Table | Purpose |
 |---|---|
 | `meta(key, value)` | `schema_version`, `app_version`, `created_at`, install id |
 | `parent(id=1, pin_hash, pin_salt, pin_iterations, recovery_hash, recovery_salt, created_at, updated_at, failed_attempts, locked_until)` | Parent PIN (PBKDF2-SHA256) and one-time recovery code |
-| `profiles(id, display_name, avatar, created_at, archived, settings_json, onboarding_json)` | Student profiles; per-profile settings (sound, reduced motion, text size, theme, daily goal) |
+| `profiles(id, display_name, avatar, created_at, archived, settings_json, onboarding_json)` | Student profiles; per-profile settings (sound, reduced motion, text size, theme). The daily study goal is not a student setting: it is the parent's goal in `goals` (a `dailyGoalMinutes` key in older saves is ignored and dropped on the next settings save) |
 | `lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at, tested_out, quiz_best, xp_awarded)` | Lesson state and exact resume point (autosave) |
 | `attempts(id, profile_id, lesson_id, activity, assessment_id, skill_id, generator_id, seed, difficulty, problem_index, step_index, response, status, correct, attempt_number, hints_used, max_hint_level, misconception, elapsed_ms, counted, created_at)` | Every answer submitted |
 | `hint_events(id, profile_id, lesson_id, activity, skill_id, generator_id, seed, level, created_at)` | Every hint revealed |
 | `teach_again_events(id, profile_id, lesson_id, approach, created_at)` | Teach Me Again usage (never penalized) |
-| `assessments(id, profile_id, kind, ref_id, attempt_number, started_at, finished_at, duration_ms, score, max_score, status, items_json, skills_json, mastery_before_json, mastery_after_json)` | Quizzes, unit/semester assessments, diagnostic, test-out |
+| `assessments(id, profile_id, kind, ref_id, attempt_number, started_at, finished_at, duration_ms, score, max_score, status, items_json, skills_json, mastery_before_json, mastery_after_json, summary_json)` | Quizzes, unit/semester assessments, diagnostic, test-out. `summary_json` (added in schema v2): the results summary shown when it was graded (did well, needs practice, next step); NULL for older rows (v0.16), whose summary is rebuilt by `assessmentSummary` (records.ts) with the same `nextStepFor` that writes new ones; the day/lesson results page and the Parent detail both read the row's summary |
 | `skill_state(profile_id, skill_id, stage, score, evidence_count, last_practiced_at, next_review_at, mastered_at, updated_at)` | Cached mastery; always recomputable from `attempts` |
 | `xp_events(id, profile_id, amount, reason, ref, created_at)` | XP ledger; XP total = sum |
 | `achievements(profile_id, achievement_id, earned_at)` | Badges |
@@ -96,7 +99,11 @@ Derived values (grade, XP total, level, streak, mastery stage, completion %) are
 
 ### Migrations
 
-`src/main/db/migrations.ts` holds an ordered list of migrations. On startup: open DB → read `schema_version` → if older, write a safety backup → run each migration in a transaction → bump the version. A database from a *newer* app version is never modified; the app shows an explanation instead.
+`src/main/db/schema.ts` holds the ordered list of migrations (`MIGRATIONS`); the current schema version is the last migration's (`currentSchemaVersion()`). On startup: open DB → read `schema_version` → if older, write a safety backup of the data exactly as it was (`backups/safety/pre-migration-v<N>-…`) → run each migration in memory in its own transaction (which also bumps the version) → save. A failing migration rolls back and raises `MigrationError` before anything is written, so the files on disk are unchanged (and the app explains instead of starting). An older backup being restored is migrated the same way, in memory, before it replaces anything. A database from a *newer* app version is never modified; the app shows an explanation instead. `tests/main/release-audit.test.ts` registers a fake v2 migration to test the whole path.
+
+### When no copy can be read (startup recovery)
+
+`AppDatabase.open` tries the main file, an interrupted save, the previous save and each daily backup. If none can be read it throws `NoReadableDatabaseError`. Parent Mode cannot be reached then, so the startup error (`main.ts`, functions in `src/main/db/startup-recovery.ts`) offers: **Restore from a backup file…** (the file gets every check a Parent Mode restore makes and an older one is migrated; a file that fails changes nothing), **Start fresh** (after a confirmation; empty data and first-time setup), or **Quit**. Restoring or starting fresh first *moves* every unreadable copy, unchanged, into `data\unreadable-<time>\` (daily backups into its `auto` subfolder); nothing is ever deleted.
 
 ## 6. Backup and restore (spec §29)
 
@@ -109,6 +116,7 @@ Restore validation, before anything is changed: parse JSON → check format → 
 - Parent PIN: 4-8 digits, PBKDF2-SHA256 with random salt; failed-attempt lockout; reset with the recovery code shown once at setup, or with a documented local reset procedure that does not delete student data.
 - No network access is needed or used. No analytics, ads, accounts or telemetry. CSP blocks remote content; the renderer has no Node access.
 - Logs (`...\logs\app.log`, rotated) record errors, not names or answers.
+- Renderer errors (`window.onerror`, unhandled promise rejections, and errors caught by the React error boundary, which shows a friendly "Return to dashboard / Reload" screen) are sent to the log through the `reportClientError` API method. Its arguments are validated (short strings only); the main process keeps only the error message with quoted text and long numbers removed, and the stack reduced to function names and file:line locations, truncates both, and logs at most 50 reports per session.
 - Optional AI tutoring later would go through a main-process service with the key stored in Windows Credential Manager, never in the renderer (spec §54).
 
 ## 8. Packaging (spec §2, §3)

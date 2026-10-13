@@ -315,7 +315,7 @@ export const genCompleteSquareSolve: GeneratorDef = {
       {
         prompt: [p(`To complete the square for $${pTex(X([0, b, 1]))}$, what number do you add to both sides?`)],
         answer: { kind: 'number', value: String(h * h) },
-        hints: ['Take half of the coefficient of $x$.', `Half of $${b}$ is $${h}$.`, 'Square that number.', 'A square is never negative.'],
+        hints: ['Take half of the coefficient of $x$.', `Divide $${b}$ by $2$.`, 'Square that number.', 'A square is never negative.'],
         explanation: `$\\left(\\frac{${b}}{2}\\right)^{2} = ${h * h}$.`,
       },
       {
@@ -389,7 +389,7 @@ export const genCompleteSquareVertex: GeneratorDef = {
             {
               prompt: [p(`Factor $${a}$ out of the first two terms of $${tex}$. What is inside the parentheses?`)],
               answer: { kind: 'expression' as const, value: pPlain(X([0, b0, 1])), form: 'expanded' as const },
-              hints: ['Divide the $x^{2}$ term and the $x$ term by $a$.', `$${pTex(X([0, 0, a]))} \\div ${a} = x^{2}$.`, `Divide the $x$ term by $${a}$ too.`, 'Leave the constant term outside.'] as [string, string, string, string],
+              hints: ['Divide the $x^{2}$ term and the $x$ term by $a$.', `$${pTex(X([0, 0, a]))} \\div ${a < 0 ? `(${a})` : a} = x^{2}$.`, `Divide the $x$ term by $${a}$ too.`, 'Leave the constant term outside.'] as [string, string, string, string],
               explanation: `$${tex} = ${a}\\left(${pTex(X([0, b0, 1]))}\\right) ${c < 0 ? '-' : '+'} ${Math.abs(c)}$.`,
             },
           ]
@@ -397,7 +397,7 @@ export const genCompleteSquareVertex: GeneratorDef = {
       {
         prompt: [p(`What number completes the square for $${pTex(X([0, b0, 1]))}$?`)],
         answer: { kind: 'number', value: String(h * h) },
-        hints: ['Take half of the coefficient of $x$.', `Half of $${b0}$ is $${h}$.`, 'Square it.', 'A square is never negative.'],
+        hints: ['Take half of the coefficient of $x$.', `Divide $${b0}$ by $2$.`, 'Square it.', 'A square is never negative.'],
         explanation: `$\\left(\\frac{${b0}}{2}\\right)^{2} = ${h * h}$, because $\\left(x + \\frac{b}{2}\\right)^{2} = x^{2} + bx + \\left(\\frac{b}{2}\\right)^{2}$.`,
         misconceptions: numMis(h * h, [
           { value: h, tag: 'exponent-rule', feedback: 'That is half of the coefficient. Now square it.' },

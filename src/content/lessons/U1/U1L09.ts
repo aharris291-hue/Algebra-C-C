@@ -60,6 +60,10 @@ export const U1L09: LessonContent = {
     { t: 'math', tex: '54 \\text{ ft}^2 \\cdot \\frac{1 \\text{ yd}}{3 \\text{ ft}} \\cdot \\frac{1 \\text{ yd}}{3 \\text{ ft}} = \\frac{54}{9} \\text{ yd}^2 = 6 \\text{ yd}^2' },
     { t: 'p', text: '### Units of the numbers in a model' },
     { t: 'p', text: 'Every number in a model has units. In $C(m) = 15m + 50$, the cost of a plan in dollars after $m$ months, the $15$ multiplies months, so it is a rate in **dollars per month**. The $50$ is added on its own, so it is in **dollars**, the same units as the output. That is why the terms can be added: $(\\text{dollars per month}) \\times (\\text{months}) = \\text{dollars}$.' },
+    { t: 'p', text: '### Graphing a model: labels and scales' },
+    { t: 'p', text: 'A graph of a model is only useful if a reader can tell what it shows. For a bike rental that costs \\$20 plus \\$10 per hour, from 0 to 6 hours:' },
+    { t: 'list', ordered: true, items: ['**Label both axes with the quantity and its unit.** The input goes across: Time (hours). The output goes up: Total cost (dollars).', '**Choose a scale for each axis.** The axis must reach the largest value the situation needs, the graph should fill a good part of the grid (not a corner of it), and the key points should land on grid lines. Count the squares: with 10 squares, 5 per square reaches 50.', '**Plot the starting value** $(0, 20)$, then use the rate: each hour adds \\$10, so $(2, 40)$ and $(4, 60)$ are on the line too.', 'Here the cost reaches $20 + 10 \\cdot 6 = 80$ dollars, so 10 dollars per square fits (10 squares reach 100) and 1 hour per square fits the 6 hours.'] },
+    { t: 'callout', variant: 'tip', title: 'Drawing a graph in this app', text: 'Type a label for each axis, choose what one grid square is worth on each axis, then place points: click a grid intersection, or click the grid and use the arrow keys and Enter. Click a point again to remove it.' },
   ],
   examples: [
     {
@@ -252,6 +256,7 @@ export const U1L09: LessonContent = {
     { generator: 'u1.unit-rates', difficulty: 1 },
     { generator: 'u1.linear-model', difficulty: 1 },
     { generator: 'u1.unit-rates', difficulty: 2 },
+    { generator: 'u1.graph-linear-context', difficulty: 1 },
   ],
   independent: {
     count: 8,
@@ -266,6 +271,8 @@ export const U1L09: LessonContent = {
       { generator: 'u1.rate-context', difficulty: 2, weight: 1 },
       { generator: 'u1.write-context', difficulty: 2, weight: 1 },
       { generator: 'u1.domain-range', difficulty: 2, weight: 1 },
+      { generator: 'u1.graph-linear-context', difficulty: 1, weight: 1 },
+      { generator: 'u1.graph-linear-context', difficulty: 2, weight: 1 },
     ],
   },
   quiz: {
@@ -276,6 +283,7 @@ export const U1L09: LessonContent = {
       { generator: 'u1.unit-rates', difficulty: 2 },
       { generator: 'u1.unit-rates', difficulty: 2 },
       { generator: 'u1.unit-rates', difficulty: 3 },
+      { generator: 'u1.graph-linear-context', difficulty: 2 },
     ],
   },
   summary: [

@@ -8,6 +8,7 @@
  */
 import type { Difficulty, GeneratorDef, Problem, ProblemStep } from '../curriculum/types';
 import { checkAnswer, AnswerSpec, Misconception, exactValue, fixedPlaces, misconceptionSpec } from '../math/answers';
+import { canonicalGraphInput } from '../math/graphAnswer';
 import { createRng, deriveSeed } from './rng';
 
 /** Text that the checker should accept as the key for a spec. */
@@ -31,6 +32,8 @@ export function canonicalInput(spec: AnswerSpec): string {
       return spec.correct;
     case 'sequence-terms':
       return spec.values.join(', ');
+    case 'graph':
+      return canonicalGraphInput(spec);
   }
 }
 
@@ -57,7 +60,27 @@ export function misconceptionReachErrors(spec: AnswerSpec, list: Misconception[]
   return errs;
 }
 
-function leaksAnswer(hint: string, spec: AnswerSpec): boolean {
+/** Relation symbols in hint text (TeX or Unicode), normalized to one character each. */
+function normalizeRelations(text: string): string {
+  return text
+    .replace(/\\(?:leq?|leqslant)(?![a-zA-Z])/g, '≤')
+    .replace(/\\(?:geq?|geqslant)(?![a-zA-Z])/g, '≥')
+    .replace(/\\(?:neq?)(?![a-zA-Z])/g, '≠')
+    .replace(/\\lt(?![a-zA-Z])/g, '<')
+    .replace(/\\gt(?![a-zA-Z])/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+/**
+ * Does a hint (or misconception feedback) state the final answer? Caught: "= key" (not "x = key",
+ * an input being assigned), a bound "y ≤ key" / "x > key" / "≠ key" (any relation symbol, TeX or
+ * Unicode, so "y ≤ 102" when the greatest whole number is 102), "answer is key", and
+ * "… is key" closing a sentence or clause ("so the greatest is 102.").
+ */
+export function leaksAnswer(hint: string, spec: AnswerSpec): boolean {
+  // a drawing has no typed key to give away (its hints are checked by the generator tests)
+  if (spec.kind === 'graph') return false;
   if (spec.kind === 'choice') {
     const label = spec.options.find((o) => o.id === spec.correct)?.label ?? '';
     return label.length > 3 && hint.toLowerCase().includes(`answer is ${label.toLowerCase()}`);
@@ -68,7 +91,23 @@ function leaksAnswer(hint: string, spec: AnswerSpec): boolean {
   const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // "f(3) = key" or "answer is key" states the final answer. "x = key" (a variable being
   // assigned an input value) does not, so "=" preceded by a letter is ignored.
-  return new RegExp(`(?<![a-zA-Z])=${esc}(?![0-9./])`).test(h) || new RegExp(`answeris${esc}(?![0-9./])`, 'i').test(h);
+  // (a "." after the key ends a sentence; only ".<digit>" continues the number)
+  const notMore = '(?![0-9/^]|\\.[0-9])';
+  if (new RegExp(`(?<![a-zA-Z])=${esc}${notMore}`).test(h) || new RegExp(`answeris${esc}${notMore}`, 'i').test(h)) return true;
+  // The stronger checks read the hint with its spacing kept (so "y ≤ 3x" is not the key 3) and
+  // with TeX spacing, bold and $ removed.
+  const spaced = normalizeRelations(hint)
+    .replace(/\\[,;!: ]/g, ' ')
+    .replace(/\\(?:quad|qquad|text\{\s*\})/g, ' ')
+    .replace(/\*\*|\$/g, '')
+    .replace(/\s+/g, ' ');
+  const loose = [...key].map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
+  const after = '(?!\\s*(?:[0-9/^]|\\.\\s*[0-9]))(?![a-zA-Z(])';
+  // a bound that is the answer itself: "so y ≤ 102" when the greatest whole number is 102
+  if (new RegExp(`[≤≥<>≠]\\s*${loose}${after}`).test(spaced)) return true;
+  // "... is key" closing a sentence or clause ("so the greatest is 102.")
+  if (new RegExp(`(?<![a-zA-Z])is\\s+${loose}\\s*(?:[.,;!]|$)`).test(spaced)) return true;
+  return false;
 }
 
 export function validateStep(step: ProblemStep, where: string): string[] {

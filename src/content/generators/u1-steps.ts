@@ -139,7 +139,7 @@ export function minusHint(a: Rational | number, b: Rational | number): string {
   if (B.isNegative()) return `Subtracting a negative means adding: $${A.toTex()} - (${B.toTex()})$ is the same as $${A.toTex()} + ${B.abs().toTex()}$.`;
   if (B.isZero()) return 'Subtracting 0 leaves the first number unchanged.';
   if (A.isNegative()) return 'You start below zero and take away more, so the result is further below zero.';
-  if (A.eq(B)) return 'The two numbers are equal, so the result is 0.';
+  if (A.eq(B)) return 'The two numbers are equal. What do you get when you take a number away from itself?';
   if (A.lt(B)) return 'You take away more than you start with, so the result is negative.';
   return 'Neither number is negative and the first is larger, so the result is positive.';
 }

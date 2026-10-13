@@ -13,7 +13,7 @@ import { Blocks } from '../components/Blocks';
 import { STAGE_LABEL, KIND_LABEL } from '../labels';
 import { playSound } from '../sound';
 
-export function DayPlayer(props: { profileId: number; lessonId: string; onExit: () => void; setActivity: (lessonId: string | null, activity: string) => void }) {
+export function DayPlayer(props: { profileId: number; lessonId: string; onExit: () => void; setActivity: (lessonId: string | null, activity: string) => void; tools?: React.ReactNode }) {
   const { profileId, lessonId } = props;
   const [view, setView] = useState<DayView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -101,6 +101,7 @@ export function DayPlayer(props: { profileId: number; lessonId: string; onExit: 
           </div>
           <h1 className="lesson-title">{view.title}</h1>
         </div>
+        {props.tools}
         <div className="lesson-xp" aria-label="XP earned today">
           +{view.xpThisDay} XP
         </div>

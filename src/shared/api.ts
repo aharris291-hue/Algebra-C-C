@@ -6,6 +6,7 @@
 import type { Block, SolutionStep, WorkedExample, LessonKind, TeachAgainApproach } from '../core/curriculum/types';
 import type { MasteryStage } from '../core/engine/mastery';
 import type { CheckStatus } from '../core/math/answers';
+import type { GraphConfig } from '../core/math/graphAnswer';
 
 export type SectionId = 'goal' | 'needToKnow' | 'instruction' | 'examples' | 'guided' | 'independent' | 'quiz' | 'feedback' | 'mastery' | 'summary';
 export const LESSON_SECTIONS: SectionId[] = ['goal', 'needToKnow', 'instruction', 'examples', 'guided', 'independent', 'quiz', 'feedback', 'mastery', 'summary'];
@@ -24,14 +25,27 @@ export const SECTION_TITLES: Record<SectionId, string> = {
 
 export type ActivityKind = 'guided' | 'independent' | 'quiz' | 'review' | 'assessment' | 'diagnostic' | 'testout' | 'remediation' | 'corrections';
 
+/**
+ * Activities whose time counts as learning time (study minutes and the streak's 10-minute rule):
+ * every lesson section, review/assessment/project days, the diagnostic and practice. Time on the
+ * dashboard, course map, skills list or settings is not learning time and is never recorded.
+ */
+export const LEARNING_ACTIVITIES: readonly string[] = [...LESSON_SECTIONS, 'review', 'assessment', 'diagnostic', 'testout', 'remediation', 'corrections', 'practice'];
+export function isLearningActivity(activity: string): boolean {
+  return LEARNING_ACTIVITIES.includes(activity);
+}
+
 export interface Settings {
   sound: boolean;
   reducedMotion: boolean;
   textScale: number; // 0.9 .. 1.4
   theme: 'light' | 'dark' | 'system';
-  dailyGoalMinutes: number;
 }
-export const DEFAULT_SETTINGS: Settings = { sound: false, reducedMotion: false, textScale: 1, theme: 'system', dailyGoalMinutes: 30 };
+/** Limits of the parent's goals; the service enforces them and the Parent Mode inputs use the same values. */
+export const GOAL_LIMITS = { weeklyLessons: { min: 1, max: 10 }, dailyMinutes: { min: 10, max: 120 } } as const;
+
+/** The daily study goal is not a student setting: it is the parent's goal (goals.daily_minutes). */
+export const DEFAULT_SETTINGS: Settings = { sound: false, reducedMotion: false, textScale: 1, theme: 'system' };
 
 export interface ProfileSummary {
   id: number;
@@ -113,7 +127,7 @@ export interface AppStatus {
 // Problems
 // ---------------------------------------------------------------------------
 
-export type AnswerKind = 'number' | 'expression' | 'equation' | 'inequality' | 'point' | 'region-point' | 'solutions' | 'interval' | 'choice' | 'sequence-terms';
+export type AnswerKind = 'number' | 'expression' | 'equation' | 'inequality' | 'point' | 'region-point' | 'solutions' | 'interval' | 'choice' | 'sequence-terms' | 'graph';
 
 export interface FeedbackView {
   status: CheckStatus;
@@ -134,9 +148,11 @@ export interface ProblemView {
   answerKind: AnswerKind;
   inputHint?: string;
   choices?: Array<{ id: string; label: string }>;
+  /** a graph to draw: the grid and the scale menus only (never the target or the accepted scales) */
+  graph?: GraphConfig;
   unit?: string;
   /** step-by-step mode (guided practice) */
-  step?: { index: number; total: number; prompt: Block[]; answerKind: AnswerKind; inputHint?: string; choices?: Array<{ id: string; label: string }>; completed: Array<{ prompt: Block[]; explanation: string }> };
+  step?: { index: number; total: number; prompt: Block[]; answerKind: AnswerKind; inputHint?: string; choices?: Array<{ id: string; label: string }>; graph?: GraphConfig; completed: Array<{ prompt: Block[]; explanation: string }> };
   hintsShown: string[];
   hintsRemaining: number;
   hintsAllowed: boolean;
@@ -231,7 +247,16 @@ export interface LessonView {
   results: ResultsView | null;
   /** extra problems for corrections after the quiz */
   corrections: PracticeView | null;
-  remediation: { active: boolean; reason: string; skills: string[] } | null;
+  /**
+   * refreshers: prerequisites below Proficient that the targeted practice starts with (one easy
+   * problem each), with the worked example from the lesson that teaches them when there is one.
+   */
+  remediation: {
+    active: boolean;
+    reason: string;
+    skills: string[];
+    refreshers: Array<{ skillId: string; skillName: string; lessonId?: string; lessonTitle?: string; example?: WorkedExample }>;
+  } | null;
   xpThisLesson: number;
   canAdvance: boolean;
   advanceBlockedReason?: string;
@@ -290,6 +315,8 @@ export interface CourseLesson {
   canTestOut: boolean;
   /** the diagnostic suggests trying Show What You Know here */
   suggestedTestOut?: boolean;
+  /** a unit review that can be skipped: the unit's lessons are done and its skills are Proficient or better */
+  optional?: boolean;
   quizBest: number | null;
   standards: string[];
 }
@@ -358,13 +385,24 @@ export interface ParentDashboard {
   assessments: Array<{ id: number; kind: string; refId: string; title: string; date: number; percent: number; durationMs: number; attemptNumber: number; missed: number }>;
   masteryByUnit: Array<{ unitId: string; title: string; standards: string[]; skills: SkillMasteryView[]; percentProficient: number }>;
   needsAttention: SkillMasteryView[];
+  /** repeated Teach Me Again use (3+ in a lesson or on a skill): a sign that more explanation may help, never a penalty */
+  supportSignals: string[];
   strengths: SkillMasteryView[];
   time: { totalMinutes: number; thisWeekMinutes: number; byWeek: Array<{ weekStart: string; minutes: number; lessons: number }> };
   engagement: { streak: number; longestStreak: number; xp: number; level: number; weeklyLessons: number };
   support: { attempts: number; hintsUsed: number; teachAgainUses: number; teachAgainByLesson: Array<{ lessonId: string; title: string; count: number }>; repeatedErrors: Array<{ misconception: string; label: string; count: number }>; firstTryAccuracy: number | null };
   recentActivity: Array<{ at: number; text: string }>;
   upcoming: CourseLesson[];
+  /** the Overview's "Coming up" card: next course days, the next unit/semester assessment, milestones */
+  comingUp: ComingUp;
   goals: { weeklyLessons: number; dailyMinutes: number };
+}
+
+export interface ComingUp {
+  nextLessons: CourseLesson[];
+  /** the next unit or semester assessment not yet finished; `daysBefore` open course days come first */
+  nextAssessment: { id: string; title: string; kind: LessonKind; daysBefore: number; weeksAtGoal: number } | null;
+  milestones: string[];
 }
 
 export interface StandardProgress {
@@ -394,6 +432,8 @@ export interface WeeklyReport {
   skillsMastered: string[];
   improvements: string[];
   needsAttention: string[];
+  /** repeated Teach Me Again use this week (absent in reports saved by older versions) */
+  supportSignals?: string[];
   recommendedFocus: string[];
   streak: number;
   xpEarned: number;
@@ -483,6 +523,9 @@ export interface AcademyApi {
   exportBackup(parentPin: string): Promise<{ fileName: string; data: string }>;
   inspectBackup(parentPin: string, data: string): Promise<BackupInfo>;
   restoreBackup(parentPin: string, data: string): Promise<{ ok: boolean; message: string; safetyBackup?: string }>;
+  // diagnostics
+  /** write a renderer error to the local log (kind: error | unhandledrejection | boundary); scrubbed and truncated in the main process */
+  reportClientError(kind: string, message: string, detail?: string): Promise<{ logged: boolean }>;
 }
 
 export const API_METHODS: Array<keyof AcademyApi> = [
@@ -493,4 +536,5 @@ export const API_METHODS: Array<keyof AcademyApi> = [
   'finishQuiz', 'startRemediation', 'retakeQuiz', 'startTestOut', 'teachMeAgain', 'openDay', 'startDay', 'daySubmit', 'dayHint', 'dayReveal', 'dayNext', 'daySelect', 'finishDay', 'retakeDay', 'heartbeat', 'previewAnswer',
   'getStudentDashboard', 'getParentDashboard', 'getWeeklyReport', 'getSkillMastery', 'getStandards', 'getStandardsProgress', 'getAssessmentDetail',
   'exportBackup', 'inspectBackup', 'restoreBackup',
+  'reportClientError',
 ];

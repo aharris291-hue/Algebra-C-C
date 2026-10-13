@@ -63,6 +63,7 @@ export function computeStreak(qualifyingDates: string[], today: string): StreakR
 /** What counts as a meaningful learning day (spec §32): not just opening the app. */
 export const STREAK_RULE = {
   minProblemsAnswered: 5,
+  /** active LEARNING minutes (lessons, review/assessment days, diagnostic, practice); dashboard time never counts */
   minActiveMinutes: 10,
   // completing any lesson section, quiz, or review set also qualifies
 };

@@ -108,20 +108,30 @@ export const genInterpretExponential: GeneratorDef = {
       }
       const rp = pct(r);
       const correct = `The ${c.unitNoun} ${changeWord(b)} by ${rp}% each ${c.per}.`;
-      const wrongs = growth
-        ? [`The ${c.unitNoun} increases by ${pct(b)}% each ${c.per}.`, `The ${c.unitNoun} increases by ${dTex(b)} each ${c.per}.`, `The ${c.unitNoun} decreases by ${rp}% each ${c.per}.`]
-        : [`The ${c.unitNoun} decreases by ${pct(b)}% each ${c.per}.`, `The ${c.unitNoun} decreases by ${dTex(b)} each ${c.per}.`, `The ${c.unitNoun} increases by ${rp}% each ${c.per}.`];
+      // Each distractor is one specific misreading, worded so that exactly one option is defensible:
+      // the factor read as the percent, the factor read as a fixed amount (linear change), the wrong direction.
+      const factorAsPercent = `The ${c.unitNoun} ${changeWord(b)} by ${pct(b)}% each ${c.per}.`;
+      const sameAmount = `The ${c.unitNoun} ${growth ? 'goes up' : 'goes down'} by the same fixed amount, ${dTex(b)}, each ${c.per}.`;
+      const wrongWay = `The ${c.unitNoun} ${growth ? 'decreases' : 'increases'} by ${rp}% each ${c.per}.`;
+      // when the factor and the rate are the same number (b = 0.5), "decreases by 50%" is the right answer, so use another misreading
+      const percentWrong = factorAsPercent === correct ? `The ${c.unitNoun} ${changeWord(b)} by ${rp}% in total, not each ${c.per}.` : factorAsPercent;
+      const wrongs = [percentWrong, sameAmount, wrongWay];
+      const answer = makeChoice(rng, correct, wrongs);
       return withSteps(makeProblem({
         skillId: 'S5.02',
         tags: ['real-world'],
         prompt: [...story, p(`What does the number $${dTex(b)}$ tell you?`)],
-        answer: makeChoice(rng, correct, wrongs),
+        answer,
         hints: [`Is $${dTex(b)}$ greater than 1 or less than 1?`, growth ? 'A factor greater than 1 means growth: $b = 1 + r$.' : 'A factor between 0 and 1 means decay: $b = 1 - r$.', growth ? `Solve $1 + r = ${dTex(b)}$ for the rate $r$.` : `Solve $1 - r = ${dTex(b)}$ for the rate $r$.`, 'Change the rate from a decimal to a percent.'],
         solution: [
-          { text: growth ? 'The factor is greater than 1, so this is growth.' : 'The factor is between 0 and 1, so this is decay.', tex: growth ? `${dTex(b)} = 1 + ${dTex(r)}` : `${dTex(b)} = 1 - ${dTex(r)}`, why: `Each ${c.per} the ${c.unitNoun} is multiplied by $${dTex(b)}$, which ${growth ? 'adds' : 'takes away'} $${dTex(r)}$ of the current amount.` },
+          { text: growth ? 'The factor is greater than 1, so this is growth.' : 'The factor is between 0 and 1, so this is decay.', tex: growth ? `${dTex(b)} = 1 + ${dTex(r)}` : `${dTex(b)} = 1 - ${dTex(r)}`, why: `Each ${c.per} the ${c.unitNoun} is multiplied by $${dTex(b)}$, which ${growth ? 'adds' : 'takes away'} ${rp}% of the current amount (a percent of whatever is there, not a fixed amount).` },
           { text: 'Write the rate as a percent.', tex: `${dTex(r)} = ${rp}\\%`, why: growth ? '' : `Multiplying by $${dTex(b)}$ keeps ${pct(b)}% of the ${c.unitNoun}, so ${rp}% is lost.` },
         ],
-        misconceptions: [],
+        misconceptions: choiceMisconceptions(answer, [
+          { label: percentWrong, tag: 'percent-rate', feedback: percentWrong === factorAsPercent ? `$${dTex(b)}$ is the factor: the part ${growth ? 'you end up with' : 'that remains'}. The rate is the part ${growth ? 'added' : 'lost'}, $${growth ? `${dTex(b)} - 1` : `1 - ${dTex(b)}`}$.` : `The factor is applied again every ${c.per}, so the change happens each ${c.per}, not once in total.` },
+          { label: sameAmount, tag: 'growth-decay', feedback: `Changing by the same amount each ${c.per} is linear. Multiplying by $${dTex(b)}$ changes the ${c.unitNoun} by a percent of the current amount.` },
+          { label: wrongWay, tag: 'growth-decay', feedback: `Compare the factor $${dTex(b)}$ with 1 to decide the direction.` },
+        ]),
       }), (pr) => [
         choiceStep(`Is the factor $${dTex(b)}$ greater than 1 or between 0 and 1? What does that mean?`, [`Greater than 1, so the ${c.unitNoun} grows`, `Between 0 and 1, so the ${c.unitNoun} decays`], growth ? 0 : 1, [`Compare $${dTex(b)}$ with 1.`, 'Multiplying by a number greater than 1 makes a positive amount bigger.', 'Multiplying by a number between 0 and 1 makes a positive amount smaller.', `Is $${dTex(b)}$ bigger or smaller than 1?`], growth ? `$${dTex(b)} > 1$, so each ${c.per} the ${c.unitNoun} gets bigger.` : `$0 < ${dTex(b)} < 1$, so each ${c.per} the ${c.unitNoun} gets smaller.`, [{ index: growth ? 1 : 0, tag: 'growth-decay', feedback: `Compare $${dTex(b)}$ with 1 carefully.` }]),
         numStep(growth ? `For growth, $b = 1 + r$. Solve $1 + r = ${dTex(b)}$ and give $r$ as a percent.` : `For decay, $b = 1 - r$. Solve $1 - r = ${dTex(b)}$ and give $r$ as a percent.`, r.mul(100), [growth ? 'The 1 stands for keeping all of the amount; the rest is the increase.' : 'The factor is the part that remains; the rate is the part that is lost.', growth ? `Subtract 1 from $${dTex(b)}$.` : `Subtract $${dTex(b)}$ from 1.`, 'That gives the rate as a decimal.', 'Multiply the decimal by 100 to write it as a percent.'], `$r = ${dTex(r)} = ${rp}\\%$.`, [{ value: b.mul(100), tag: 'percent-rate', feedback: growth ? 'That is the whole new amount compared with the old one. Subtract the original 100%.' : 'That is the part that remains. The rate is the part that is lost.' }, { value: r, tag: 'percent-rate', feedback: 'That is the rate as a decimal. Write it as a percent.' }], { unit: '%', inputHint: 'Type the percent as a number, like 5 for 5%.' }),

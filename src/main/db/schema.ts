@@ -214,9 +214,21 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    description: 'Store the results summary (did well, needs practice, recommended next step) with each graded assessment',
+    // older rows keep NULL here: their summary is rebuilt from items_json when it is shown
+    sql: `ALTER TABLE assessments ADD COLUMN summary_json TEXT;`,
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
+/**
+ * The schema version this app writes: the last migration's. A function, not a constant, so it
+ * always agrees with MIGRATIONS (tests register a future migration to exercise the upgrade path).
+ */
+export function currentSchemaVersion(): number {
+  return MIGRATIONS[MIGRATIONS.length - 1].version;
+}
 
 export const REQUIRED_TABLES = [
   'meta',

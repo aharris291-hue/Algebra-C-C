@@ -342,8 +342,8 @@ export const genEvalLinear: GeneratorDef = {
           hints: [
             'Combine the two numbers.',
             b.isNegative() ? `Subtract $${b.abs().toTex()}$ from $${product.toTex()}$.` : `Add $${b.toTex()}$ to $${product.toTex()}$.`,
-            product.isNegative() || b.isNegative() ? 'Use a number line if the signs are tricky.' : 'Neither number is negative, so this is ordinary addition.',
-            `Start at $${product.toTex()}$ and move ${b.abs().toTex()} ${b.isNegative() ? 'left' : 'right'}.`,
+            product.isNegative() || b.isNegative() ? 'A number line helps with the signs: picture the first number on it.' : 'Neither number is negative, so this is ordinary addition.',
+            `On the number line, start at $${product.toTex()}$ and move ${b.abs().toTex()} ${b.isNegative() ? 'left' : 'right'}.`,
           ],
           misconceptions: numberMisconceptions(value, [{ value: product.sub(b), tag: 'sign-error', feedback: 'Check the sign of the constant term.' }]),
           explanation: `With the product found, only the constant term is left, so combining them gives the single output $${f}(${a.toTex()}) = ${value.toTex()}$.`,
@@ -598,7 +598,11 @@ export const genNotationTable: GeneratorDef = {
             'Function values are just numbers, so use ordinary arithmetic.',
             k === 1 ? 'There is only one operation to do.' : 'Multiply first, then add or subtract.',
             op === '-' ? minusHint(Q(k).mul(ys[i]), ys[j]) : plusHint(Q(k).mul(ys[i]), ys[j]),
-            ys[i] < 0 || ys[j] < 0 || (op === '-' && k * ys[i] < ys[j]) ? 'Use a number line if the signs are tricky.' : 'Check your arithmetic by working it out a second time.',
+            (() => {
+              const start = k * ys[i];
+              const move = op === '-' ? -ys[j] : ys[j];
+              return move === 0 ? `Adding or subtracting $0$ leaves $${start}$ unchanged.` : `On a number line, start at $${start}$ and move ${Math.abs(move)} to the ${move < 0 ? 'left' : 'right'}.`;
+            })(),
           ],
           'Once each function value is replaced by a number, the expression is ordinary arithmetic.',
           [{ value: op === '-' ? Q(k).mul(ys[i]).add(ys[j]) : null, tag: 'sign-error', feedback: 'Check the operation between the two numbers.' }],

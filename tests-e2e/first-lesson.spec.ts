@@ -5,6 +5,7 @@
  * mastery -> lesson complete -> XP and dashboard -> Parent Mode reports.
  */
 import { test, expect, Page } from '@playwright/test';
+import { fillAnswer } from './graph-helper';
 
 const LESSON = 'U1L01';
 const PROFILE = 1;
@@ -38,7 +39,7 @@ async function enter(page: Page, art: ReturnType<Page['locator']>, value: string
       await act(page, () => art.getByRole('button', { name: /Save answer/ }).click());
     } else await act(page, () => radio.click());
   } else {
-    await art.locator('input.answer-input').fill(value);
+    await fillAnswer(art, value);
     await act(page, () => art.getByRole('button', { name: deferred ? /Save answer/ : 'Check answer' }).click());
   }
 }

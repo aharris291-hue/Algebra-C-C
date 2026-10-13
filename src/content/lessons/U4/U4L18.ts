@@ -108,6 +108,7 @@ export const U4L18: LessonContent = {
     },
     { t: 'callout', variant: 'why', title: 'Why the window matters', text: 'A window from $-10$ to $10$ on both axes would show negative times and heights, and the whole flight would be squeezed into a tiny bump. Choosing the window from the situation makes the graph honest and easy to read.' },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Coaches model the arc of a kick, game designers write jump physics with parabolas, and small businesses (or a club selling merch) model revenue to choose the best price.' },
+    { t: 'callout', variant: 'tip', title: 'Drawing a graph in this app', text: 'Type a label for each axis, choose what one grid square is worth on each axis, then place points: click a grid intersection, or click the grid and use the arrow keys and Enter. Click a point again to remove it.' },
   ],
   examples: [
     {
@@ -316,6 +317,7 @@ export const U4L18: LessonContent = {
     { generator: 'u4.write-factored-form', difficulty: 1 },
     { generator: 'u4.model-situation', difficulty: 1 },
     { generator: 'u4.model-situation', difficulty: 1 },
+    { generator: 'u4.graph-quadratic-context', difficulty: 1 },
   ],
   independent: {
     count: 8,
@@ -328,6 +330,8 @@ export const U4L18: LessonContent = {
       { generator: 'u4.model-situation', difficulty: 1, weight: 1 },
       { generator: 'u4.model-situation', difficulty: 2, weight: 2 },
       { generator: 'u4.model-situation', difficulty: 3, weight: 1 },
+      { generator: 'u4.graph-quadratic-context', difficulty: 1, weight: 1 },
+      { generator: 'u4.graph-quadratic-context', difficulty: 2, weight: 1 },
     ],
   },
   quiz: {
@@ -338,6 +342,7 @@ export const U4L18: LessonContent = {
       { generator: 'u4.write-factored-form', difficulty: 3 },
       { generator: 'u4.model-situation', difficulty: 2 },
       { generator: 'u4.model-situation', difficulty: 3 },
+      { generator: 'u4.graph-quadratic-context', difficulty: 2 },
     ],
   },
   summary: [
