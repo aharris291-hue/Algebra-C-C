@@ -486,6 +486,11 @@ describe('Unit 9: capstone projects, semester review and semester assessment', (
     for (const p of v.practice!.problems) {
       const right = key(ctx, pid, 'U9L06', p.key);
       const wrong: Record<string, string> = { choice: '__none__', number: '987654', point: '(987654, 1)', 'region-point': '(-987654, -987654)', 'sequence-terms': '987654, 1, 2', interval: '(987654, 987655)', solutions: 'x = 987654', expression: `(${right}) + 987654` };
+      // a graph with every point moved one square (down, or up from the bottom edge) so it stays on the grid
+      if (p.answerKind === 'graph') {
+        const g = JSON.parse(right) as { p: [number, number][] };
+        wrong.graph = JSON.stringify({ ...g, p: g.p.map(([x, y]) => [x, y > 0 ? y - 1 : y + 1]) });
+      }
       v = D.daySubmit(ctx, pid, 'U9L06', p.key, wrong[p.answerKind] ?? right.replace(/(=|<=|>=|<|>)/, '$1 987654 +'), 30_000);
       let pv = v.practice!.problems.find((x) => x.key === p.key)!;
       if (pv.lastResponse === undefined) {

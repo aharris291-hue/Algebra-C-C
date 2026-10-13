@@ -272,10 +272,13 @@ describe('L4/L6: one daily goal, owned by the parent', () => {
   });
 });
 
-describe('L7: a migration beyond schema v1', () => {
-  const fakeV2 = { version: 2, description: 'test: add a column', sql: 'ALTER TABLE profiles ADD COLUMN test_color TEXT; UPDATE profiles SET test_color = \'blue\';' };
+describe('L7: a migration beyond the current schema', () => {
+  // the newest real schema version; the fake migrations come after it
+  const BASE = MIGRATIONS[MIGRATIONS.length - 1].version;
+  const BASE_COUNT = MIGRATIONS.length;
+  const fakeV2 = { version: BASE + 1, description: 'test: add a column', sql: 'ALTER TABLE profiles ADD COLUMN test_color TEXT; UPDATE profiles SET test_color = \'blue\';' };
   afterEach(() => {
-    while (MIGRATIONS.length > 1) MIGRATIONS.pop();
+    while (MIGRATIONS.length > BASE_COUNT) MIGRATIONS.pop();
   });
 
   async function v1DataDir(): Promise<string> {
@@ -290,18 +293,18 @@ describe('L7: a migration beyond schema v1', () => {
     const dir = await v1DataDir();
     const original = fs.readFileSync(path.join(dir, 'academy.sqlite'));
     MIGRATIONS.push(fakeV2);
-    expect(currentSchemaVersion()).toBe(2);
+    expect(currentSchemaVersion()).toBe(BASE + 1);
     const log = new MemoryLogger();
     const opened = await AppDatabase.open(dir, log);
-    expect(opened.migratedFrom).toBe(1);
-    expect(opened.db.schemaVersion()).toBe(2);
+    expect(opened.migratedFrom).toBe(BASE);
+    expect(opened.db.schemaVersion()).toBe(BASE + 1);
     expect(opened.db.all('SELECT display_name, test_color FROM profiles')).toEqual([{ display_name: 'Sam', test_color: 'blue' }]);
     const safety = fs.readdirSync(path.join(dir, 'backups', 'safety'));
     expect(safety).toHaveLength(1);
-    expect(safety[0]).toMatch(/^pre-migration-v1-/);
+    expect(safety[0]).toMatch(new RegExp(`^pre-migration-v${BASE}-`));
     const sb = fs.readFileSync(path.join(dir, 'backups', 'safety', safety[0]));
     const sql = await loadSqlJs();
-    expect(isValidSqlite(sql, new Uint8Array(sb)).version).toBe(1);
+    expect(isValidSqlite(sql, new Uint8Array(sb)).version).toBe(BASE);
     expect(sb.equals(original)).toBe(true);
     opened.db.close();
     // on disk it is version 2 now; opening again does not migrate (or back up) again
@@ -312,21 +315,21 @@ describe('L7: a migration beyond schema v1', () => {
     expect(again.db.get('SELECT test_color FROM profiles')).toEqual({ test_color: 'blue' });
     expect(fs.readdirSync(path.join(dir, 'backups', 'safety'))).toHaveLength(1);
     again.db.close();
-    expect(log.lines.filter((l) => l.includes('migrated to schema 2'))).toHaveLength(1);
+    expect(log.lines.filter((l) => l.includes(`migrated to schema ${BASE + 1}`))).toHaveLength(1);
   });
 
   it('a failing migration leaves the original data intact (on disk and when opened by the old schema)', async () => {
     const dir = await v1DataDir();
     const files = () => Object.fromEntries(['academy.sqlite', 'academy.sqlite.prev'].filter((f) => fs.existsSync(path.join(dir, f))).map((f) => [f, fs.readFileSync(path.join(dir, f)).toString('base64')]));
     const before = files();
-    MIGRATIONS.push(fakeV2, { version: 3, description: 'test: broken', sql: 'UPDATE profiles SET display_name = \'changed\'; INSERT INTO no_such_table VALUES (1);' });
+    MIGRATIONS.push(fakeV2, { version: BASE + 2, description: 'test: broken', sql: 'UPDATE profiles SET display_name = \'changed\'; INSERT INTO no_such_table VALUES (1);' });
     const err = await AppDatabase.open(dir, new MemoryLogger()).catch((e) => e);
     expect(err).toBeInstanceOf(MigrationError);
     expect(err.message).toMatch(/Nothing was changed/);
     // wait past the save delay: nothing may be written later either
     await new Promise((r) => setTimeout(r, 400));
     expect(files()).toEqual(before);
-    expect(fs.readdirSync(path.join(dir, 'backups', 'safety')).filter((f) => f.startsWith('pre-migration-v1-'))).toHaveLength(1);
+    expect(fs.readdirSync(path.join(dir, 'backups', 'safety')).filter((f) => f.startsWith(`pre-migration-v${BASE}-`))).toHaveLength(1);
     // with the broken migration fixed (removed), the data opens and migrates normally
     MIGRATIONS.pop();
     const ok = await AppDatabase.open(dir, new MemoryLogger());
@@ -343,7 +346,7 @@ describe('L7: a migration beyond schema v1', () => {
     MIGRATIONS.push(fakeV2);
     const r = await b.api.restoreBackup(PIN, v1Backup);
     expect(r.ok).toBe(true);
-    expect(b.ctx.db.schemaVersion()).toBe(2);
+    expect(b.ctx.db.schemaVersion()).toBe(BASE + 1);
     expect(b.ctx.db.get('SELECT test_color FROM profiles')).toEqual({ test_color: 'blue' });
     b.ctx.db.close();
   });
