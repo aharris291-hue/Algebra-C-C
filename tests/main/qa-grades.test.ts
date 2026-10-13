@@ -106,8 +106,8 @@ describe('time and weekly reports', () => {
     clock.step = 0;
     // 40 s on each of 4 days in two weeks: per-range rounding used to give 3 (all-time) vs 2+2
     for (let d = 0; d < 4; d++) {
-      addStudyTime(ctx, pid, null, 'dashboard', 20);
-      addStudyTime(ctx, pid, null, 'dashboard', 20);
+      addStudyTime(ctx, pid, null, 'independent', 20);
+      addStudyTime(ctx, pid, null, 'independent', 20);
       clock.t += (d === 1 ? 6 : 1) * 86_400_000;
     }
     const pd = getParentDashboard(ctx, pid);
@@ -118,7 +118,7 @@ describe('time and weekly reports', () => {
     const { ctx, pid, clock } = await makeCtx(Date.UTC(2026, 8, 7, 14, 0, 0)); // Mon Sep 7
     clock.step = 0;
     for (let d = 0; d < 5; d++) {
-      for (let i = 0; i < 21; i++) addStudyTime(ctx, pid, null, 'dashboard', 30); // 10.5 min qualifies the day
+      for (let i = 0; i < 21; i++) addStudyTime(ctx, pid, null, 'independent', 30); // 10.5 min qualifies the day
       clock.t += 86_400_000;
     }
     clock.t = Date.UTC(2026, 8, 30, 14, 0, 0);

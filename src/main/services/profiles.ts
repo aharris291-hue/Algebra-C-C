@@ -1,6 +1,6 @@
 /** Student profiles, per-profile settings, onboarding state and parent goals (spec §23, §39). */
 import { ServiceContext, UserFacingError, saveNow } from './context';
-import { DEFAULT_SETTINGS, OnboardingState, ProfileSummary, Settings } from '../../shared/api';
+import { DEFAULT_SETTINGS, GOAL_LIMITS, OnboardingState, ProfileSummary, Settings } from '../../shared/api';
 import { totalXp } from './records';
 import { levelForXp } from '../../core/engine/xp';
 
@@ -107,19 +107,26 @@ export function updateProfile(ctx: ServiceContext, id: number, changes: { displa
   return getProfile(ctx, id);
 }
 
+/**
+ * A profile's settings: only the known fields, each validated. Older saves may also hold
+ * `dailyGoalMinutes` (an unused student-side goal; the one daily goal is the parent's, in
+ * `goals`): it is ignored here and dropped the next time the settings are saved.
+ */
 export function getSettings(ctx: ServiceContext, id: number): Settings {
-  return safeJson<Settings>(requireProfile(ctx, id).settings_json, DEFAULT_SETTINGS);
+  return cleanSettings(safeJson<Partial<Settings>>(requireProfile(ctx, id).settings_json, {}), DEFAULT_SETTINGS);
 }
 
-export function updateSettings(ctx: ServiceContext, id: number, s: Partial<Settings>): Settings {
-  const cur = getSettings(ctx, id);
-  const next: Settings = {
+function cleanSettings(s: Partial<Settings>, cur: Settings): Settings {
+  return {
     sound: typeof s.sound === 'boolean' ? s.sound : cur.sound,
     reducedMotion: typeof s.reducedMotion === 'boolean' ? s.reducedMotion : cur.reducedMotion,
     textScale: typeof s.textScale === 'number' && s.textScale >= 0.9 && s.textScale <= 1.4 ? Math.round(s.textScale * 100) / 100 : cur.textScale,
     theme: s.theme === 'light' || s.theme === 'dark' || s.theme === 'system' ? s.theme : cur.theme,
-    dailyGoalMinutes: typeof s.dailyGoalMinutes === 'number' && s.dailyGoalMinutes >= 10 && s.dailyGoalMinutes <= 120 ? Math.round(s.dailyGoalMinutes) : cur.dailyGoalMinutes,
   };
+}
+
+export function updateSettings(ctx: ServiceContext, id: number, s: Partial<Settings>): Settings {
+  const next = cleanSettings(s ?? {}, getSettings(ctx, id));
   ctx.db.run('UPDATE profiles SET settings_json = ? WHERE id = ?', [JSON.stringify(next), id]);
   return next;
 }
@@ -145,7 +152,8 @@ export function setGoals(ctx: ServiceContext, id: number, g: { weeklyLessons: nu
   requireProfile(ctx, id);
   const wl = Math.round(g.weeklyLessons);
   const dm = Math.round(g.dailyMinutes);
-  if (!(wl >= 1 && wl <= 10)) throw new UserFacingError('Weekly lessons must be between 1 and 10.');
-  if (!(dm >= 10 && dm <= 120)) throw new UserFacingError('Daily minutes must be between 10 and 120.');
+  const L = GOAL_LIMITS;
+  if (!(wl >= L.weeklyLessons.min && wl <= L.weeklyLessons.max)) throw new UserFacingError(`Weekly lessons must be between ${L.weeklyLessons.min} and ${L.weeklyLessons.max}.`);
+  if (!(dm >= L.dailyMinutes.min && dm <= L.dailyMinutes.max)) throw new UserFacingError(`Daily minutes must be between ${L.dailyMinutes.min} and ${L.dailyMinutes.max}.`);
   ctx.db.run('INSERT OR REPLACE INTO goals(profile_id, weekly_lessons, daily_minutes, updated_at) VALUES (?,?,?,?)', [id, wl, dm, ctx.now()]);
 }

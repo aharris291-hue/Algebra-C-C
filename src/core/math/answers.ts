@@ -1050,6 +1050,36 @@ function withValue(spec: AnswerSpec, value: string): AnswerSpec {
   }
 }
 
+/** How close a wrong number must be to count as "close": within 5% of the answer. */
+export const NEAR_MISS_RELATIVE = 0.05;
+
+/**
+ * Is a wrong answer actually close to the right one? Only numeric answers can be: the value read
+ * from the input is within NEAR_MISS_RELATIVE (5%) of the exact answer, with the same sign, and the
+ * answer is not 0 (where a relative error means nothing). Every other wrong answer (a different
+ * number, a sign error, an unreadable input, any expression, equation or choice) is not close.
+ * Used to choose "Close. Look at it once more." over neutral encouragement.
+ */
+export function isNearMiss(spec: AnswerSpec, input: string): boolean {
+  if (spec.kind !== 'number') return false;
+  try {
+    const target = exactValue(spec.value);
+    if (!target || !target.isRational()) return false;
+    const t = target.rationalPart().toNumber();
+    const raw = stripUnit(input, spec.unit).replace(/^\s*[a-zA-Z]\s*=\s*/, '');
+    const got = numberValueOf(raw);
+    let v: number;
+    if (got.value !== null) v = got.value.toNumber();
+    else if (got.node && variablesOf(got.node).size === 0) v = evalNumeric(got.node);
+    else return false;
+    if (!Number.isFinite(v) || !Number.isFinite(t) || t === 0 || v === t) return false;
+    if (Math.sign(v) !== Math.sign(t)) return false;
+    return Math.abs(v - t) <= NEAR_MISS_RELATIVE * Math.abs(t);
+  } catch {
+    return false;
+  }
+}
+
 export function checkAnswer(spec: AnswerSpec, input: string, misconceptions?: Misconception[]): CheckResult {
   const r = checkAnswerAsTyped(spec, input, misconceptions);
   if (r.status !== 'invalid' || spec.kind === 'graph') return r;

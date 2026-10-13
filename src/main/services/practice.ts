@@ -4,7 +4,7 @@
  * The renderer never receives the answer key for an open problem.
  */
 import type { Difficulty, GeneratorDef, Problem, ProblemRef } from '../../core/curriculum/types';
-import { checkAnswer, answerToText, AnswerSpec, requestedFormIssue, CheckResult, Misconception } from '../../core/math/answers';
+import { checkAnswer, isNearMiss, answerToText, AnswerSpec, requestedFormIssue, CheckResult, Misconception } from '../../core/math/answers';
 import { produceProblem } from '../../core/engine/problems';
 import { graphConfig } from '../../core/math/graphAnswer';
 import { createRng, deriveSeed } from '../../core/engine/rng';
@@ -183,7 +183,10 @@ function isStepMode(ps: PracticeState, p: Problem): boolean {
   return (ps.activity === 'guided' || ps.activity === 'remediation') && !!p.steps && p.steps.length > 0;
 }
 
-const ENCOURAGE = ["Let's take another look.", 'Not quite yet. Check each step.', 'Close. Look at it once more.', 'Keep going. A hint can help if you want one.'];
+/** Neutral encouragement after a wrong answer (rotated by try). */
+export const ENCOURAGE = ["Let's take another look.", 'Not quite yet. Check each step.', 'Keep going. A hint can help if you want one.'];
+/** Only for a wrong answer that really is close (see isNearMiss). */
+export const NEAR_MISS_MESSAGE = 'Close. Look at it once more.';
 
 export interface SubmitOutcome {
   resolved: boolean;
@@ -248,7 +251,7 @@ export function submitImmediate(ctx: ServiceContext, profileId: number, lessonId
     s.attempts++;
     s.stepAttempts = (s.stepAttempts ?? 0) + 1;
     const tries = stepMode ? s.stepAttempts : s.attempts;
-    const msg = result.message ?? ENCOURAGE[(tries - 1) % ENCOURAGE.length];
+    const msg = result.message ?? (isNearMiss(spec, response) ? NEAR_MISS_MESSAGE : ENCOURAGE[(tries - 1) % ENCOURAGE.length]);
     const extra = ps.hintsAllowed && s.hintLevel < 4 && tries >= 2 ? ' Try a hint if you are stuck.' : '';
     s.lastFeedback = { status: 'incorrect', message: msg + extra, misconception: result.misconception };
     recordAttempt(ctx, base(profileId, lessonId, ps, s, response, 'incorrect', false, elapsed, false, 0, false, stepMode ? s.stepIndex : null, result.misconception));

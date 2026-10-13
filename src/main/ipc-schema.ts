@@ -5,7 +5,7 @@
  */
 import type { AcademyApi } from '../shared/api';
 
-type ArgType = 'string' | 'int' | 'number' | 'object' | 'string?' | 'int?' | 'string|null';
+type ArgType = 'string' | 'int' | 'number' | 'object' | 'string?' | 'int?' | 'string|null' | 'short-string' | 'short-string?';
 
 export const ARG_SCHEMA: Record<keyof AcademyApi, ArgType[]> = {
   getStatus: [],
@@ -67,9 +67,12 @@ export const ARG_SCHEMA: Record<keyof AcademyApi, ArgType[]> = {
   exportBackup: ['string'],
   inspectBackup: ['string', 'string'],
   restoreBackup: ['string', 'string'],
+  reportClientError: ['short-string', 'short-string', 'short-string?'],
 };
 
 const MAX_STRING = 250 * 1024 * 1024; // backups are large strings
+/** diagnostics text from the renderer (error messages, stacks): anything longer is refused */
+export const MAX_SHORT_STRING = 20_000;
 
 export function validateArgs(method: string, args: unknown[]): string | null {
   const schema = (ARG_SCHEMA as Record<string, ArgType[] | undefined>)[method];
@@ -83,6 +86,7 @@ export function validateArgs(method: string, args: unknown[]): string | null {
     const base = t.replace('?', '');
     const ok =
       base === 'string' ? typeof a === 'string' && a.length <= MAX_STRING
+      : base === 'short-string' ? typeof a === 'string' && a.length <= MAX_SHORT_STRING
       : base === 'int' ? Number.isSafeInteger(a)
       : base === 'number' ? typeof a === 'number' && Number.isFinite(a)
       : base === 'object' ? typeof a === 'object' && a !== null && !Array.isArray(a)

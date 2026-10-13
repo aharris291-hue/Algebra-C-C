@@ -25,14 +25,27 @@ export const SECTION_TITLES: Record<SectionId, string> = {
 
 export type ActivityKind = 'guided' | 'independent' | 'quiz' | 'review' | 'assessment' | 'diagnostic' | 'testout' | 'remediation' | 'corrections';
 
+/**
+ * Activities whose time counts as learning time (study minutes and the streak's 10-minute rule):
+ * every lesson section, review/assessment/project days, the diagnostic and practice. Time on the
+ * dashboard, course map, skills list or settings is not learning time and is never recorded.
+ */
+export const LEARNING_ACTIVITIES: readonly string[] = [...LESSON_SECTIONS, 'review', 'assessment', 'diagnostic', 'testout', 'remediation', 'corrections', 'practice'];
+export function isLearningActivity(activity: string): boolean {
+  return LEARNING_ACTIVITIES.includes(activity);
+}
+
 export interface Settings {
   sound: boolean;
   reducedMotion: boolean;
   textScale: number; // 0.9 .. 1.4
   theme: 'light' | 'dark' | 'system';
-  dailyGoalMinutes: number;
 }
-export const DEFAULT_SETTINGS: Settings = { sound: false, reducedMotion: false, textScale: 1, theme: 'system', dailyGoalMinutes: 30 };
+/** Limits of the parent's goals; the service enforces them and the Parent Mode inputs use the same values. */
+export const GOAL_LIMITS = { weeklyLessons: { min: 1, max: 10 }, dailyMinutes: { min: 10, max: 120 } } as const;
+
+/** The daily study goal is not a student setting: it is the parent's goal (goals.daily_minutes). */
+export const DEFAULT_SETTINGS: Settings = { sound: false, reducedMotion: false, textScale: 1, theme: 'system' };
 
 export interface ProfileSummary {
   id: number;
@@ -380,7 +393,16 @@ export interface ParentDashboard {
   support: { attempts: number; hintsUsed: number; teachAgainUses: number; teachAgainByLesson: Array<{ lessonId: string; title: string; count: number }>; repeatedErrors: Array<{ misconception: string; label: string; count: number }>; firstTryAccuracy: number | null };
   recentActivity: Array<{ at: number; text: string }>;
   upcoming: CourseLesson[];
+  /** the Overview's "Coming up" card: next course days, the next unit/semester assessment, milestones */
+  comingUp: ComingUp;
   goals: { weeklyLessons: number; dailyMinutes: number };
+}
+
+export interface ComingUp {
+  nextLessons: CourseLesson[];
+  /** the next unit or semester assessment not yet finished; `daysBefore` open course days come first */
+  nextAssessment: { id: string; title: string; kind: LessonKind; daysBefore: number; weeksAtGoal: number } | null;
+  milestones: string[];
 }
 
 export interface StandardProgress {
@@ -501,6 +523,9 @@ export interface AcademyApi {
   exportBackup(parentPin: string): Promise<{ fileName: string; data: string }>;
   inspectBackup(parentPin: string, data: string): Promise<BackupInfo>;
   restoreBackup(parentPin: string, data: string): Promise<{ ok: boolean; message: string; safetyBackup?: string }>;
+  // diagnostics
+  /** write a renderer error to the local log (kind: error | unhandledrejection | boundary); scrubbed and truncated in the main process */
+  reportClientError(kind: string, message: string, detail?: string): Promise<{ logged: boolean }>;
 }
 
 export const API_METHODS: Array<keyof AcademyApi> = [
@@ -511,4 +536,5 @@ export const API_METHODS: Array<keyof AcademyApi> = [
   'finishQuiz', 'startRemediation', 'retakeQuiz', 'startTestOut', 'teachMeAgain', 'openDay', 'startDay', 'daySubmit', 'dayHint', 'dayReveal', 'dayNext', 'daySelect', 'finishDay', 'retakeDay', 'heartbeat', 'previewAnswer',
   'getStudentDashboard', 'getParentDashboard', 'getWeeklyReport', 'getSkillMastery', 'getStandards', 'getStandardsProgress', 'getAssessmentDetail',
   'exportBackup', 'inspectBackup', 'restoreBackup',
+  'reportClientError',
 ];

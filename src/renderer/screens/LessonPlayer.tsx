@@ -2,7 +2,7 @@
  * The lesson player (spec §7-§12): ten sections in order, autosaved by the app after every
  * action. The UI only displays what the main process returns.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LessonView, SectionId, TeachAgainView } from '../../shared/api';
 import { SECTION_TITLES } from '../../shared/api';
 import { api, errorMessage } from '../api';
@@ -12,6 +12,7 @@ import { PracticePanel } from '../components/Practice';
 import { Results } from '../components/Results';
 import { STAGE_LABEL } from '../labels';
 import { playSound } from '../sound';
+import { useDialogFocus } from '../components/useDialogFocus';
 
 export function LessonPlayer(props: { profileId: number; lessonId: string; testOut?: boolean; onExit: () => void; onOpenLesson: (id: string) => void; setActivity: (lessonId: string | null, activity: string) => void; tools?: React.ReactNode }) {
   const { profileId, lessonId } = props;
@@ -19,6 +20,9 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [teach, setTeach] = useState<TeachAgainView | null>(null);
+  // the button that opened Teach Me Again gets focus back when it closes (it is disabled while
+  // loading, which takes focus off it, so it is remembered here)
+  const teachOpener = useRef<HTMLElement | null>(null);
 
   const run = useCallback(async (fn: () => Promise<LessonView>) => {
     setBusy(true);
@@ -93,6 +97,7 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
   };
 
   const openTeach = async (approach?: string) => {
+    if (!teach && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) teachOpener.current = document.activeElement;
     setBusy(true);
     try {
       setTeach(await api.teachMeAgain(profileId, lessonId, approach));
@@ -191,6 +196,7 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
           options={view.teachAgainOptions}
           onClose={() => setTeach(null)}
           onAnother={(a) => openTeach(a)}
+          returnFocusTo={() => (teachOpener.current?.isConnected ? teachOpener.current : document.querySelector<HTMLElement>('.btn-teach'))}
           busy={busy}
         />
       )}
@@ -474,16 +480,14 @@ function Mastery(props: { view: LessonView; busy: boolean; actions: Parameters<t
   );
 }
 
-function TeachAgainDialog(props: { t: TeachAgainView; options: LessonView['teachAgainOptions']; onClose: () => void; onAnother: (approach?: string) => void; busy: boolean }) {
+function TeachAgainDialog(props: { t: TeachAgainView; options: LessonView['teachAgainOptions']; onClose: () => void; onAnother: (approach?: string) => void; returnFocusTo: () => HTMLElement | null; busy: boolean }) {
   const { t } = props;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [props]);
+  const ref = useRef<HTMLDivElement>(null);
+  // modal: focus stays inside, Escape closes, focus goes back to the button that opened it
+  useDialogFocus(ref, props.onClose, { trap: true, returnFocusTo: props.returnFocusTo });
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="teach-title" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="teach-title" ref={ref} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <header className="modal-head">
           <h2 id="teach-title">
             Teach Me Again: <Inline text={t.title} />

@@ -4,16 +4,18 @@
  * process on every protected call.
  */
 import { useEffect, useState } from 'react';
+import { GOAL_LIMITS } from '../../shared/api';
 import type { ParentDashboard, ProfileSummary, ResultsView, WeeklyReport, BackupInfo, AppStatus, StandardProgress } from '../../shared/api';
 import { api, errorMessage, saveBackupFile, pickBackupFile, openDataFolder, printPage, isDesktop } from '../api';
-import { AVATAR_EMOJI, STAGE_LABEL, fmtDate, fmtMinutes } from '../labels';
+import { AVATAR_EMOJI, KIND_LABEL, STAGE_LABEL, fmtDate, fmtMinutes } from '../labels';
 import { Results } from '../components/Results';
 import { Progress, Stat } from './Home';
 
 export function ParentMode(props: { onExit: () => void; onRestored: () => void }) {
   const [pin, setPin] = useState<string | null>(null);
   if (!pin) return <PinGate onOk={setPin} onCancel={props.onExit} />;
-  return <ParentHome pin={pin} onExit={props.onExit} onRestored={props.onRestored} />;
+  // a PIN change inside Parent Mode switches this session to the new PIN at once
+  return <ParentHome pin={pin} onPinChanged={setPin} onExit={props.onExit} onRestored={props.onRestored} />;
 }
 
 function PinGate(props: { onOk: (pin: string) => void; onCancel: () => void }) {
@@ -116,7 +118,7 @@ const TABS: Array<[Tab, string]> = [
   ['data', 'Backup & security'],
 ];
 
-function ParentHome(props: { pin: string; onExit: () => void; onRestored: () => void }) {
+function ParentHome(props: { pin: string; onPinChanged: (pin: string) => void; onExit: () => void; onRestored: () => void }) {
   const { pin } = props;
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
   const [pid, setPid] = useState<number | null>(null);
@@ -136,7 +138,16 @@ function ParentHome(props: { pin: string; onExit: () => void; onRestored: () => 
   useEffect(() => {
     if (pid === null) return;
     setD(null);
-    api.getParentDashboard(pin, pid).then(setD, (e) => setError(errorMessage(e)));
+    setError(null);
+    // a slower answer for a previously selected student (or the old PIN) must not overwrite this one
+    let current = true;
+    api.getParentDashboard(pin, pid).then(
+      (v) => current && setD(v),
+      (e) => current && setError(errorMessage(e)),
+    );
+    return () => {
+      current = false;
+    };
   }, [pid, pin, reload]);
 
   return (
@@ -171,7 +182,7 @@ function ParentHome(props: { pin: string; onExit: () => void; onRestored: () => 
         </div>
       )}
       {tab === 'students' && <Students pin={pin} profiles={profiles} onChanged={() => setReload((x) => x + 1)} />}
-      {tab === 'data' && <DataTab pin={pin} onRestored={props.onRestored} />}
+      {tab === 'data' && <DataTab pin={pin} onPinChanged={props.onPinChanged} onRestored={props.onRestored} />}
       {tab !== 'students' && tab !== 'data' && pid !== null && !d && <p className="loading">Loading…</p>}
       {tab !== 'students' && tab !== 'data' && pid === null && <p>Add a student first.</p>}
       {d && tab === 'overview' && <Overview d={d} />}
@@ -209,12 +220,15 @@ function Overview({ d }: { d: ParentDashboard }) {
             <Stat label="Streak" value={`${d.engagement.streak} d`} />
             <Stat label="Longest" value={`${d.engagement.longestStreak} d`} />
             <Stat label="Level" value={String(d.engagement.level)} />
+            <Stat label="XP" value={String(d.engagement.xp)} />
           </div>
           <div className="stat-row">
+            <Stat label="Lessons this week" value={`${d.engagement.weeklyLessons} of ${d.goals.weeklyLessons}`} />
             <Stat label="This week" value={fmtMinutes(d.time.thisWeekMinutes)} />
             <Stat label="All time" value={fmtMinutes(d.time.totalMinutes)} />
           </div>
         </section>
+        <ComingUpCard c={d.comingUp} />
         <section className="card">
           <h2>Needs attention</h2>
           {d.needsAttention.length === 0 ? (
@@ -299,6 +313,49 @@ function Overview({ d }: { d: ParentDashboard }) {
         </section>
       </div>
     </>
+  );
+}
+
+function ComingUpCard({ c }: { c: ParentDashboard['comingUp'] }) {
+  return (
+    <section className="card" aria-labelledby="coming-up-title">
+      <h2 id="coming-up-title">Coming up</h2>
+      {c.nextLessons.length === 0 ? (
+        <p className="sub">Every course day is finished.</p>
+      ) : (
+        <>
+          <h3>Next course days</h3>
+          <ol className="compact">
+            {c.nextLessons.map((l) => (
+              <li key={l.id}>
+                Day {l.day}: {l.title}
+                {l.kind !== 'lesson' && <span className="tag">{KIND_LABEL[l.kind]}</span>}
+                {l.status === 'in_progress' && <span className="sub"> (in progress)</span>}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {c.nextAssessment && (
+        <>
+          <h3>Next assessment</h3>
+          <p>
+            {c.nextAssessment.title}{' '}
+            <span className="sub">
+              {c.nextAssessment.daysBefore === 0
+                ? '(next up)'
+                : `(after ${c.nextAssessment.daysBefore} more course day${c.nextAssessment.daysBefore === 1 ? '' : 's'}, about ${c.nextAssessment.weeksAtGoal} week${c.nextAssessment.weeksAtGoal === 1 ? '' : 's'} at the weekly goal)`}
+            </span>
+          </p>
+        </>
+      )}
+      <h3>Milestones</h3>
+      <ul className="compact">
+        {c.milestones.map((m, i) => (
+          <li key={i}>{m}</li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -718,11 +775,11 @@ function Students({ pin, profiles, onChanged }: { pin: string; profiles: Profile
             <>
               <label className="field inline">
                 <span>Lessons per week</span>
-                <input type="number" min={1} max={10} value={goals[p.id].weeklyLessons} onChange={(e) => setGoals({ ...goals, [p.id]: { ...goals[p.id], weeklyLessons: Number(e.target.value) } })} />
+                <input type="number" min={GOAL_LIMITS.weeklyLessons.min} max={GOAL_LIMITS.weeklyLessons.max} value={goals[p.id].weeklyLessons} onChange={(e) => setGoals({ ...goals, [p.id]: { ...goals[p.id], weeklyLessons: Number(e.target.value) } })} />
               </label>
               <label className="field inline">
                 <span>Minutes per day</span>
-                <input type="number" min={10} max={180} step={5} value={goals[p.id].dailyMinutes} onChange={(e) => setGoals({ ...goals, [p.id]: { ...goals[p.id], dailyMinutes: Number(e.target.value) } })} />
+                <input type="number" min={GOAL_LIMITS.dailyMinutes.min} max={GOAL_LIMITS.dailyMinutes.max} step={5} value={goals[p.id].dailyMinutes} onChange={(e) => setGoals({ ...goals, [p.id]: { ...goals[p.id], dailyMinutes: Number(e.target.value) } })} />
               </label>
               <button className="btn btn-small" onClick={() => saveGoals(p.id)}>
                 Save goals
@@ -771,9 +828,16 @@ function Students({ pin, profiles, onChanged }: { pin: string; profiles: Profile
               className="btn btn-small"
               onClick={async () => {
                 if (p.archived || confirmArchive === p.id) {
-                  await api.updateProfile(pin, p.id, { archived: !p.archived });
-                  setConfirmArchive(null);
-                  onChanged();
+                  setMsg(null);
+                  try {
+                    await api.updateProfile(pin, p.id, { archived: !p.archived });
+                    onChanged();
+                  } catch (e) {
+                    // e.g. restoring a profile whose name another active student now uses
+                    setMsg(errorMessage(e));
+                  } finally {
+                    setConfirmArchive(null);
+                  }
                 } else setConfirmArchive(p.id);
               }}
             >
@@ -809,7 +873,7 @@ function Students({ pin, profiles, onChanged }: { pin: string; profiles: Profile
   );
 }
 
-function DataTab({ pin, onRestored }: { pin: string; onRestored: () => void }) {
+function DataTab({ pin, onPinChanged, onRestored }: { pin: string; onPinChanged: (pin: string) => void; onRestored: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, setPending] = useState<{ name: string; data: string; info: BackupInfo } | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -851,11 +915,18 @@ function DataTab({ pin, onRestored }: { pin: string; onRestored: () => void }) {
     }
   };
   const changePin = async () => {
-    const r = await api.changeParentPin(cur, next);
-    setMsg(r.ok ? 'PIN changed. Use the new PIN next time you open Parent Mode.' : r.message ?? 'The PIN was not changed.');
-    if (r.ok) {
-      setCur('');
-      setNext('');
+    setMsg(null);
+    try {
+      const newPin = next;
+      const r = await api.changeParentPin(cur, newPin);
+      setMsg(r.ok ? 'PIN changed. Use the new PIN from now on.' : r.message ?? 'The PIN was not changed.');
+      if (r.ok) {
+        setCur('');
+        setNext('');
+        onPinChanged(newPin);
+      }
+    } catch (e) {
+      setMsg(errorMessage(e));
     }
   };
   return (

@@ -6,9 +6,10 @@
 import crypto from 'node:crypto';
 import type { BackupInfo } from '../../shared/api';
 import { AppDatabase, isValidSqlite, loadSqlJs, NewerDatabaseError } from '../db/database';
-import { CURRENT_SCHEMA_VERSION } from '../db/schema';
+import { currentSchemaVersion } from '../db/schema';
 import { ServiceContext, today, saveNow } from './context';
 import { logActivity } from './records';
+import type { Logger } from '../logger';
 
 export const BACKUP_FORMAT = 'algebra-cc-academy-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -76,6 +77,15 @@ interface Checked {
 }
 
 async function check(ctx: ServiceContext, data: string): Promise<Checked> {
+  return checkBackupData(data, ctx.log);
+}
+
+/**
+ * Every check a restore makes before anything is changed (format, checksum, SQLite integrity,
+ * tables, schema version, this app's columns). Needs no open database, so it is also used to
+ * restore at startup when no copy of the student data can be read.
+ */
+export async function checkBackupData(data: string, log: Logger): Promise<Checked> {
   const fail = (reason: string): Checked => ({ info: { ok: false, reason } });
   if (typeof data !== 'string' || data.length === 0) return fail('The file is empty.');
   if (data.length > MAX_BACKUP_CHARS) return fail('The file is too large to be a backup from this app.');
@@ -94,8 +104,8 @@ async function check(ctx: ServiceContext, data: string): Promise<Checked> {
   const sql = await loadSqlJs();
   const v = isValidSqlite(sql, bytes);
   if (!v.ok) return fail(`The backup's data failed its integrity check (${v.reason}).`);
-  if (v.version! > CURRENT_SCHEMA_VERSION) return fail('This backup was made by a newer version of the app. Update the app, then restore.');
-  const db = await AppDatabase.fromBytes(bytes, ctx.log);
+  if (v.version! > currentSchemaVersion()) return fail('This backup was made by a newer version of the app. Update the app, then restore.');
+  const db = await AppDatabase.fromBytes(bytes, log);
   try {
     let names: string[];
     try {
@@ -118,28 +128,39 @@ export async function inspectBackup(ctx: ServiceContext, data: string): Promise<
 }
 
 export async function restoreBackup(ctx: ServiceContext, data: string): Promise<{ ok: boolean; message: string; safetyBackup?: string }> {
-  const c = await check(ctx, data);
+  const p = await prepareBackup(data, ctx.log, ctx.appVersion);
+  if (!p.ok) return { ok: false, message: p.message };
+  const finalBytes = p.bytes;
+  const safety = ctx.db.safetyBackup('before-restore');
+  ctx.db.replaceWith(finalBytes);
+  ctx.log.info('backup', 'restored a backup; previous data saved as a safety backup');
+  const first = ctx.db.get<{ id: number }>('SELECT id FROM profiles ORDER BY id LIMIT 1');
+  if (first) logActivity(ctx, first.id, 'restore', {});
+  return { ok: true, message: `Restored ${p.info.profiles?.length ?? 0} student profile(s). Your previous data was saved as a safety backup first.`, safetyBackup: safety };
+}
+
+/**
+ * Validate a backup file's contents and bring its database up to this app's schema, in memory.
+ * Returns the bytes to write, or a friendly reason. Nothing on disk is touched.
+ */
+export async function prepareBackup(data: string, log: Logger, appVersion: string): Promise<{ ok: true; info: BackupInfo; bytes: Uint8Array } | { ok: false; message: string }> {
+  const c = await checkBackupData(data, log);
   if (!c.info.ok || !c.bytes) return { ok: false, message: c.info.reason ?? 'The backup could not be used.' };
   // bring older backups up to date in memory, then re-validate what will be written
-  const incoming = await AppDatabase.fromBytes(c.bytes, ctx.log);
+  const incoming = await AppDatabase.fromBytes(c.bytes, log);
   let finalBytes: Uint8Array;
   try {
-    incoming.upgradeInMemory(ctx.appVersion);
+    incoming.upgradeInMemory(appVersion);
     finalBytes = incoming.exportBytes();
   } catch (e) {
     if (e instanceof NewerDatabaseError) return { ok: false, message: e.message };
     // a file whose tables do not match any version of this app (e.g. hand-made or damaged)
-    ctx.log.warn('backup', 'backup could not be upgraded: ' + (e as Error).message);
+    log.warn('backup', 'backup could not be upgraded: ' + (e as Error).message);
     return { ok: false, message: NOT_VALID };
   } finally {
     incoming.close();
   }
   const sql = await loadSqlJs();
   if (!isValidSqlite(sql, finalBytes).ok) return { ok: false, message: 'The backup could not be prepared for this version of the app.' };
-  const safety = ctx.db.safetyBackup('before-restore');
-  ctx.db.replaceWith(finalBytes);
-  ctx.log.info('backup', 'restored a backup; previous data saved as a safety backup');
-  const first = ctx.db.get<{ id: number }>('SELECT id FROM profiles ORDER BY id LIMIT 1');
-  if (first) logActivity(ctx, first.id, 'restore', {});
-  return { ok: true, message: `Restored ${c.info.profiles?.length ?? 0} student profile(s). Your previous data was saved as a safety backup first.`, safetyBackup: safety };
+  return { ok: true, info: c.info, bytes: finalBytes };
 }

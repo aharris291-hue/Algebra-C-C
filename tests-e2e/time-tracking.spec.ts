@@ -3,6 +3,7 @@
  * - C3: idle detection uses a monotonic clock, so an idle student is not credited after the
  *   system clock moves back.
  * - C5: one heartbeat interval per session, so moving between screens does not drop time.
+ * - H1: only learning screens (lesson, review/assessment day, diagnostic) send learning time.
  */
 import { test, expect, Page, APIRequestContext } from '@playwright/test';
 
@@ -45,8 +46,12 @@ test('an idle student is not credited after the system clock moves back', async 
   await page.clock.install({ time: new Date('2026-09-07T14:00:00Z') });
   const beats = countBeats(page);
   await pick(page, s.name);
+  // in a lesson (only learning screens send time)
+  await page.getByRole('button', { name: /START LEARNING/ }).click();
+  await page.locator('.lesson-body').waitFor();
   await page.mouse.move(100, 100);
   await page.clock.runFor(5 * 60_000); // 5 idle minutes
+  expect(beats.length).toBeGreaterThanOrEqual(4); // the 90 s grace is counted
   expect(beats.length).toBeLessThanOrEqual(6); // at most the 90 s grace
   await page.mouse.move(120, 120);
   await page.clock.runFor(30_000);
@@ -54,19 +59,45 @@ test('an idle student is not credited after the system clock moves back', async 
   const b0 = beats.length;
   await page.clock.runFor(10 * 60_000); // 10 idle minutes
   expect(beats.length - b0).toBeLessThanOrEqual(7);
+  expect(beats.length - b0).toBeGreaterThanOrEqual(3); // the rest of the 90 s grace
 });
 
-test('time keeps counting while the student moves between screens', async ({ page, request }) => {
+test('time keeps counting while the student moves between lesson sections', async ({ page, request }) => {
   const s = await newStudent(request);
   await page.clock.install({ time: new Date('2026-09-07T14:00:00Z') });
   const beats = countBeats(page);
   await pick(page, s.name);
-  // 3 active minutes, switching between the dashboard and the course map every 10 s
+  await page.getByRole('button', { name: /START LEARNING/ }).click();
+  await page.locator('.lesson-body').waitFor();
+  await page.getByRole('button', { name: /Continue to What You Need to Know/ }).click();
+  await expect(page.locator('.section-pill.current')).toContainText('What You Need to Know');
+  // 3 active minutes, switching between two lesson sections every 10 s
   for (let i = 0; i < 18; i++) {
     await page.mouse.move(100 + i, 100);
     await page.clock.runFor(10_000);
-    if (i % 2 === 0) await page.getByRole('button', { name: 'Course map' }).click();
-    else await page.getByRole('button', { name: /Dashboard/ }).click();
+    if (i % 2 === 0) await page.locator('.section-pill', { hasText: "Today's Goal" }).click();
+    else await page.getByRole('button', { name: /Continue to What You Need to Know/ }).click();
+    await expect(page.locator('.section-pill.current')).toContainText(i % 2 === 0 ? "Today's Goal" : 'What You Need to Know');
   }
   expect(beats.length).toBeGreaterThanOrEqual(11); // 12 expected
+});
+
+test('dashboard, course map, skills and settings time is not learning time (H1)', async ({ page, request }) => {
+  const s = await newStudent(request);
+  await page.clock.install({ time: new Date('2026-09-07T14:00:00Z') });
+  const beats = countBeats(page);
+  await pick(page, s.name);
+  // 12 active minutes moving between the non-learning screens
+  for (let i = 0; i < 72; i++) {
+    await page.mouse.move(100 + (i % 50), 100);
+    await page.clock.runFor(10_000);
+    if (i % 4 === 0) await page.getByRole('button', { name: 'Course map' }).click();
+    else if (i % 4 === 1) await page.getByRole('button', { name: /Dashboard/ }).click();
+    else if (i % 4 === 2) await page.getByRole('button', { name: 'Settings' }).click();
+    else await page.getByRole('button', { name: /Dashboard/ }).click();
+  }
+  expect(beats.length).toBe(0);
+  const d = await call(request, 'getStudentDashboard', [s.id]);
+  expect(d.todayMinutes).toBe(0);
+  expect(d.streak.todayCounted).toBe(false);
 });

@@ -3,7 +3,8 @@
  * window, read a table of values, see zeros, turning points and intersections, and fit a line of
  * best fit to data. Like a graphing calculator, it is a tool for exploring and checking work.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useDialogFocus } from './useDialogFocus';
 import type { GraphSpec } from '../../core/curriculum/types';
 import { Graph } from './Graph';
 import { parseGraphInput, pointsOfInterest, intersections, tableOfValues, parseData, linearRegression, oneVarStats, fmt, GraphEntry, PointOfInterest } from '../../core/math/graphing';
@@ -15,6 +16,10 @@ type Win = typeof STANDARD;
 const POI_LABEL: Record<PointOfInterest['kind'], string> = { zero: 'x-intercept', 'y-intercept': 'y-intercept', maximum: 'maximum', minimum: 'minimum', intersection: 'intersection' };
 
 export function GraphingTool(props: { onClose: () => void }) {
+  const panelRef = useRef<HTMLElement>(null);
+  // a side panel used next to the problem (not modal): focus moves in on open, Escape inside it
+  // closes it, and focus returns to the "Graphing tool" button
+  useDialogFocus(panelRef, props.onClose, { trap: false, returnFocusTo: () => document.querySelector<HTMLElement>('.gt-launch') });
   const [rows, setRows] = useState<string[]>(['', '', '', '']);
   const [win, setWin] = useState<Win>(STANDARD);
   const [draftWin, setDraftWin] = useState<Record<keyof Win, string>>({ xMin: '-10', xMax: '10', yMin: '-8', yMax: '8' });
@@ -102,7 +107,7 @@ export function GraphingTool(props: { onClose: () => void }) {
     (tableEntry?.kind === 'function' || tableEntry?.kind === 'inequality') && Number.isFinite(Number(tStart)) && Number(tStep) > 0 ? tableOfValues(tableEntry.ast, Number(tStart), Number(tStep), 10) : null;
 
   return (
-    <aside className="graphing-tool" role="dialog" aria-label="Graphing tool">
+    <aside className="graphing-tool" role="dialog" aria-label="Graphing tool" ref={panelRef} tabIndex={-1}>
       <header className="gt-head">
         <h2>Graphing tool</h2>
         <button className="btn btn-quiet" onClick={props.onClose} aria-label="Close the graphing tool">

@@ -1,7 +1,7 @@
 /** Top-level navigation, settings/theme, and the active-time heartbeat. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppStatus, Settings } from '../shared/api';
-import { DEFAULT_SETTINGS, SAVE_STATUS_EVENT } from '../shared/api';
+import { DEFAULT_SETTINGS, SAVE_STATUS_EVENT, isLearningActivity } from '../shared/api';
 import { api, errorMessage } from './api';
 import { setSoundEnabled } from './sound';
 import { FirstRun } from './screens/FirstRun';
@@ -14,6 +14,7 @@ import { DiagnosticPlayer } from './screens/DiagnosticPlayer';
 import { GraphingTool } from './components/GraphingTool';
 import { ParentMode } from './screens/Parent';
 import { SettingsScreen } from './screens/Settings';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 type Screen =
   | { name: 'loading' }
@@ -29,6 +30,8 @@ type Screen =
   | { name: 'parent'; back: 'profiles' | 'home' };
 
 const HEARTBEAT_SECONDS = 15;
+/** screens whose time is learning time: a lesson, a review/assessment day, the diagnostic */
+const LEARNING_SCREENS = new Set<Screen['name']>(['lesson', 'day', 'diagnostic']);
 const IDLE_AFTER_MS = 90_000;
 /** while saving is failing, how often the status is re-checked (a retry may have succeeded) */
 const SAVE_FAILING_RECHECK_MS = 2_000;
@@ -42,6 +45,8 @@ export function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [fatal, setFatal] = useState<string | null>(null);
   const [toolOpen, setToolOpen] = useState(false);
+  /** bumped by the error boundary's "Return to dashboard" so it always remounts */
+  const [boundaryNonce, setBoundaryNonce] = useState(0);
   const activity = useRef<{ lessonId: string | null; activity: string }>({ lessonId: null, activity: 'dashboard' });
   const lastInput = useRef(mono());
   // read by the single heartbeat interval, so screen changes do not restart it
@@ -95,8 +100,9 @@ export function App() {
       const pid = profileRef.current;
       const idleMs = mono() - lastInput.current;
       if (pid === null || document.hidden || !(idleMs >= 0 && idleMs <= IDLE_AFTER_MS)) return;
-      const name = screenRef.current;
-      if (name === 'parent' || name === 'profiles' || name === 'first-run' || name === 'loading') return;
+      // only learning screens send learning time: the dashboard, course map, skills list and
+      // settings are not study time (the main process also ignores non-learning activities)
+      if (!LEARNING_SCREENS.has(screenRef.current) || !isLearningActivity(activity.current.activity)) return;
       api.heartbeat(pid, activity.current.lessonId, activity.current.activity, HEARTBEAT_SECONDS).catch(() => undefined);
     }, HEARTBEAT_SECONDS * 1000);
     return () => {
@@ -177,6 +183,14 @@ export function App() {
   return (
     <div className="app">
       {banner}
+      <ErrorBoundary
+        key={`${screen.name}:${boundaryNonce}`}
+        onHome={() => {
+          setBoundaryNonce((n) => n + 1);
+          if (profileId !== null) go({ name: 'home' });
+          else start();
+        }}
+      >
       {screen.name === 'loading' && <div className="page loading">Starting…</div>}
       {screen.name === 'first-run' && (
         <FirstRun
@@ -234,6 +248,7 @@ export function App() {
           }}
         />
       )}
+      </ErrorBoundary>
     </div>
   );
 }
