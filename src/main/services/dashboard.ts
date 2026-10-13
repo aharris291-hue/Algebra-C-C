@@ -12,11 +12,11 @@ import { computeGrade, GradeResult, ScoredItem } from '../../core/engine/grading
 import { levelForXp, levelTitle } from '../../core/engine/xp';
 import { computeStreak, weekStart, addDays, dayDiff, localDate } from '../../core/engine/dates';
 import { STAGE_ORDER, MasteryStage } from '../../core/engine/mastery';
-import { summarizeSkills } from '../../core/engine/results';
 import { ServiceContext, UserFacingError, today } from './context';
 import { getProfile, getGoals } from './profiles';
-import { totalXp, skillStates } from './records';
+import { totalXp, skillStates, assessmentSummary, passShare } from './records';
 import { getCourse } from './lessons';
+import { isDoneForProgress } from '../../shared/progress';
 import { listAchievements } from './achievements';
 import { getProblem } from './practice';
 import { answerToText } from '../../core/math/answers';
@@ -235,10 +235,13 @@ export interface Pace {
   detail: string;
 }
 
-/** Pace against the parent's weekly lesson goal, counted from the first day of study. */
-export function paceFor(ctx: ServiceContext, profileId: number): Pace {
+/**
+ * Pace against the parent's weekly lesson goal, counted from the first day of study. Course days
+ * done are counted with isDoneForProgress, like every other progress number.
+ */
+export function paceFor(ctx: ServiceContext, profileId: number, course: CourseLesson[] = getCourse(ctx, profileId).flatMap((u) => u.lessons)): Pace {
   const goals = getGoals(ctx, profileId);
-  const completedDays = Number(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM lesson_progress WHERE profile_id = ? AND status IN ('completed','tested_out')", [profileId])!.n);
+  const completedDays = course.filter(isDoneForProgress).length;
   const first = ctx.db.get<{ t: number | null }>('SELECT MIN(started_at) AS t FROM lesson_progress WHERE profile_id = ?', [profileId])!.t;
   if (first === null || first === undefined) return { status: 'not-started', plannedDay: 0, completedDays: 0, detail: 'The course has not been started yet.' };
   const weeks = Math.floor(dayDiff(localDate(first, ctx.tzOffset(first)), today(ctx)) / 7) + 1;
@@ -310,7 +313,7 @@ export function getStudentDashboard(ctx: ServiceContext, profileId: number): Stu
   const profile = getProfile(ctx, profileId);
   const units = getCourse(ctx, profileId);
   const course = units.flatMap((u) => u.lessons);
-  const done = course.filter((c) => c.status === 'completed' || c.status === 'tested_out').length;
+  const done = course.filter(isDoneForProgress).length;
   const xp = totalXp(ctx, profileId);
   const lv = levelForXp(xp);
   const t = today(ctx);
@@ -319,8 +322,8 @@ export function getStudentDashboard(ctx: ServiceContext, profileId: number): Stu
   const skills = skillViews(ctx, profileId);
   const count = (s: MasteryStage) => skills.filter((k) => k.stage === s).length;
   const streak = streakFor(ctx, profileId);
-  const pace = paceFor(ctx, profileId);
-  const firstOpen = course.find((c) => c.status !== 'completed' && c.status !== 'tested_out');
+  const pace = paceFor(ctx, profileId, course);
+  const firstOpen = course.find((c) => !isDoneForProgress(c));
   const curUnit = firstOpen ? units.find((u) => u.lessons.some((l) => l.id === firstOpen.id)) : units[units.length - 1];
   const grade = gradeFor(ctx, profileId);
   const weekLessons = completedBetween(ctx, profileId, startOfLocalDate(ctx, ws), startOfLocalDate(ctx, addDays(ws, 7))).length;
@@ -345,7 +348,7 @@ export function getStudentDashboard(ctx: ServiceContext, profileId: number): Stu
     skills: { mastered: count('MASTERED'), proficient: count('PROFICIENT'), developing: count('DEVELOPING'), learning: count('LEARNING'), notStarted: count('NOT_STARTED'), total: skills.length },
     developingSkills: skills.filter((s) => s.stage === 'LEARNING' || s.stage === 'DEVELOPING').slice(0, 6),
     masteredSkills: skills.filter((s) => s.stage === 'MASTERED'),
-    upcoming: course.filter((c) => c.status !== 'completed' && c.status !== 'tested_out').slice(0, 5),
+    upcoming: course.filter((c) => !isDoneForProgress(c)).slice(0, 5),
     suggestedReview: skills.filter((s) => s.dueForReview).slice(0, 5),
     achievements: listAchievements(ctx, profileId),
     grade: { percent: grade.percent, letter: grade.letter },
@@ -375,16 +378,16 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
   const profile = getProfile(ctx, profileId);
   const units = getCourse(ctx, profileId);
   const course = units.flatMap((u) => u.lessons);
-  const done = course.filter((c) => c.status === 'completed' || c.status === 'tested_out').length;
+  const done = course.filter(isDoneForProgress).length;
   const grade = gradeFor(ctx, profileId);
-  const pace = paceFor(ctx, profileId);
+  const pace = paceFor(ctx, profileId, course);
   const skills = skillViews(ctx, profileId);
   const streak = streakFor(ctx, profileId);
   const xp = totalXp(ctx, profileId);
   const t = today(ctx);
   const ws = weekStart(t);
   const goals = getGoals(ctx, profileId);
-  const firstOpen = course.find((c) => c.status !== 'completed' && c.status !== 'tested_out');
+  const firstOpen = course.find((c) => !isDoneForProgress(c));
   const curUnit = firstOpen ? units.find((u) => u.lessons.some((l) => l.id === firstOpen.id)) : null;
 
   const assessRows = ctx.db.all<{ id: number; kind: string; ref_id: string; finished_at: number; score: number; max_score: number; duration_ms: number; attempt_number: number }>(
@@ -480,13 +483,11 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
       firstTryAccuracy: Number(att.first) ? Math.round((100 * Number(att.firstOk)) / Number(att.first)) : null,
     },
     recentActivity: recent,
-    upcoming: course.filter((c) => c.status !== 'completed' && c.status !== 'tested_out').slice(0, 5),
+    upcoming: course.filter((c) => !isDoneForProgress(c)).slice(0, 5),
     comingUp: comingUpFor(units, xp, skills, goals.weeklyLessons),
     goals,
   };
 }
-
-const isDone = (c: CourseLesson) => c.status === 'completed' || c.status === 'tested_out';
 
 /**
  * What is coming up next, for the Parent Overview: the next open course days, the next unit or
@@ -494,7 +495,7 @@ const isDone = (c: CourseLesson) => c.status === 'completed' || c.status === 'te
  */
 export function comingUpFor(units: CourseUnit[], xp: number, skills: SkillMasteryView[], weeklyLessons: number): ComingUp {
   const course = units.flatMap((u) => u.lessons);
-  const open = course.filter((c) => !isDone(c));
+  const open = course.filter((c) => !isDoneForProgress(c));
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const ai = open.findIndex((c) => c.kind === 'unit-assessment' || c.kind === 'semester-assessment');
   const a = ai >= 0 ? open[ai] : null;
@@ -503,7 +504,7 @@ export function comingUpFor(units: CourseUnit[], xp: number, skills: SkillMaster
   milestones.push(`Level ${lv.level + 1} in ${lv.needed - lv.current} XP (now level ${lv.level}, ${xp} XP).`);
   const cur = open.length ? units.find((u) => u.lessons.some((l) => l.id === open[0].id)) : undefined;
   if (cur) {
-    const left = cur.lessons.filter((l) => !isDone(l)).length;
+    const left = cur.lessons.filter((l) => !isDoneForProgress(l)).length;
     milestones.push(`Unit ${cur.number} (${cur.title}) is finished after ${plural(left, 'more course day')}.`);
   }
   const doneCount = course.length - open.length;
@@ -596,7 +597,7 @@ export function getWeeklyReport(ctx: ServiceContext, profileId: number, week?: s
   const needsAttention = weak.slice(0, 5).map((s) => s.name);
   const due = views.filter((s) => s.dueForReview).map((s) => s.name);
   const course = getCourse(ctx, profileId).flatMap((u) => u.lessons);
-  const next = course.find((c) => c.status !== 'completed' && c.status !== 'tested_out');
+  const next = course.find((c) => !isDoneForProgress(c));
   const recommendedFocus = [...needsAttention.slice(0, 2).map((n) => `Practice: ${n}`), ...due.slice(0, 2).map((n) => `Review: ${n}`), ...(next ? [`Next lesson: ${next.title}`] : [])];
   const streak = weekStreak(ctx, profileId, ws, we);
   const xpEarned = xpBetween(ctx, profileId, ws, we);
@@ -676,19 +677,11 @@ export function getAssessmentDetail(ctx: ServiceContext, profileId: number, asse
   const before = a.mastery_before_json ? (JSON.parse(a.mastery_before_json) as Record<string, MasteryStage>) : {};
   const after = a.mastery_after_json ? (JSON.parse(a.mastery_after_json) as Record<string, MasteryStage>) : {};
   const percent = a.max_score ? Math.round((1000 * a.score) / a.max_score) / 10 : 0;
-  const passPercent = a.kind === 'test-out' ? 85 : a.kind === 'quiz' ? 80 : 70;
-  const passed = percent >= passPercent;
-  // stored with the row since schema v2; an older row's summary is rebuilt from its saved answers
-  let summary: { didWell: string[]; needsPractice: string[]; nextStep: string } | null = null;
-  try {
-    summary = a.summary_json ? JSON.parse(a.summary_json) : null;
-  } catch {
-    summary = null;
-  }
-  if (!summary) {
-    const s = summarizeSkills(items.map((i) => ({ skill: i.skillName, correct: i.correct })));
-    summary = { ...s, nextStep: rebuiltNextStep(a.kind, passed, s.needsPractice) };
-  }
+  const passPercent = Math.round(passShare(a.kind, a.ref_id) * 100);
+  const passed = percent >= passPercent - 1e-9;
+  // stored with the row since schema v2; an older (v0.16) row's summary is rebuilt by the same function
+  // the results page of the day or lesson uses, so both show the same wording
+  const summary = assessmentSummary(ctx, profileId, { id: assessmentId, ...a });
   return {
     kind: (a.kind === 'test-out' ? 'test-out' : a.kind) as ResultsView['kind'],
     title: assessmentTitle(a.kind, a.ref_id),
@@ -707,21 +700,6 @@ export function getAssessmentDetail(ctx: ServiceContext, profileId: number, asse
     xpEarned: 0,
     canRetake: false,
   };
-}
-
-/** The recommended next step for an assessment saved before the summary was stored (schema v1). */
-function rebuiltNextStep(kind: string, passed: boolean, needsPractice: string[]): string {
-  const focus = needsPractice.length ? needsPractice.join(', ') : '';
-  if (kind === 'test-out') return passed ? 'Tested out of this lesson. Move on to the next lesson.' : 'Learn this lesson normally; its practice and quiz come next.';
-  if (kind === 'quiz') {
-    if (passed) return focus ? `Review the corrections for ${focus}, then move on.` : 'Passed with every question right. Move on to the next lesson.';
-    return `Use Teach Me Again and the targeted practice on ${focus || 'the missed skills'}, then retake the quiz.`;
-  }
-  if (kind === 'unit-assessment' || kind === 'semester-assessment') {
-    if (passed) return focus ? 'Passed. Fix the missed questions in the corrections, then move on.' : 'Passed with every question right. Move on.';
-    return `Not passed yet. Focus on ${focus || 'the missed skills'}, then retake it.`;
-  }
-  return focus ? `Go back over ${focus}. The lesson for each skill has Teach Me Again and more practice.` : 'Every question right. On to the next day.';
 }
 
 /** Teach Me Again uses that count as a support signal: this many in one lesson (each lesson teaches its own skills, so this is per skill too). */

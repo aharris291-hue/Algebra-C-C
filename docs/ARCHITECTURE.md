@@ -36,9 +36,10 @@ Shared pure code (no Electron, no DOM), fully unit-tested in Node:
   src/core/curriculum/  data types
   src/core/engine/      mastery, grading, XP/levels, streaks, scheduling, reports
   src/content/          standards, catalog (90 days), lesson content, generators
+  src/shared/progress.ts isDoneForProgress: the one rule for "done" in progress numbers
 ```
 
-The renderer never computes or writes grades, mastery, XP or completion. It sends student *actions* (answer submitted, hint requested, Teach Me Again opened, section finished); the main process checks answers, records attempts, and derives everything else. That is how Student Mode is prevented from editing records (spec §26) and how both dashboards share one source of truth (spec §45).
+The renderer never computes or writes grades, mastery, XP or completion. It sends student *actions* (answer submitted, hint requested, Teach Me Again opened, section finished); the main process checks answers, records attempts, and derives everything else. That is how Student Mode is prevented from editing records (spec §26) and how both dashboards share one source of truth (spec §45). Every progress number (current unit and week, semester %, pace, Coming up, milestones, the course map's days done) counts a course day as done with `isDoneForProgress` (completed, tested out, or an optional unit review the student may skip), so the student and parent views always agree.
 
 `src/harness/` runs the same services behind a local HTTP endpoint so the real UI can be tested end-to-end in Chromium (Playwright) on any OS. It is a development tool only and is not shipped.
 
@@ -84,7 +85,7 @@ Daily automatic backups go to `...\backups\auto\`. The date is checked on every 
 | `attempts(id, profile_id, lesson_id, activity, assessment_id, skill_id, generator_id, seed, difficulty, problem_index, step_index, response, status, correct, attempt_number, hints_used, max_hint_level, misconception, elapsed_ms, counted, created_at)` | Every answer submitted |
 | `hint_events(id, profile_id, lesson_id, activity, skill_id, generator_id, seed, level, created_at)` | Every hint revealed |
 | `teach_again_events(id, profile_id, lesson_id, approach, created_at)` | Teach Me Again usage (never penalized) |
-| `assessments(id, profile_id, kind, ref_id, attempt_number, started_at, finished_at, duration_ms, score, max_score, status, items_json, skills_json, mastery_before_json, mastery_after_json, summary_json)` | Quizzes, unit/semester assessments, diagnostic, test-out. `summary_json` (added in schema v2): the results summary shown when it was graded (did well, needs practice, next step); NULL for older rows, which rebuild it |
+| `assessments(id, profile_id, kind, ref_id, attempt_number, started_at, finished_at, duration_ms, score, max_score, status, items_json, skills_json, mastery_before_json, mastery_after_json, summary_json)` | Quizzes, unit/semester assessments, diagnostic, test-out. `summary_json` (added in schema v2): the results summary shown when it was graded (did well, needs practice, next step); NULL for older rows (v0.16), whose summary is rebuilt by `assessmentSummary` (records.ts) with the same `nextStepFor` that writes new ones; the day/lesson results page and the Parent detail both read the row's summary |
 | `skill_state(profile_id, skill_id, stage, score, evidence_count, last_practiced_at, next_review_at, mastered_at, updated_at)` | Cached mastery; always recomputable from `attempts` |
 | `xp_events(id, profile_id, amount, reason, ref, created_at)` | XP ledger; XP total = sum |
 | `achievements(profile_id, achievement_id, earned_at)` | Badges |

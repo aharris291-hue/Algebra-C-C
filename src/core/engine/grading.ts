@@ -24,6 +24,11 @@ export const LETTER_SCALE: Array<{ min: number; letter: string }> = [
 ];
 export const MAX_UNIT_ASSESSMENT_ATTEMPTS = 2;
 
+/** Share of a Show What You Know needed to test out. */
+export const TEST_OUT_PASS = 0.85;
+/** Share of a unit or semester assessment needed to pass. */
+export const ASSESSMENT_PASS = 0.7;
+
 export interface ScoredItem {
   refId: string; // lesson id or unit id
   score: number; // points earned

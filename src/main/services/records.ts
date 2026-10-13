@@ -3,7 +3,9 @@ import { ServiceContext, today } from './context';
 import { computeSkillState, Evidence, EvidenceActivity, MasteryStage, SkillState, STAGE_ORDER } from '../../core/engine/mastery';
 import { dayQualifies } from '../../core/engine/dates';
 import { XP_POLICY } from '../../core/engine/xp';
-import { SKILL_BY_ID } from '../../content';
+import { SKILL_BY_ID, LESSON_CONTENT } from '../../content';
+import { summarizeSkills, nextStepFor } from '../../core/engine/results';
+import { TEST_OUT_PASS, ASSESSMENT_PASS } from '../../core/engine/grading';
 import { isLearningActivity } from '../../shared/api';
 
 export interface AttemptRecord {
@@ -120,6 +122,81 @@ export function totalXp(ctx: ServiceContext, profileId: number): number {
  */
 export function storeResultsSummary(ctx: ServiceContext, assessmentId: number, r: { didWell: string[]; needsPractice: string[]; nextStep: string }): void {
   ctx.db.run('UPDATE assessments SET summary_json = ? WHERE id = ?', [JSON.stringify({ didWell: r.didWell, needsPractice: r.needsPractice, nextStep: r.nextStep }), assessmentId]);
+}
+
+export interface ResultsSummary {
+  didWell: string[];
+  needsPractice: string[];
+  nextStep: string;
+}
+
+/** The share of a graded set needed to pass it, by assessment kind (a review or project has no pass mark). */
+export function passShare(kind: string, refId: string): number {
+  if (kind === 'test-out') return TEST_OUT_PASS;
+  if (kind === 'quiz') return LESSON_CONTENT.get(refId)?.mastery.quizPassScore ?? 0.8;
+  if (kind === 'unit-assessment' || kind === 'semester-assessment') return ASSESSMENT_PASS;
+  return 0;
+}
+
+export interface AssessmentRow {
+  id: number;
+  kind: string;
+  ref_id: string;
+  attempt_number: number;
+  score: number;
+  max_score: number;
+  items_json: string;
+  summary_json: string | null;
+}
+
+/**
+ * The results summary of a graded assessment row: the one stored with it (schema v2), or, for a row
+ * saved before summaries were stored (v0.16, schema v1), rebuilt from its saved answers with the
+ * same functions that write it (summarizeSkills, nextStepFor). Both the results page of a day or
+ * lesson and the Parent Dashboard's assessment detail read it from here, so they always agree.
+ */
+export function assessmentSummary(ctx: ServiceContext, profileId: number, a: AssessmentRow): ResultsSummary {
+  try {
+    const s = a.summary_json ? (JSON.parse(a.summary_json) as ResultsSummary) : null;
+    if (s && Array.isArray(s.didWell) && Array.isArray(s.needsPractice) && typeof s.nextStep === 'string') return s;
+  } catch {
+    /* rebuilt below */
+  }
+  let stored: Array<{ skillId: string; correct: boolean }> = [];
+  try {
+    stored = JSON.parse(a.items_json);
+  } catch {
+    stored = [];
+  }
+  const name = (s: string) => SKILL_BY_ID.get(s)?.name ?? s;
+  const sum = summarizeSkills(stored.map((i) => ({ skill: name(i.skillId), correct: !!i.correct })));
+  const share = passShare(a.kind, a.ref_id);
+  const passes = (score: number, max: number) => max > 0 && score / max >= share - 1e-9;
+  const alreadyPassed =
+    (a.kind === 'unit-assessment' || a.kind === 'semester-assessment') &&
+    ctx.db
+      .all<{ score: number; max_score: number }>("SELECT score, max_score FROM assessments WHERE profile_id = ? AND ref_id = ? AND kind = ? AND status = 'completed' AND attempt_number < ?", [profileId, a.ref_id, a.kind, a.attempt_number])
+      .some((r) => passes(Number(r.score), Number(r.max_score)));
+  return {
+    ...sum,
+    nextStep: nextStepFor({ kind: a.kind, passed: passes(a.score, a.max_score), needsPractice: sum.needsPractice, missed: stored.filter((i) => !i.correct).length, attemptNumber: a.attempt_number, alreadyPassed }),
+  };
+}
+
+/**
+ * A day's or lesson's saved results with the summary of the assessment row they came from, so the
+ * results page and the Parent Dashboard show the same strengths, practice list and next step (a
+ * result saved by v0.16 kept its own wording in the lesson state; the row's summary replaces it).
+ */
+export function withRowSummary<R extends { kind: string; attemptNumber: number } & ResultsSummary>(ctx: ServiceContext, profileId: number, refId: string, rowKind: string, results: R | null): R | null {
+  if (!results) return results;
+  const row = ctx.db.get<AssessmentRow>(
+    "SELECT id, kind, ref_id, attempt_number, score, max_score, items_json, summary_json FROM assessments WHERE profile_id = ? AND ref_id = ? AND kind = ? AND attempt_number = ? AND status = 'completed' ORDER BY id DESC LIMIT 1",
+    [profileId, refId, rowKind, results.attemptNumber],
+  );
+  if (!row) return results;
+  const s = assessmentSummary(ctx, profileId, row);
+  return { ...results, didWell: s.didWell, needsPractice: s.needsPractice, nextStep: s.nextStep };
 }
 
 export function logActivity(ctx: ServiceContext, profileId: number, type: string, detail: Record<string, unknown>): void {

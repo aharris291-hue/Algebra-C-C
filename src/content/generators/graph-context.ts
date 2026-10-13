@@ -22,9 +22,37 @@ const INPUT_HINT = 'Label both axes, choose a scale for each, then place points 
 
 const text = (pr: Problem) => pr.prompt.map((b) => (b.t === 'p' ? b.text : '')).join(' ');
 
-function axis(options: string[], need: Rational, keys: Rational[], label: string, words: string[]): GraphAxis {
-  return { options, need: numStr(need), keys: keys.map(numStr), label, words };
+/**
+ * `words` name the quantity (see GraphAxis.words: a "*" stem matches every inflection, a unit word
+ * counts only when listed here); `units` are the units it may be written in, [] for a count.
+ */
+function axis(options: string[], need: Rational, keys: Rational[], label: string, q: Quantity): GraphAxis {
+  return { options, need: numStr(need), keys: keys.map(numStr), label, words: q.words, units: q.units };
 }
+
+interface Quantity {
+  words: string[];
+  units: string[];
+}
+
+/** The quantities on the axes, with the words a student may reasonably use for each. */
+const QTY = {
+  rentalHours: { words: ['time', 'hour', 'hr', 'length', 'duration', 'rental*', 'rented'], units: ['hour'] },
+  rentalCost: { words: ['cost*', 'dollar', 'price*', 'charge*', 'money', 'total*', 'pay*', 'paid', 'amount', 'spen*', 'fee*'], units: ['dollar'] },
+  drainMinutes: { words: ['time', 'minute', 'min', 'duration', 'elapsed'], units: ['minute'] },
+  water: { words: ['water', 'gallon', 'gal', 'volume', 'amount'], units: ['gallon'] },
+  babysitting: { words: ['babysit*', 'babysat', 'baby sit*', 'baby sat', 'baby-sit*', 'baby-sat', 'sitting'], units: ['hour'] },
+  tutoring: { words: ['tutor*'], units: ['hour'] },
+  sketchbooks: { words: ['sketch*', 'book*'], units: [] },
+  paintSets: { words: ['paint*', 'set', 'kit'], units: [] },
+  kickTime: { words: ['time', 'second', 'sec', 'elapsed'], units: ['second'] },
+  height: { words: ['height', 'high', 'tall', 'elevation', 'altitude'], units: ['foot'] },
+  side: { words: ['side', 'length', 'width', 'wide', 'long', 'dimension', 'base'], units: ['foot'] },
+  area: { words: ['area', 'square feet', 'square foot', 'sq ft', 'sq. ft', 'sqft', 'ft²', 'ft^2', 'space'], units: ['sqft'] },
+  growHours: { words: ['time', 'hour', 'hr', 'elapsed'], units: ['hour'] },
+  bacteria: { words: ['bacteri*', 'population', 'cell*', 'colon*', 'germ*', 'microbe*', 'organism*'], units: [] },
+  medicine: { words: ['medic*', 'drug*', 'mg', 'milligram', 'dose*', 'dosage', 'amount'], units: ['mg'] },
+} satisfies Record<string, Quantity>;
 
 function graphSpec(target: GraphTarget, rule: string, x: GraphAxis, y: GraphAxis, minPoints: number, cols = GRID): GraphAnswer {
   const spec: GraphAnswer = { kind: 'graph', target, rule, cols, rows: GRID, x, y, minPoints };
@@ -92,7 +120,7 @@ const LIN_Y = ['1', '2', '5', '10', '20', '25', '50', '100'];
 
 function linearProblem(rng: Rng, d: Difficulty): Problem {
   const drain = d === 3 || (d === 2 && rng.bool());
-  let m: Rational, b: Rational, xNeed: Rational, xKeys: Rational[], story: string, xl: [string, string[]], yl: [string, string[]], slopeWords: string, startWords: string;
+  let m: Rational, b: Rational, xNeed: Rational, xKeys: Rational[], story: string, xl: [string, Quantity], yl: [string, Quantity], slopeWords: string, startWords: string;
   if (!drain) {
     const fee = rng.pick([10, 20, 30, 40, 50]);
     const rate = rng.pick([5, 10, 15, 20]);
@@ -102,8 +130,8 @@ function linearProblem(rng: Rng, d: Difficulty): Problem {
     xNeed = Q(hours);
     xKeys = [];
     story = `A bike rental shop charges a ${money(fee)} fee plus ${money(rate)} per hour. Let $x$ be the number of hours and $y$ the total cost in dollars. Graph the total cost for rentals from 0 to ${hours} hours.`;
-    xl = ['Time (hours)', ['time', 'hour', 'hr']];
-    yl = ['Total cost (dollars)', ['cost', 'dollar', 'price', 'charge']];
+    xl = ['Time (hours)', QTY.rentalHours];
+    yl = ['Total cost (dollars)', QTY.rentalCost];
     slopeWords = `each hour adds ${money(rate)}`;
     startWords = `the fee, ${money(fee)}, is what you pay at 0 hours`;
   } else {
@@ -115,8 +143,8 @@ function linearProblem(rng: Rng, d: Difficulty): Problem {
     xNeed = Q(minutes);
     xKeys = [Q(minutes)];
     story = `A tank holds ${full} gallons of water. It drains at a steady ${rate} gallons per minute. Let $x$ be the time in minutes and $y$ the gallons of water left. Graph the water left from the moment it starts draining until the tank is empty.`;
-    xl = ['Time (minutes)', ['time', 'minute', 'min']];
-    yl = ['Water left (gallons)', ['water', 'gallon', 'volume', 'amount']];
+    xl = ['Time (minutes)', QTY.drainMinutes];
+    yl = ['Water left (gallons)', QTY.water];
     slopeWords = `each minute takes away ${rate} gallons`;
     startWords = `the tank starts with ${full} gallons at 0 minutes`;
   }
@@ -204,19 +232,19 @@ function inequalityProblem(rng: Rng, d: Difficulty): Problem {
   const T = lcm(X, Y) * c;
   const px = T / X;
   const py = T / Y;
-  let story: string, xl: [string, string[]], yl: [string, string[]], goal: string, testWords: string;
+  let story: string, xl: [string, Quantity], yl: [string, Quantity], goal: string, testWords: string;
   if (earn) {
     const phrase = strict ? 'more than' : 'at least';
     story = `You want to earn ${phrase} ${money(T)} this month. Babysitting pays ${money(px)} per hour and tutoring pays ${money(py)} per hour. Let $x$ be the hours of babysitting and $y$ the hours of tutoring. Graph the inequality that shows every combination of hours that meets your goal.`;
-    xl = ['Hours babysitting', ['babysitting', 'babysit']];
-    yl = ['Hours tutoring', ['tutoring', 'tutor']];
+    xl = ['Hours babysitting', QTY.babysitting];
+    yl = ['Hours tutoring', QTY.tutoring];
     goal = `${phrase} ${money(T)}`;
     testWords = 'Does working 0 hours of each meet the goal?';
   } else {
     const phrase = strict ? 'less than' : 'at most';
     story = `You can spend ${phrase} ${money(T)} on art supplies. Sketchbooks cost ${money(px)} each and paint sets cost ${money(py)} each. Let $x$ be the number of sketchbooks and $y$ the number of paint sets. Graph the inequality that shows every combination you can buy.`;
-    xl = ['Number of sketchbooks', ['sketchbook']];
-    yl = ['Number of paint sets', ['paint']];
+    xl = ['Number of sketchbooks', QTY.sketchbooks];
+    yl = ['Number of paint sets', QTY.paintSets];
     goal = `${phrase} ${money(T)}`;
     testWords = 'Does buying nothing at all fit the budget?';
   }
@@ -304,8 +332,8 @@ function quadraticProblem(rng: Rng, d: Difficulty): Problem {
     rule = `h = -16t^2 + ${v}t`;
     form = `-16t^2 + ${v}t`;
     story = `A ball is kicked straight up from the ground at ${v} feet per second. Its height in feet after $t$ seconds is $h(t) = -16t^2 + ${v}t$. Graph its height from the kick until it lands.`;
-    xA = axis(['0.25', '0.5', '1', '2'], Q(2 * k), [Q(k), Q(2 * k)], 'Time (seconds)', ['time', 'second', 'sec']);
-    yA = axis(['2', '4', '5', '8', '10', '16', '20', '25', '40', '50', '100'], Q(top), [Q(top)], 'Height (feet)', ['height', 'feet', 'foot', 'ft', 'high']);
+    xA = axis(['0.25', '0.5', '1', '2'], Q(2 * k), [Q(k), Q(2 * k)], 'Time (seconds)', QTY.kickTime);
+    yA = axis(['2', '4', '5', '8', '10', '16', '20', '25', '40', '50', '100'], Q(top), [Q(top)], 'Height (feet)', QTY.height);
     vertex = [Q(k), Q(top)];
     landing = Q(2 * k);
     vertexHint = `The ball is at height 0 when $-16t^2 + ${v}t = 0$, that is $-16t(t - ${2 * k}) = 0$. The highest point is halfway between those two times.`;
@@ -316,8 +344,8 @@ function quadraticProblem(rng: Rng, d: Difficulty): Problem {
     rule = `A = x(${2 * s} - x)`;
     form = `x(${2 * s} - x)`;
     story = `You have ${P} feet of fencing to make a rectangular pen. If one side is $x$ feet long, the side next to it is $${2 * s} - x$ feet, so the area is $A(x) = x(${2 * s} - x)$ square feet. Graph the area for every side length from 0 to ${2 * s} feet.`;
-    xA = axis(['1', '2', '5', '10'], Q(2 * s), [Q(s), Q(2 * s)], 'Side length (feet)', ['side', 'length', 'width']);
-    yA = axis(['1', '2', '5', '10', '25', '50', '100'], Q(s * s), [Q(s * s)], 'Area (square feet)', ['area']);
+    xA = axis(['1', '2', '5', '10'], Q(2 * s), [Q(s), Q(2 * s)], 'Side length (feet)', QTY.side);
+    yA = axis(['1', '2', '5', '10', '25', '50', '100'], Q(s * s), [Q(s * s)], 'Area (square feet)', QTY.area);
     vertex = [Q(s), Q(s * s)];
     landing = Q(2 * s);
     vertexHint = `The area is 0 when $x = 0$ and when $x = ${2 * s}$. The greatest area is halfway between those side lengths.`;
@@ -397,7 +425,7 @@ const EXP_Y = ['1', '2', '5', '10', '20', '25', '50', '100', '200', '250', '500'
 
 function exponentialProblem(rng: Rng, d: Difficulty): Problem {
   const kind = d === 1 ? 'double' : d === 2 ? rng.pick(['double', 'half'] as const) : rng.pick(['triple', 'half'] as const);
-  let a: number, b: Rational, n: number, story: string, yl: [string, string[]], bText: string, change: string;
+  let a: number, b: Rational, n: number, story: string, yl: [string, Quantity], bText: string, change: string;
   if (kind === 'double') {
     a = rng.pick([5, 10, 20, 25, 50]);
     n = rng.pick([3, 4]);
@@ -405,7 +433,7 @@ function exponentialProblem(rng: Rng, d: Difficulty): Problem {
     bText = '2';
     change = 'doubles every hour';
     story = `A colony starts with ${a} bacteria and doubles every hour. Let $x$ be the time in hours and $y$ the number of bacteria. Write $y = a(b)^x$ and graph it for the first ${n} hours.`;
-    yl = ['Number of bacteria', ['bacteria', 'population', 'cell', 'colony']];
+    yl = ['Number of bacteria', QTY.bacteria];
   } else if (kind === 'triple') {
     a = rng.pick([5, 10, 20]);
     n = 2;
@@ -413,7 +441,7 @@ function exponentialProblem(rng: Rng, d: Difficulty): Problem {
     bText = '3';
     change = 'triples every hour';
     story = `A colony starts with ${a} bacteria and triples every hour. Let $x$ be the time in hours and $y$ the number of bacteria. Write $y = a(b)^x$ and graph it for the first ${n} hours.`;
-    yl = ['Number of bacteria', ['bacteria', 'population', 'cell', 'colony']];
+    yl = ['Number of bacteria', QTY.bacteria];
   } else {
     n = rng.pick([3, 4]);
     a = rng.pick([5, 10, 25]) * 2 ** n;
@@ -421,12 +449,12 @@ function exponentialProblem(rng: Rng, d: Difficulty): Problem {
     bText = '0.5';
     change = 'is cut in half every hour';
     story = `A patient takes ${/^(8|11|18)/.test(String(a)) ? 'an' : 'a'} ${a} mg dose of a medicine. The amount in the body is cut in half every hour. Let $x$ be the time in hours and $y$ the milligrams left. Write $y = a(b)^x$ and graph it for the first ${n} hours.`;
-    yl = ['Medicine left (mg)', ['medicine', 'mg', 'milligram', 'dose', 'amount']];
+    yl = ['Medicine left (mg)', QTY.medicine];
   }
   const A = Q(a);
   const yNeed = kind === 'half' ? A : A.mul(b.pow(n));
   const rule = `y = ${a}(${bText})^x`;
-  const spec = graphSpec({ type: 'exponential', a: String(a), b: numStr(b) }, rule, axis(EXP_X, Q(n), [Q(1)], 'Time (hours)', ['time', 'hour', 'hr']), axis(EXP_Y, yNeed, [A], yl[0], yl[1]), 3, EXP_COLS);
+  const spec = graphSpec({ type: 'exponential', a: String(a), b: numStr(b) }, rule, axis(EXP_X, Q(n), [Q(1)], 'Time (hours)', QTY.growHours), axis(EXP_Y, yNeed, [A], yl[0], yl[1]), 3, EXP_COLS);
   const lin = kind === 'half' ? A.div(2).neg() : A.mul(b.sub(1));
   const mis = drawableGraphMisconceptions<Misconception>(spec, [
     { answer: JSON.stringify({ target: { type: 'line', m: numStr(lin), b: String(a) } }), tag: 'growth-decay', feedback: `Your points change by the same amount each hour, which makes a line. Here the amount ${change}: it is multiplied by the same factor each hour.` },

@@ -6,8 +6,9 @@ import crypto from 'node:crypto';
 import type { LessonContent, LessonMeta, ProblemRef } from '../../core/curriculum/types';
 import { LESSON_CONTENT, LESSON_BY_ID, LESSONS, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, generatorsForSkill, GENERATORS, CAPSTONE_CONTENT } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
-import { summarizeSkills } from '../../core/engine/results';
-import { MAX_UNIT_ASSESSMENT_ATTEMPTS } from '../../core/engine/grading';
+import { summarizeSkills, nextStepFor } from '../../core/engine/results';
+import { MAX_UNIT_ASSESSMENT_ATTEMPTS, TEST_OUT_PASS } from '../../core/engine/grading';
+import { isDoneForProgress } from '../../shared/progress';
 import { isStruggling, STAGE_ORDER, type MasteryStage } from '../../core/engine/mastery';
 import type { LessonView, ResultsView, SectionId, TeachAgainView, CourseUnit, CourseLesson, LessonStatus, SkillChange, OnboardingState } from '../../shared/api';
 import { LESSON_SECTIONS } from '../../shared/api';
@@ -31,7 +32,7 @@ import {
   findItem,
   getProblem,
 } from './practice';
-import { recordTeachAgain, bumpDay, awardXp, awardXpOnce, logActivity, skillStates, evidenceFor, storedStage, recomputeSkill, storeResultsSummary } from './records';
+import { recordTeachAgain, bumpDay, awardXp, awardXpOnce, logActivity, skillStates, evidenceFor, storedStage, recomputeSkill, storeResultsSummary, withRowSummary } from './records';
 import { answerToText } from '../../core/math/answers';
 import { checkAchievements } from './achievements';
 
@@ -78,7 +79,7 @@ interface ProgressRow {
   completed_at: number | null;
 }
 
-export const TEST_OUT_PASS = 0.85;
+export { TEST_OUT_PASS };
 /**
  * Timed activities (quizzes, assessments) record active time, not wall-clock time: each gap
  * between two actions counts up to this much, and a gap that runs backwards (the clock was
@@ -332,7 +333,7 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
     };
     const unit = units.get(u.id)!;
     unit.lessons.push(cl);
-    if (s.status === 'completed' || s.status === 'tested_out') unit.completedCount++;
+    if (isDoneForProgress(cl)) unit.completedCount++;
   }
   for (const unit of units.values()) {
     const skills = LESSONS.filter((l) => l.unitId === unit.id).flatMap((l) => l.skillsTaught);
@@ -800,17 +801,7 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       logActivity(ctx, profileId, 'quiz', { lessonId, title: meta.title, percent, passed });
     }
     st.xp += xp;
-    const nextStep = testOut
-      ? passed
-        ? missedSkills.length
-          ? `You tested out! Look over the question${graded.filter((g) => !g.correct).length === 1 ? '' : 's'} you missed below (${needsPractice.join(', ')}), then continue to the summary and move on to the next lesson.`
-          : 'You tested out with every question right! Continue to the summary and move on to the next lesson.'
-        : 'No problem. Work through the lesson; it will make the quiz much easier.'
-      : passed
-        ? missedSkills.length
-          ? `Review the corrections for ${needsPractice.join(', ')}, then finish the lesson.`
-          : 'Great work. Finish the lesson and move on.'
-        : `Use Teach Me Again and the targeted practice on ${needsPractice.join(', ')}, then retake the quiz.`;
+    const nextStep = nextStepFor({ kind: testOut ? 'test-out' : 'quiz', passed, needsPractice, missed: graded.filter((g) => !g.correct).length, attemptNumber });
     st.results = {
       kind: testOut ? 'test-out' : 'quiz',
       title: testOut ? `Show What You Know: ${meta.title}` : `${meta.title} Quiz`,
@@ -1012,7 +1003,7 @@ export function buildView(ctx: ServiceContext, profileId: number, lessonId: stri
         },
     teachAgainOptions: closedBook ? [] : content.teachMeAgain.map((t) => ({ approach: t.approach, title: t.title, used: st.teachAgainUsed.includes(t.approach) })),
     practice: ps && ps !== st.corrections && ps !== st.remediation?.practice ? practiceView(ps, suggestion) : null,
-    results: st.results,
+    results: withRowSummary(ctx, profileId, lessonId, st.results?.kind === 'test-out' ? 'test-out' : 'quiz', st.results),
     corrections: st.corrections ? practiceView(st.corrections) : null,
     remediation: st.remediation
       ? { active: !st.remediation.done, reason: st.remediation.reason, skills: st.remediation.skills.map((s) => SKILL_BY_ID.get(s)?.name ?? s), refreshers: (st.remediation.refreshers ?? []).map(refresherView) }

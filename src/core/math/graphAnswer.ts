@@ -33,8 +33,89 @@ export interface GraphAxis {
   keys: string[];
   /** a good label, shown in the worked solution */
   label: string;
-  /** a typed label must mention one of these (whole words, an "s" plural allowed) */
+  /**
+   * Words that name this axis's quantity: a typed label must mention one of them and must not mention
+   * one of the other axis's. Whole words with an "s"/"es" plural, or a stem ending in "*" that matches
+   * any word starting with it ("tutor*" for tutor, tutored, tutoring). A unit word (see UNITS) counts
+   * only when it is listed here, i.e. when the unit alone names the quantity in this situation
+   * ("dollars" for a cost); otherwise unit words are ignored when looking for the quantity.
+   */
   words: string[];
+  /**
+   * The units this quantity may be written in (ids from UNITS); [] for a count with no unit. A label
+   * with any other unit is wrong. Absent on specs saved before units were checked: no unit check.
+   */
+  units?: string[];
+}
+
+/** Units a student might write in a label, by id. Longer phrases are matched first. */
+export const UNITS: Record<string, { name: string; forms: string[] }> = {
+  second: { name: 'seconds', forms: ['seconds', 'second', 'secs', 'sec', 's'] },
+  minute: { name: 'minutes', forms: ['minutes', 'minute', 'mins', 'min'] },
+  hour: { name: 'hours', forms: ['hours', 'hour', 'hrs', 'hr', 'h'] },
+  day: { name: 'days', forms: ['days', 'day'] },
+  week: { name: 'weeks', forms: ['weeks', 'week'] },
+  year: { name: 'years', forms: ['years', 'year', 'yrs', 'yr'] },
+  sqft: { name: 'square feet', forms: ['square feet', 'square foot', 'sq. ft.', 'sq. ft', 'sq ft', 'sqft', 'ft²', 'ft^2', 'ft2'] },
+  sqm: { name: 'square meters', forms: ['square meters', 'square meter', 'square metres', 'sq m', 'm²', 'm^2'] },
+  foot: { name: 'feet', forms: ['feet', 'foot', 'ft'] },
+  inch: { name: 'inches', forms: ['inches', 'inch'] },
+  yard: { name: 'yards', forms: ['yards', 'yard', 'yd', 'yds'] },
+  mile: { name: 'miles', forms: ['miles', 'mile', 'mi'] },
+  meter: { name: 'meters', forms: ['meters', 'meter', 'metres', 'metre', 'cm', 'km'] },
+  gallon: { name: 'gallons', forms: ['gallons', 'gallon', 'gal'] },
+  liter: { name: 'liters', forms: ['liters', 'liter', 'litres', 'litre'] },
+  quart: { name: 'quarts', forms: ['quarts', 'quart', 'qt'] },
+  cup: { name: 'cups', forms: ['cups', 'cup'] },
+  mg: { name: 'milligrams', forms: ['milligrams', 'milligram', 'mg'] },
+  gram: { name: 'grams', forms: ['grams', 'gram', 'kg', 'kilograms', 'kilogram'] },
+  pound: { name: 'pounds', forms: ['pounds', 'pound', 'lbs', 'lb'] },
+  ounce: { name: 'ounces', forms: ['ounces', 'ounce', 'oz'] },
+  dollar: { name: 'dollars', forms: ['dollars', 'dollar', 'usd', '$'] },
+  cent: { name: 'cents', forms: ['cents', 'cent', '¢'] },
+  percent: { name: 'percent', forms: ['percent', '%'] },
+};
+
+const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Every unit form in one regex, longest first, so "sq ft" is read before "ft"; group i is form i. */
+const UNIT_FORMS: Array<{ id: string; form: string }> = Object.entries(UNITS)
+  .flatMap(([id, u]) => u.forms.map((form) => ({ id, form })))
+  .sort((a, b) => b.form.length - a.form.length);
+const UNIT_RE = new RegExp(
+  UNIT_FORMS.map(({ form }) => {
+    const body = esc(form).replace(/ /g, '\\s*');
+    // a one-letter unit ("s", "h") counts only alone in parentheses, as in "Time (h)": not "h (feet)", not "book(s)"
+    if (form.length === 1 && /[a-z]/i.test(form)) return `((?<=(?:^|[^a-z])\\(\\s*)${body}(?=\\s*\\)))`;
+    const before = /^[a-z0-9]/i.test(form) ? '(?<![a-z0-9])' : '';
+    const after = /[a-z]$/i.test(form) ? '(?![a-z0-9])' : '';
+    return `(${before}${body}${after})`;
+  }).join('|'),
+  'gi',
+);
+
+const UNIT_CACHE = new Map<string, { units: string[]; rest: string }>();
+
+/** The units written in a label, and the label with every unit not named by `keep` blanked out. */
+export function labelUnits(label: string, keep: string[] = []): { units: string[]; rest: string } {
+  const key = `${label}\u0000${keep.join('\u0001')}`;
+  const hit = UNIT_CACHE.get(key);
+  if (hit) return hit;
+  const units: string[] = [];
+  const rest = label.toLowerCase().replace(UNIT_RE, (m: string, ...groups: unknown[]) => {
+    const i = groups.findIndex((g) => g !== undefined);
+    units.push(UNIT_FORMS[i].id);
+    return keep.some((w) => wordRegex(w, true).test(m.replace(/\s+/g, ' '))) ? m : ' ';
+  });
+  const out = { units: [...new Set(units)], rest };
+  if (UNIT_CACHE.size > 5000) UNIT_CACHE.clear();
+  UNIT_CACHE.set(key, out);
+  return out;
+}
+
+/** Does a label name the quantity of this axis? Unit words count only when the axis lists them. */
+export function namesQuantity(label: string, axis: GraphAxis): boolean {
+  return labelMentions(labelUnits(label, axis.words).rest, axis.words);
 }
 
 export interface GraphAnswer {
@@ -138,13 +219,43 @@ export function acceptedScales(axis: GraphAxis, squares: number): string[] {
   return axis.options.filter((o) => scaleIssue(axis, squares, Rational.parse(o)) === null);
 }
 
-/** Does a typed label mention one of the words (whole words, case-insensitive, an "s" plural allowed)? */
+/**
+ * Does a typed label mention one of the words (case-insensitive)? A word matches as a whole word with
+ * an "s"/"es" plural; a word ending in "*" is a stem and matches any word that starts with it.
+ */
 export function labelMentions(label: string, words: string[]): boolean {
   const s = label.toLowerCase();
-  return words.some((w) => new RegExp(`(?<![a-z])${w.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s|es)?(?![a-z])`).test(s));
+  return words.some((w) => wordRegex(w).test(s));
+}
+
+const WORD_RES = new Map<string, RegExp>();
+/** A word as a regex; `whole` matches only text that is exactly that word (a unit kept as a quantity word). */
+function wordRegex(w: string, whole = false): RegExp {
+  const k = whole ? `^${w}` : w;
+  let re = WORD_RES.get(k);
+  if (!re) {
+    const stem = w.endsWith('*');
+    const body = esc((stem ? w.slice(0, -1) : w).toLowerCase()).replace(/ /g, '\\s*');
+    const start = /^[a-z0-9]/.test(body) ? '(?<![a-z])' : '';
+    re = whole ? new RegExp(`^${body}${stem ? '[a-z]*' : '(?:s|es)?'}$`) : new RegExp(`${start}${body}${stem ? '' : '(?:s|es)?(?![a-z])'}`);
+    WORD_RES.set(k, re);
+  }
+  return re;
 }
 
 const fmt = (r: Rational) => (r.isInteger() || r.isTerminatingDecimal() ? r.toDecimalString(6) : r.toString());
+
+/** A label written with a unit this quantity is not measured in (none is fine). */
+function unitIssue(label: string, axis: GraphAxis, name: string): string | null {
+  if (!axis.units) return null;
+  const wrong = labelUnits(label).units.filter((u) => !axis.units!.includes(u));
+  if (!wrong.length) return null;
+  const said = UNITS[wrong[0]].name;
+  if (!axis.units.length) return `The quantity on the ${name} axis is a count, so it has no unit. Check the unit in your label: ${said} does not fit here.`;
+  const want = axis.units.map((u) => UNITS[u].name);
+  const list = [...new Set(want)].join(' or ');
+  return `Check the unit in the ${name} axis label: in this situation that quantity is measured in ${list}, not ${said}.`;
+}
 
 export interface GraphCheck {
   status: 'correct' | 'incorrect' | 'invalid';
@@ -179,18 +290,33 @@ export function checkGraph(spec: GraphAnswer, raw: string): GraphCheck {
     return { status: 'invalid', message: need };
   }
 
-  // labels: the input quantity across, the output quantity up
+  // labels: the input quantity across, the output quantity up. Each label names its own quantity and
+  // not the other axis's (a label naming both quantities fits neither axis); unit words alone never
+  // name a quantity; a unit, when written, must be one this quantity is measured in.
   const xl = r.xl!;
   const yl = r.yl!;
-  const xOk = labelMentions(xl, spec.x.words);
-  const yOk = labelMentions(yl, spec.y.words);
-  if (!xOk || !yOk) {
-    const swapped = labelMentions(xl, spec.y.words) && labelMentions(yl, spec.x.words);
-    if (swapped) return { status: 'incorrect', tag: 'axis-labels', message: 'Your labels are on the wrong axes. The quantity you choose or count (the input) goes across the bottom; the quantity that depends on it goes up the side.' };
+  const xOwn = namesQuantity(xl, spec.x);
+  const yOwn = namesQuantity(yl, spec.y);
+  const xOther = namesQuantity(xl, spec.y);
+  const yOther = namesQuantity(yl, spec.x);
+  if (xOther && !xOwn && yOther && !yOwn) return { status: 'incorrect', tag: 'axis-labels', message: 'Your labels are on the wrong axes. The quantity you choose or count (the input) goes across the bottom; the quantity that depends on it goes up the side.' };
+  for (const [own, other, name] of [
+    [xOwn, xOther, 'horizontal'],
+    [yOwn, yOther, 'vertical'],
+  ] as const)
+    if (own && other) return { status: 'incorrect', tag: 'axis-labels', message: `The label on the ${name} axis names both quantities. Each label should name only the quantity on its own axis.` };
+  for (const [label, axis, name] of [
+    [xl, spec.x, 'horizontal'],
+    [yl, spec.y, 'vertical'],
+  ] as const) {
+    const msg = unitIssue(label, axis, name);
+    if (msg) return { status: 'incorrect', tag: 'axis-labels', message: msg };
+  }
+  if (!xOwn || !yOwn || xOther || yOther) {
     return {
       status: 'incorrect',
       tag: 'axis-labels',
-      message: !xOk ? 'The label on the horizontal axis should name the input quantity in this situation, with its unit.' : 'The label on the vertical axis should name the output quantity in this situation, with its unit.',
+      message: !xOwn || xOther ? 'The label on the horizontal axis should name the input quantity in this situation, with its unit.' : 'The label on the vertical axis should name the output quantity in this situation, with its unit.',
     };
   }
 
@@ -291,8 +417,17 @@ export function graphSpecErrors(spec: GraphAnswer): string[] {
   const ya = acceptedScales(spec.y, spec.rows);
   if (!xa.length) errs.push('no horizontal scale fits');
   if (!ya.length) errs.push('no vertical scale fits');
-  if (spec.x.words.some((w) => labelMentions(spec.y.label, [w])) || spec.y.words.some((w) => labelMentions(spec.x.label, [w]))) errs.push('axis label words overlap');
-  if (!labelMentions(spec.x.label, spec.x.words) || !labelMentions(spec.y.label, spec.y.words)) errs.push('a label does not mention its own words');
+  if (namesQuantity(spec.y.label, spec.x) || namesQuantity(spec.x.label, spec.y)) errs.push('axis label words overlap');
+  if (!namesQuantity(spec.x.label, spec.x) || !namesQuantity(spec.y.label, spec.y)) errs.push('a label does not name its own quantity');
+  for (const [a, b] of [
+    [spec.x, spec.y],
+    [spec.y, spec.x],
+  ] as const) {
+    // a unit word may name a quantity only when the other axis is not measured in that unit
+    const named = labelUnits(a.words.map((w) => w.replace(/\*$/, '')).join(' ; ')).units;
+    if (b.units && named.some((u) => b.units!.includes(u))) errs.push('a quantity word is a unit of the other axis');
+    if (a.units) for (const u of labelUnits(a.label).units) if (!a.units.includes(u)) errs.push(`the label "${a.label}" has a unit that is not accepted`);
+  }
   for (const xs of xa)
     for (const ys of ya) {
       try {
@@ -315,7 +450,7 @@ export function graphWithOverride(spec: GraphAnswer, answer: string): GraphAnswe
   const o = JSON.parse(answer) as { target?: Partial<GraphTarget>; swapLabels?: boolean };
   if (!o || typeof o !== 'object') throw new Error('graph misconception is not an object');
   let out: GraphAnswer = { ...spec, target: { ...spec.target, ...(o.target ?? {}) } as GraphTarget };
-  if (o.swapLabels) out = { ...out, x: { ...out.x, label: spec.y.label, words: spec.y.words }, y: { ...out.y, label: spec.x.label, words: spec.x.words } };
+  if (o.swapLabels) out = { ...out, x: { ...out.x, label: spec.y.label, words: spec.y.words, units: spec.y.units }, y: { ...out.y, label: spec.x.label, words: spec.x.words, units: spec.x.units } };
   return out;
 }
 

@@ -12,21 +12,21 @@ import type { Difficulty, LessonKind, LessonMeta, ProblemRef } from '../../core/
 import { LESSON_BY_ID, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, GENERATORS, CAPSTONE_CONTENT, generatorsForSkill } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
 import { createRng } from '../../core/engine/rng';
-import { summarizeSkills } from '../../core/engine/results';
+import { summarizeSkills, nextStepFor } from '../../core/engine/results';
 import { answerToText } from '../../core/math/answers';
 import type { DayView, ResultsView, SkillChange } from '../../shared/api';
 import { ServiceContext, UserFacingError, today } from './context';
 import { requireProfile } from './profiles';
 import { PracticeState, newPractice, realize, submitImmediate, submitDeferred, gradeDeferred, hint, reveal, practiceView, allResolved, allAnswered, advance, getProblem } from './practice';
-import { awardXp, awardXpOnce, bumpDay, logActivity, skillStates, storedStage, recomputeSkill, storeResultsSummary } from './records';
+import { awardXp, awardXpOnce, bumpDay, logActivity, skillStates, storedStage, recomputeSkill, storeResultsSummary, withRowSummary } from './records';
 import { lessonStatuses, tickActive, flushImmediately, capSupportXp, supportXp, lastXpId, answerXpImprovement } from './lessons';
-import { MAX_UNIT_ASSESSMENT_ATTEMPTS } from '../../core/engine/grading';
+import { MAX_UNIT_ASSESSMENT_ATTEMPTS, ASSESSMENT_PASS } from '../../core/engine/grading';
 import { checkAchievements } from './achievements';
 
 export const REVIEW_KINDS: LessonKind[] = ['unit-review', 'checkpoint', 'cumulative-review', 'semester-review'];
 export const ASSESSMENT_KINDS: LessonKind[] = ['unit-assessment', 'semester-assessment'];
 /** score needed to pass a unit or semester assessment */
-export const ASSESSMENT_PASS = 0.7;
+export { ASSESSMENT_PASS };
 const REVIEW_MAX_ITEMS = 26;
 
 export interface DayState {
@@ -392,14 +392,7 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     }
     bumpDay(ctx, profileId, { sections: 1 });
     st.xp += xp;
-    const semester = meta.kind === 'semester-assessment';
-    const retakeHelp = semester
-      ? 'Work through the corrections, then retake it. Your best attempt counts toward your grade.'
-      : attemptNumber < MAX_UNIT_ASSESSMENT_ATTEMPTS
-        ? 'Work through the corrections, then retake it. Your best of the first two attempts counts toward your grade.'
-        : 'Work through the corrections. You can retake it for practice, but only the first two attempts count toward your grade.';
     const practiceRetake = assessment && !countsTowardGrade(meta.kind, attemptNumber);
-    const passedNote = assessment && wasPassed ? ' You had already passed, so this retake earns no answer XP.' : '';
     st.results = {
       kind: assessment ? (meta.kind === 'semester-assessment' ? 'semester-assessment' : 'unit-assessment') : 'review',
       title: practiceRetake ? `${meta.title} (practice retake, not graded)` : meta.title,
@@ -413,21 +406,7 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
       items,
       didWell,
       needsPractice,
-      nextStep: assessment
-        ? (practiceRetake ? 'This was a practice retake: only the first two attempts count toward your grade. ' : '') +
-          (passed
-            ? missed.length
-              ? `Nice work. Fix the questions you missed in the corrections below, then move on.`
-              : 'Outstanding. Move on to the next unit.'
-            : `Not yet. Focus on ${needsPractice.join(', ')}. ${retakeHelp}`) +
-          passedNote
-        : isCapstoneKind(meta.kind)
-          ? missed.length
-            ? `Project complete. Before the semester review, go back over ${needsPractice.join(', ')}. The lesson for each skill has Teach Me Again and more practice.`
-            : 'Project complete, and every part right on the first try. On to the next day.'
-          : missed.length
-            ? `Before the assessment, go back over ${needsPractice.join(', ')}. The lesson for each skill has Teach Me Again and more practice.`
-            : 'You are ready for the assessment.',
+      nextStep: nextStepFor({ kind: meta.kind, passed, needsPractice, missed: rows.filter((r) => !r.correct).length, attemptNumber, alreadyPassed: assessment && wasPassed }),
       skillChanges: changes,
       xpEarned: xp,
       canRetake: assessment,
@@ -495,7 +474,7 @@ export function buildDayView(ctx: ServiceContext, profileId: number, id: string,
     project: cap ? { goal: cap.goal, intro: cap.intro, plan: cap.plan, parts: cap.tasks.map((t) => t.part), wrapUp: cap.wrapUp } : undefined,
     passPercent: assessment ? Math.round(ASSESSMENT_PASS * 100) : null,
     practice: st.phase === 'practice' && ps ? practiceView(ps) : null,
-    results: st.results,
+    results: withRowSummary(ctx, profileId, id, meta.kind, st.results),
     corrections: st.phase === 'results' && st.corrections ? practiceView(st.corrections) : null,
     attempts: st.quizAttempts,
     canRetake: assessment && st.phase === 'results' && !correctionsOpen,
