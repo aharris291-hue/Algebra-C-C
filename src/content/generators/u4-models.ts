@@ -288,7 +288,7 @@ export const genRewriteForms: GeneratorDef = {
       ];
       steps.push(
         { prompt: [p(`What is the $x$-coordinate of the vertex of $f(x) = ${fromTex}$?`)], answer: numSpec(Q(h)), hints: ['Find the zeros.', 'Average them.', `$\\frac{${r} + ${subTex(s)}}{2}$.`, 'Simplify.'], explanation: `$h = ${h}$.` },
-        { prompt: [p(`What is $f(${h})$?`)], answer: numSpec(k), hints: [`Substitute $${h}$ into each factor.`, `$${h} - ${subTex(r)} = ${h - r}$.`, `$${h} - ${subTex(s)} = ${h - s}$.`, `Multiply those and $${a}$.`], explanation: `$k = ${k.toTex()}$.` },
+        { prompt: [p(`What is $f(${h})$?`)], answer: numSpec(k), hints: [`Substitute $${h}$ into each factor.`, `Compute $${h} - ${subTex(r)}$.`, `Compute $${h} - ${subTex(s)}$.`, `Multiply those and $${a}$.`], explanation: `$k = ${k.toTex()}$.` },
         { prompt: [p('Write $f$ in vertex form.')], answer: { kind: 'expression', value: target, form }, inputHint: 'Type an answer like 2(x - 3)^2 + 1.', hints: ['Use $a(x - h)^{2} + k$.', `$a = ${a}$.`, `$h = ${h}$.`, `$k = ${k.toTex()}$.`], explanation: `$f(x) = ${vtxTex(a, h, k)}$.`, misconceptions },
       );
     }
@@ -999,7 +999,7 @@ export const genWriteFactoredForm: GeneratorDef = {
       return gstep(
         `The ${which} $x$-intercept is $x = ${z}$. Which factor $(x - r)$ does it give? Write the factor.`,
         { kind: 'expression' as const, value: pPlain(fac) },
-        ['At an $x$-intercept, $y = 0$, and a product is $0$ only when one of its factors is $0$.', `So the factor must be $0$ when $x = ${z}$.`, 'Use $(x - r)$ with $r$ equal to the intercept.', z < 0 ? 'Subtracting a negative number is adding: $x - (-3) = x + 3$.' : z === 0 ? 'Subtracting $0$ leaves just $x$.' : 'Subtract the intercept from $x$.'],
+        ['At an $x$-intercept, $y = 0$, and a product is $0$ only when one of its factors is $0$.', `So the factor must be $0$ when $x = ${z}$.`, 'Use $(x - r)$ with $r$ equal to the intercept.', z < 0 ? 'Subtracting a negative number is the same as adding its opposite.' : z === 0 ? 'Subtracting $0$ leaves just $x$.' : 'Subtract the intercept from $x$.'],
         `$${pTex(fac)}$ is $0$ exactly when $x = ${z}$, so it is the factor for that intercept.`,
         z === 0 ? [] : exprMis(pPlain(fac), [{ answer: pPlain(X([z, 1])), tag: 'sign-error', feedback: `Check: is your factor $0$ when $x = ${z}$? The factor is $x - r$, so the sign flips.` }]),
         'Type a factor like x - 3 or x + 2.',

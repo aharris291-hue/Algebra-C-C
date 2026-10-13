@@ -156,7 +156,7 @@ function evalD1(rng: Rng): PowItem {
         { value: base.pow(n), tag: 'exponent-rule', feedback: 'With a negative exponent, flip the fraction first, then use the positive exponent.' },
         { value: v.neg(), tag: 'exponent-rule', feedback: 'A negative exponent does not make the number negative.' },
       ],
-      hints: ['A negative exponent means take the reciprocal.', `The reciprocal of $${base.toTex()}$ is $${base.inv().toTex()}$.`, `Rewrite it as the flipped fraction raised to the power ${n}.`, 'Raise the top and the bottom to the power.'],
+      hints: ['A negative exponent means take the reciprocal.', 'For a fraction, the reciprocal swaps the numerator and the denominator.', `Rewrite $${powTex(base, `-${n}`)}$ as the flipped fraction raised to the power ${n}.`, 'Raise the top and the bottom to the power.'],
       solution: [
         { text: 'Flip the fraction and make the exponent positive.', tex: `${powTex(base, `-${n}`)} = ${powTex(base.inv(), n)}`, why: `$\\frac{1}{${base.toTex()}} = ${base.inv().toTex()}$, so the reciprocal of a fraction is the fraction flipped.` },
         { text: 'Raise the numerator and denominator to the power.', tex: `${powTex(base.inv(), n)} = ${v.toTex()}` },
@@ -589,7 +589,7 @@ function simpD1(rng: Rng, v: string, w: string): SimpItem {
     tex: `\\left(${monoRawTex(A, order)}\\right)^{0}`,
     result: mono(1, {}),
     wrong: [
-      { m: mono(0, {}), tag: 'exponent-rule', feedback: 'A nonzero quantity to the zero power is 1, not 0.' },
+      { m: mono(0, {}), tag: 'exponent-rule', feedback: 'A nonzero quantity to the zero power is not 0: $q^{0} = q^{n} \\div q^{n}$, and a nonzero number divided by itself is not 0.' },
       { m: mono(c, {}), tag: 'exponent-rule', feedback: 'The zero power applies to everything inside the parentheses, including the number.' },
     ],
     hints: ['The whole quantity in parentheses is the base.', 'What is any nonzero number to the zero power?', 'Assume the variables are not zero.', 'The answer is a single number.'],
@@ -958,7 +958,7 @@ export const genSolveExponential: GeneratorDef = {
         numStep(
           `Write $${value.toTex()}$ as a power of $${g}$. What is the exponent?`,
           Q(n),
-          [`Multiply $${g}$ by itself until you reach $${value.toTex()}$.`, `Count how many factors of $${g}$ you used.`, `Start with $${g} \\cdot ${g} = ${g * g}$ and keep going.`, 'The exponent is the number of factors.'],
+          [`Multiply $${g}$ by itself until you reach $${value.toTex()}$.`, `Count how many factors of $${g}$ you used.`, `Start with $${g} \\cdot ${g}$ and keep multiplying by $${g}$.`, 'The exponent is the number of factors.'],
           `$${value.toTex()} = ${g}^{${n}}$ (${n} factors of ${g}).`,
           [{ value: value.div(g), tag: 'exponent-rule', feedback: `Dividing $${value.toTex()}$ by $${g}$ does not give the exponent. Count the factors of $${g}$.` }, { value: n > 2 ? Q(n - 1) : null, tag: 'arithmetic-error', feedback: 'Count the factors again: multiply them out to check.' }],
         ),

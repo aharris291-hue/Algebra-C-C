@@ -2,7 +2,7 @@
 import { Rational } from '../../core/math/rational';
 import type { Misconception, MisconceptionTag } from '../../core/math/answers';
 import { exactValue, parseRelation, equationsEquivalent, inequalitiesEquivalent } from '../../core/math/answers';
-import type { Block, Problem, SolutionStep, Rng } from '../../core/curriculum/types';
+import type { Block, GeneratorDef, Problem, SolutionStep, Rng } from '../../core/curriculum/types';
 import { toPoly, tryPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 
@@ -94,6 +94,20 @@ export function texCoef(m: Rational): string {
   if (m.eq(1)) return '';
   if (m.eq(-1)) return '-';
   return m.toTex();
+}
+
+/** Mark capstone project task generators as project-only (see GeneratorDef.projectOnly). */
+export function projectTasks(gens: GeneratorDef[]): GeneratorDef[] {
+  for (const g of gens) g.projectOnly = true;
+  return gens;
+}
+
+/** Plain-text (parser syntax) coefficient in front of a variable: 1 -> "", -1 -> "-", 3 -> "3". */
+export function coefPlain(c: Rational | number): string {
+  const r = typeof c === 'number' ? Rational.from(c) : c;
+  if (r.eq(1)) return '';
+  if (r.eq(-1)) return '-';
+  return r.toString();
 }
 
 /** TeX for a value substituted into an expression: negatives in parentheses. */

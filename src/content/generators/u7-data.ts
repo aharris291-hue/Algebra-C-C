@@ -465,10 +465,12 @@ export const genQuartiles: GeneratorDef = {
     // which box plot matches the data (summaries written as text)
     const right = `Min ${fmt(f.min)}, Q1 ${fmt(f.q1)}, median ${fmt(f.median)}, Q3 ${fmt(f.q3)}, max ${fmt(f.max)}`;
     const inclusive = n % 2 === 1 ? { q1: median(s.slice(0, (n + 1) / 2)), q3: median(s.slice((n - 1) / 2)) } : null;
+    // the "middle" of the data as listed, without ordering it first (the average of the two middle entries when n is even)
+    const unsortedMid = n % 2 === 1 ? xs[(n - 1) / 2] : xs[n / 2 - 1].add(xs[n / 2]).div(2);
     const wrongs = [
       inclusive ? `Min ${fmt(f.min)}, Q1 ${fmt(inclusive.q1)}, median ${fmt(f.median)}, Q3 ${fmt(inclusive.q3)}, max ${fmt(f.max)}` : `Min ${fmt(f.min)}, Q1 ${fmt(f.q1.sub(1))}, median ${fmt(f.median)}, Q3 ${fmt(f.q3.add(1))}, max ${fmt(f.max)}`,
       `Min ${fmt(f.min)}, Q1 ${fmt(f.q1)}, median ${fmt(mean(xs).round(1))}, Q3 ${fmt(f.q3)}, max ${fmt(f.max)}`,
-      `Min ${fmt(xs[0])}, Q1 ${fmt(f.q1)}, median ${fmt(xs[Math.floor(n / 2)])}, Q3 ${fmt(f.q3)}, max ${fmt(xs[n - 1])}`,
+      `Min ${fmt(xs[0])}, Q1 ${fmt(f.q1)}, median ${fmt(unsortedMid)}, Q3 ${fmt(f.q3)}, max ${fmt(xs[n - 1])}`,
     ].filter((w) => w !== right);
     if (wrongs.length < 2) return genQuartiles.generate(rng, 3);
     return withSteps(makeProblem({
@@ -484,7 +486,7 @@ export const genQuartiles: GeneratorDef = {
       ],
       misconceptions: [],
     }), (pr) => [
-      numStep('Put the data in order. What is the median?', f.median, ['The median is the middle of the ordered data.', 'Write the values from least to greatest.', n % 2 === 1 ? `With ${n} values, the middle one is value number ${(n + 1) / 2}.` : `With ${n} values, the middle two are values number ${n / 2} and ${n / 2 + 1}.`, n % 2 === 1 ? 'Count to that position.' : 'Average the two middle values.'], 'The median splits the data into two halves.', [{ value: xs[Math.floor(n / 2)], tag: 'statistics-concept', feedback: 'Order the data before finding the middle.' }, { value: mean(xs).round(1), tag: 'statistics-concept', feedback: 'That is the mean. The median is the middle of the ordered data.' }]),
+      numStep('Put the data in order. What is the median?', f.median, ['The median is the middle of the ordered data.', 'Write the values from least to greatest.', n % 2 === 1 ? `With ${n} values, the middle one is value number ${(n + 1) / 2}.` : `With ${n} values, the middle two are values number ${n / 2} and ${n / 2 + 1}.`, n % 2 === 1 ? 'Count to that position.' : 'Average the two middle values.'], 'The median splits the data into two halves.', [{ value: unsortedMid.eq(f.median) ? null : unsortedMid, tag: 'statistics-concept', feedback: 'Order the data before finding the middle.' }, { value: mean(xs).round(1), tag: 'statistics-concept', feedback: 'That is the mean. The median is the middle of the ordered data.' }]),
       numStep('What is Q1?', f.q1, ['Q1 is the median of the lower half.', halfNote, `The lower half has ${Math.floor(n / 2)} values.`, 'Find the middle of the lower half.'], 'About a quarter of the data are below Q1.', [{ value: inclusive ? inclusive.q1 : null, tag: 'statistics-concept', feedback: 'With an odd number of values, leave the median out of both halves.' }]),
       numStep('What is Q3?', f.q3, ['Q3 is the median of the upper half.', halfNote, `The upper half has ${Math.floor(n / 2)} values.`, 'Find the middle of the upper half.'], 'About a quarter of the data are above Q3.', [{ value: inclusive ? inclusive.q3 : null, tag: 'statistics-concept', feedback: 'With an odd number of values, leave the median out of both halves.' }]),
       finalStep(pr, 'Which five-number summary matches the data?', ['Use your median, Q1 and Q3.', 'The minimum and maximum are the smallest and largest values.', 'All five numbers must match.', 'Check each choice number by number.'], 'A box plot draws the minimum, Q1, median, Q3 and maximum.', { feedback: { [wrongs[0]]: `Check Q1 and Q3. ${halfNote}`, [`Min ${fmt(f.min)}, Q1 ${fmt(f.q1)}, median ${fmt(mean(xs).round(1))}, Q3 ${fmt(f.q3)}, max ${fmt(f.max)}`]: 'The middle number there is the mean, not the median.', [`Min ${fmt(xs[0])}, Q1 ${fmt(f.q1)}, median ${fmt(xs[Math.floor(n / 2)])}, Q3 ${fmt(f.q3)}, max ${fmt(xs[n - 1])}`]: 'Those use the first, middle and last values of the list as given. Order the data first.' } }),

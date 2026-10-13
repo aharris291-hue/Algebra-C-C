@@ -23,7 +23,7 @@ import { Rational } from '../../core/math/rational';
 import { fixedPlaces, parseRelation } from '../../core/math/answers';
 import { evalNumeric } from '../../core/math/evaluate';
 import { fiveNumber, linearRegression, mean, outliers, rats } from '../../core/math/stats';
-import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions, stringMisconceptions } from './util';
+import { p, projectTasks, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions, stringMisconceptions } from './util';
 
 const N_TASKS = 9;
 const head = (k: number, title: string, recap: string): Block => p(`**Part ${k} of ${N_TASKS}: ${title}.** ${recap}`);
@@ -836,7 +836,7 @@ const task9: GeneratorDef = {
 
 // ---------------------------------------------------------------------------
 
-export const CAP_DATA_GENERATORS: GeneratorDef[] = [task1, task2, task3, task4, task5, task6, task7, task8, task9];
+export const CAP_DATA_GENERATORS: GeneratorDef[] = projectTasks([task1, task2, task3, task4, task5, task6, task7, task8, task9]);
 
 export const CAP_DATA: CapstoneContent = {
   lessonId: 'U9L03',

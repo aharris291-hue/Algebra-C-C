@@ -26,6 +26,7 @@ import { U7_DATA_GENERATORS } from './generators/u7-data';
 import { U7_BIVARIATE_GENERATORS } from './generators/u7-bivariate';
 import { U8_GENERATORS } from './generators/u8-geometry';
 import { PREREQ_GENERATORS } from './generators/u0-prereq';
+import { GRAPH_CONTEXT_GENERATORS } from './generators/graph-context';
 import { CAP_BUDGET_GENERATORS, CAP_BUDGET } from './generators/u9-budget';
 import { CAP_LAUNCH_GENERATORS, CAP_LAUNCH } from './generators/u9-launch';
 import { CAP_DATA_GENERATORS, CAP_DATA } from './generators/u9-data';
@@ -122,6 +123,7 @@ export const ALL_GENERATORS: readonly GeneratorDef[] = [
   ...U7_DATA_GENERATORS,
   ...U7_BIVARIATE_GENERATORS,
   ...U8_GENERATORS,
+  ...GRAPH_CONTEXT_GENERATORS,
   ...CAP_BUDGET_GENERATORS,
   ...PREREQ_GENERATORS,
   ...CAP_LAUNCH_GENERATORS,
@@ -132,9 +134,13 @@ export const GENERATORS: ReadonlyMap<string, GeneratorDef> = new Map(ALL_GENERAT
 
 export const LESSON_CONTENT: ReadonlyMap<string, LessonContent> = new Map([U1L01, U1L02, U1L03, U1L04, U1L05, U1L06, U1L07, U1L08, U1L09, U1L10, U2L01, U2L02, U2L03, U2L04, U3L01, U3L02, U3L03, U4L01, U4L02, U4L03, U4L04, U4L05, U4L06, U4L07, U4L08, U4L09, U4L10, U4L12, U4L13, U4L14, U4L15, U4L16, U4L17, U4L18, U4L19, U5L01, U5L02, U5L03, U5L04, U5L05, U5L06, U6L01, U6L02, U6L03, U6L04, U6L05, U6L06, U6L07, U6L08, U6L09, U6L10, U7L01, U7L02, U7L03, U7L04, U7L05, U7L06, U7L07, U7L08, U7L09, U8L01, U8L02, U8L03, U8L04, U8L05, U8L06].map((l) => [l.lessonId, l]));
 
-/** Generators that practice a skill (used for spaced review and remediation). */
+/**
+ * Generators that practice a skill on their own (used for spaced review, remediation, reviews,
+ * assessments and the diagnostic). Capstone project tasks are left out: they are realized only on
+ * their project day (see GeneratorDef.projectOnly).
+ */
 export function generatorsForSkill(skillId: string): GeneratorDef[] {
-  return [...GENERATORS.values()].filter((g) => g.skillId === skillId);
+  return [...GENERATORS.values()].filter((g) => g.skillId === skillId && !g.projectOnly);
 }
 
 export { LESSONS, UNITS, SKILLS, PREREQ_SKILLS, LESSON_BY_ID, SKILL_BY_ID, UNIT_BY_ID } from './catalog';

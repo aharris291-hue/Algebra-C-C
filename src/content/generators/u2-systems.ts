@@ -892,7 +892,7 @@ export const genMaxInContext: GeneratorDef = {
         inputHint: 'Type a whole number.',
         hints: [
           `Substitute $x = ${X}$ into ${showSystem ? 'both inequalities' : 'the count condition and the money condition'}.`,
-          `The count condition becomes $${X} + y ${OP_TEX[cOp]} ${s.n}$, so $y ${OP_TEX[cOp]} ${s.n - X}$.`,
+          `The count condition becomes $${X} + y ${OP_TEX[cOp]} ${s.n}$. Subtract $${X}$ from both sides to get a bound on $y$.`,
           `The money condition becomes $${s.a.mul(Q(X)).toTex()} + ${coefTex(s.b)}y ${OP_TEX[mOp]} ${s.t.toTex()}$. Solve it for $y$ too.`,
           `$y$ has to satisfy **both** results and be a whole number. Then find the ${ask} one.`,
         ],

@@ -107,6 +107,14 @@ export function totalXp(ctx: ServiceContext, profileId: number): number {
   return Number(ctx.db.get<{ s: number }>('SELECT COALESCE(SUM(amount), 0) AS s FROM xp_events WHERE profile_id = ?', [profileId])!.s);
 }
 
+/**
+ * Store a graded set's results summary with its assessment row (schema v2), so a later look at the
+ * assessment (Parent Dashboard) shows the same strengths, practice list and recommended next step.
+ */
+export function storeResultsSummary(ctx: ServiceContext, assessmentId: number, r: { didWell: string[]; needsPractice: string[]; nextStep: string }): void {
+  ctx.db.run('UPDATE assessments SET summary_json = ? WHERE id = ?', [JSON.stringify({ didWell: r.didWell, needsPractice: r.needsPractice, nextStep: r.nextStep }), assessmentId]);
+}
+
 export function logActivity(ctx: ServiceContext, profileId: number, type: string, detail: Record<string, unknown>): void {
   const at = ctx.now();
   ctx.db.run('INSERT INTO activity_log(profile_id, type, detail_json, local_date, created_at) VALUES (?,?,?,?,?)', [profileId, type, JSON.stringify(detail), today(ctx, at), at]);

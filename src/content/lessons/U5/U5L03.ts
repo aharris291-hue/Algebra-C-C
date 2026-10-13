@@ -142,6 +142,10 @@ export const U5L03: LessonContent = {
       ],
     },
     { t: 'callout', variant: 'realworld', title: 'Where this shows up', text: 'Bacteria and viral videos that double, medicine and caffeine leaving your body, a bouncing ball losing height, and the value of a car or phone dropping over time are all modeled with $y = a(b)^x$.' },
+    { t: 'p', text: '### Graphing an exponential model: labels and scales' },
+    { t: 'p', text: 'For $y = 50(2)^x$, bacteria doubling every hour for 3 hours, make a table first: $(0, 50)$, $(1, 100)$, $(2, 200)$, $(3, 400)$.' },
+    { t: 'list', ordered: true, items: ['**Label both axes with the quantity and its unit:** Time (hours) across, Number of bacteria up.', '**Choose a scale for each axis.** The axis must reach the largest value the situation needs, the graph should fill a good part of the grid (not a corner of it), and the key points should land on grid lines. Count the squares: with 10 squares, 5 per square reaches 50.', 'The largest value is $400$, so 50 per square fits on 10 squares (it reaches 500) and every value in the table is on a grid line. 100 per square would reach far enough, but the starting value 50 would fall between grid lines.', '**Plot the starting value first**, then the points from the table, and connect them with a smooth curve, not straight segments: an exponential graph bends more and more steeply.'] },
+    { t: 'callout', variant: 'tip', title: 'Drawing a graph in this app', text: 'Type a label for each axis, choose what one grid square is worth on each axis, then place points: click a grid intersection, or click the grid and use the arrow keys and Enter. Click a point again to remove it.' },
   ],
   examples: [
     {
@@ -350,6 +354,7 @@ export const U5L03: LessonContent = {
     { generator: 'u5.write-exponential', difficulty: 1 },
     { generator: 'u5.write-exponential', difficulty: 2 },
     { generator: 'u5.write-exponential', difficulty: 2 },
+    { generator: 'u5.graph-exponential-context', difficulty: 1 },
   ],
   independent: {
     count: 8,
@@ -358,6 +363,8 @@ export const U5L03: LessonContent = {
       { generator: 'u5.write-exponential', difficulty: 1, weight: 1 },
       { generator: 'u5.write-exponential', difficulty: 2, weight: 2 },
       { generator: 'u5.write-exponential', difficulty: 3, weight: 1 },
+      { generator: 'u5.graph-exponential-context', difficulty: 1, weight: 1 },
+      { generator: 'u5.graph-exponential-context', difficulty: 2, weight: 1 },
     ],
   },
   quiz: {
@@ -368,6 +375,7 @@ export const U5L03: LessonContent = {
       { generator: 'u5.write-exponential', difficulty: 2 },
       { generator: 'u5.write-exponential', difficulty: 3 },
       { generator: 'u5.write-exponential', difficulty: 3 },
+      { generator: 'u5.graph-exponential-context', difficulty: 2 },
     ],
   },
   summary: [

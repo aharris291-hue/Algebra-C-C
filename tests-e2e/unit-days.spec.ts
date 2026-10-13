@@ -3,6 +3,7 @@
  * review results, then the assessment (no hints, graded at the end), corrections and results.
  */
 import { test, expect, Page } from '@playwright/test';
+import { fillAnswer } from './graph-helper';
 
 let profileId = 0;
 let lessonId = 'U1L11';
@@ -43,7 +44,7 @@ async function enter(page: Page, art: ReturnType<Page['locator']>, value: string
       await act(page, () => art.getByRole('button', { name: /Save answer/ }).click());
     } else await act(page, () => radio.click());
   } else {
-    await art.locator('input.answer-input').fill(value);
+    await fillAnswer(art, value);
     await act(page, () => art.getByRole('button', { name: deferred ? /Save answer/ : 'Check answer' }).click());
   }
 }

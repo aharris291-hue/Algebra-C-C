@@ -12,12 +12,13 @@ import type { Difficulty, LessonKind, LessonMeta, ProblemRef } from '../../core/
 import { LESSON_BY_ID, UNIT_BY_ID, STANDARD_BY_CODE, SKILL_BY_ID, GENERATORS, CAPSTONE_CONTENT, generatorsForSkill } from '../../content';
 import { XP_POLICY } from '../../core/engine/xp';
 import { createRng } from '../../core/engine/rng';
+import { summarizeSkills } from '../../core/engine/results';
 import { answerToText } from '../../core/math/answers';
 import type { DayView, ResultsView, SkillChange } from '../../shared/api';
 import { ServiceContext, UserFacingError, today } from './context';
 import { requireProfile } from './profiles';
 import { PracticeState, newPractice, realize, submitImmediate, submitDeferred, gradeDeferred, hint, reveal, practiceView, allResolved, allAnswered, advance, getProblem } from './practice';
-import { awardXp, awardXpOnce, bumpDay, logActivity, skillStates, storedStage, recomputeSkill } from './records';
+import { awardXp, awardXpOnce, bumpDay, logActivity, skillStates, storedStage, recomputeSkill, storeResultsSummary } from './records';
 import { lessonStatuses, tickActive, flushImmediately, capSupportXp, supportXp, lastXpId, answerXpImprovement } from './lessons';
 import { MAX_UNIT_ASSESSMENT_ATTEMPTS } from '../../core/engine/grading';
 import { checkAchievements } from './achievements';
@@ -362,8 +363,9 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
       JSON.stringify(Object.fromEntries(changes.map((c) => [c.skillId, c.after]))),
       assessmentId,
     ]);
-    const missed = [...new Set(items.filter((i) => !i.correct).map((i) => i.skillId))];
-    const didWell = [...new Set(items.filter((i) => i.correct).map((i) => i.skillId))].filter((s) => !missed.includes(s)).map(skillName);
+    const summary = summarizeSkills(items.map((i) => ({ skill: i.skillId, correct: i.correct })));
+    const missed = summary.needsPractice;
+    const didWell = summary.didWell.map(skillName);
     const needsPractice = missed.map(skillName);
 
     if (assessment) {
@@ -430,6 +432,8 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
       xpEarned: xp,
       canRetake: assessment,
     };
+    // the summary is stored with the row, so the Parent Dashboard shows the same next step later
+    storeResultsSummary(ctx, assessmentId, st.results);
     st.phase = 'results';
     st.lastActionAt = null;
     checkAchievements(ctx, profileId);

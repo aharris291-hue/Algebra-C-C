@@ -101,7 +101,7 @@ export const genSolveFx: GeneratorDef = {
             'Undo addition or subtraction before multiplication.',
             b.isNegative() ? `The rule subtracts $${b.abs().toTex()}$, so add $${b.abs().toTex()}$ to both sides.` : `The rule adds $${b.toTex()}$, so subtract $${b.toTex()}$ from both sides.`,
             `Work out $${c.toTex()} ${b.isNegative() ? '+ ' + b.abs().toTex() : '- ' + b.toTex()}$.`,
-            'Use a number line if the signs are tricky.',
+            `On a number line, start at $${c.toTex()}$ and move $${b.abs().toTex()}$ to the ${b.isNegative() ? 'right' : 'left'}.`,
           ],
           misconceptions: numberMisconceptions(diff, [{ value: c.add(b), tag: 'sign-error', feedback: 'Do the opposite of what the rule does to the constant.' }]),
           explanation: `The constant was the last thing the rule did to $x$, so undoing it first (on both sides) leaves $${linearTex(m, 0)} = ${diff.toTex()}$.`,
@@ -358,7 +358,7 @@ export const genSolveContext: GeneratorDef = {
           [
             `$${linearTex(m, 0, v, true)}$ means $${decTex(m)}$ times $${v}$.`,
             `Undo multiplying by dividing both sides by $${decTex(m)}$.`,
-            `Work out $${decTex(diff)} \\div ${decTex(m)}$.`,
+            `Work out $${decTex(diff)} \\div ${m.isNegative() ? `(${decTex(m)})` : decTex(m)}$.`,
             `Check: substitute your answer into the rule and see if you get $${decTex(y)}$.`,
           ],
           `Dividing both sides by $${decTex(m)}$ undoes the multiplication and leaves $${v}$ alone.`,
@@ -430,7 +430,9 @@ function notationSteps(ctx: ReturnType<typeof buildContext>, where: string, a: R
       [
         'Use the input and output you just found.',
         'The right choice pairs that input with that output.',
-        'Function notation is not multiplication, so rule out any choice that multiplies.',
+        answer.kind === 'choice' && answer.options.some((o) => /multipl|\\cdot/.test(o.label))
+          ? 'Function notation is not multiplication, so rule out any choice that multiplies.'
+          : 'The statement gives one input and its one output, so rule out a choice that describes a rate or a value for every input.',
         'Check that the input and the output are not swapped.',
       ],
       finalWhy,

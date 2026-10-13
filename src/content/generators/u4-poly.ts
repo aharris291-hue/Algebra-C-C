@@ -656,8 +656,8 @@ export const genMultiplyPoly: GeneratorDef = {
       {
         prompt: [p(`In $${tex}$, the two middle products are $${term(a, 1)} \\cdot ${d < 0 ? `(${d})` : d}$ and $${b < 0 ? `(${b})` : b} \\cdot ${c < 0 ? `(${term(c, 1)})` : term(c, 1)}$. Combined, what is the **coefficient of $x$**?`)],
         answer: { kind: 'number', value: String(mid) },
-        hints: [`The first middle product is $${a * d}x$.`, `The second middle product is $${b * c}x$.`, 'Add the two coefficients.', 'Keep track of negative signs.'],
-        explanation: `$${a * d}x + ${b * c < 0 ? `(${b * c}x)` : `${b * c}x`} = ${mid}x$.`,
+        hints: [`The first middle product is $${term(a * d, 1)}$.`, `The second middle product is $${term(b * c, 1)}$.`, 'Add the two coefficients.', 'Keep track of negative signs.'],
+        explanation: `$${term(a * d, 1)} + ${b * c < 0 ? `(${term(b * c, 1)})` : term(b * c, 1)} = ${term(mid, 1)}$.`,
       },
       {
         prompt: [p(`Now write the whole product $${tex}$ in standard form.`)],

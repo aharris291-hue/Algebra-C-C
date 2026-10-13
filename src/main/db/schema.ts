@@ -214,6 +214,12 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    description: 'Store the results summary (did well, needs practice, recommended next step) with each graded assessment',
+    // older rows keep NULL here: their summary is rebuilt from items_json when it is shown
+    sql: `ALTER TABLE assessments ADD COLUMN summary_json TEXT;`,
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

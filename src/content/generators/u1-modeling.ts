@@ -150,7 +150,8 @@ export const genLinearModel: GeneratorDef = {
     const { f, v, m, b } = ctx;
     const [x1, x2] = dataPoints(rng, ctx, difficulty === 1 ? 0 : 1);
     const [y1, y2] = [m.mul(x1).add(b), m.mul(x2).add(b)];
-    const slopeTex = `\\dfrac{${decTex(y2)} - ${decTex(y1)}}{${decTex(x2)} - ${decTex(x1)}}`;
+    const dsub = (v: Rational) => (v.isNegative() ? `(${decTex(v)})` : decTex(v));
+    const slopeTex = `\\dfrac{${decTex(y2)} - ${dsub(y1)}}{${decTex(x2)} - ${dsub(x1)}}`;
     const modelTex = linearTex(m, b, v, true);
     const intro = [p(`${ctx.topic} The table shows two data points, and the relationship is linear.`), tableBlock(ctx, [x1, x2], [y1, y2])];
     const buildSteps = [
@@ -180,7 +181,7 @@ export const genLinearModel: GeneratorDef = {
           numStep(
             `Find the rate of change from the two rows: $m = ${slopeTex}$. (Give it in ${ctx.rateUnit}.)`,
             m,
-            ['The rate of change is the change in output divided by the change in input.', `Work out the top: $${decTex(y2)} - ${decTex(y1)}$.`, `Work out the bottom: $${decTex(x2)} - ${decTex(x1)}$.`, 'Divide the top by the bottom. Keep the sign: a falling amount has a negative rate.'],
+            ['The rate of change is the change in output divided by the change in input.', `Work out the top: $${decTex(y2)} - ${dsub(y1)}$.`, `Work out the bottom: $${decTex(x2)} - ${dsub(x1)}$.`, 'Divide the top by the bottom. Keep the sign: a falling amount has a negative rate.'],
             `The output changes by $${decTex(y2.sub(y1))}$ over $${decTex(x2.sub(x1))}$ ${ctx.inUnits}, which is $${decTex(m)}$ for each ${ctx.inUnit}.`,
             [
               { value: x2.sub(x1).eq(1) ? null : y2.sub(y1), tag: 'slope-calc', feedback: `That is the total change. The inputs are ${decTex(x2.sub(x1))} ${ctx.inUnits} apart, so divide by that.` },

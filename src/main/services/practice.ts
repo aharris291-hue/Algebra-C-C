@@ -6,6 +6,7 @@
 import type { Difficulty, GeneratorDef, Problem, ProblemRef } from '../../core/curriculum/types';
 import { checkAnswer, answerToText, AnswerSpec, requestedFormIssue, CheckResult, Misconception } from '../../core/math/answers';
 import { produceProblem } from '../../core/engine/problems';
+import { graphConfig } from '../../core/math/graphAnswer';
 import { createRng, deriveSeed } from '../../core/engine/rng';
 import { xpForAnswer, XpActivity } from '../../core/engine/xp';
 import { GENERATORS, SKILL_BY_ID, generatorsForSkill } from '../../content';
@@ -477,6 +478,7 @@ export function problemView(ps: PracticeState, s: ProblemState, index: number, s
     answerKind: p.answer.kind,
     inputHint: p.inputHint,
     choices: p.answer.kind === 'choice' ? p.answer.options : undefined,
+    graph: p.answer.kind === 'graph' ? graphConfig(p.answer) : undefined,
     unit: p.answer.kind === 'number' ? p.answer.unit : undefined,
     hintsShown: hints.slice(0, s.hintLevel),
     hintsRemaining: ps.hintsAllowed ? 4 - s.hintLevel : 0,
@@ -500,6 +502,7 @@ export function problemView(ps: PracticeState, s: ProblemState, index: number, s
       answerKind: st.answer.kind,
       inputHint: st.inputHint,
       choices: st.answer.kind === 'choice' ? st.answer.options : undefined,
+      graph: st.answer.kind === 'graph' ? graphConfig(st.answer) : undefined,
       completed: p.steps.slice(0, finished ? p.steps.length : s.stepIndex).map((x) => ({ prompt: x.prompt, explanation: x.explanation })),
     };
     view.answerKind = st.answer.kind;

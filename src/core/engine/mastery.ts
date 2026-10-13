@@ -11,6 +11,8 @@
  * - MASTERED has hysteresis: a single miss (even on a unit assessment or an easy quiz item)
  *   never removes it; it drops only after repeated misses pull the recent score down, or when
  *   the score falls below the Developing threshold (e.g. only heavily hinted answers).
+ * - Drops are proportional: within one sitting (answers less than an hour apart) a skill falls
+ *   at most one stage, unless that sitting has 3 or more misses on it.
  * - Placement: answers from the diagnostic count 1.5x toward the minimum-evidence rule, so two
  *   correct placement answers can establish a starting stage (never MASTERED, which needs
  *   quiz/assessment evidence spread over time).
@@ -69,6 +71,13 @@ export const MASTERY_POLICY = {
   masteredDropBelow: 0.7,
   /** ... AND at least this many answers since it became MASTERED (within the window) were misses */
   masteredDropMinMisses: 2,
+  /**
+   * Proportional drops: answers less than this far apart form one sitting (an assessment, a quiz,
+   * a practice session). Within a sitting a skill falls at most one stage below where it started ...
+   */
+  sittingGapMs: 60 * 60 * 1000,
+  /** ... unless the sitting holds at least this many misses on the skill (strong evidence) */
+  strongDropMisses: 3,
   /** weight of a diagnostic answer toward learningMinEvidence (2 placement answers = 3) */
   placementEvidenceWeight: 1.5,
   reviewIntervalsDays: [2, 4, 7, 14, 30],
@@ -129,9 +138,19 @@ export function computeSkillState(evidence: Evidence[]): SkillState {
   let nextReviewAt: number | null = null;
   let reviewStreak = 0;
   let score = 0;
+  // the current sitting: the stage it started at and the misses in it (see sittingGapMs)
+  let sittingStart: MasteryStage = 'NOT_STARTED';
+  let sittingMisses = 0;
+  let lastAt: number | null = null;
   const ivs = MASTERY_POLICY.reviewIntervalsDays;
   const intervalMs = (streak: number) => ivs[Math.min(ivs.length - 1, streak)] * DAY;
   for (const e of sorted) {
+    if (lastAt === null || e.at - lastAt >= MASTERY_POLICY.sittingGapMs) {
+      sittingStart = stage;
+      sittingMisses = 0;
+    }
+    lastAt = e.at;
+    if (!e.correct) sittingMisses++;
     history.push(e);
     const idx = history.length - 1;
     score = recentScore(history);
@@ -145,6 +164,10 @@ export function computeSkillState(evidence: Evidence[]): SkillState {
       const collapsed = score < MASTERY_POLICY.developingMinScore;
       if (!collapsed && (score >= MASTERY_POLICY.masteredDropBelow || missesSince < MASTERY_POLICY.masteredDropMinMisses)) s = 'MASTERED';
     }
+    // proportional drop: one sitting (e.g. two easy misses on one assessment) lowers a skill by at
+    // most one stage; a sitting with strongDropMisses misses on it is strong evidence and may lower it further
+    const floor: number = STAGE_ORDER.indexOf(sittingStart) - 1;
+    if (STAGE_ORDER.indexOf(s) < floor && sittingMisses < MASTERY_POLICY.strongDropMisses && floor >= STAGE_ORDER.indexOf('LEARNING')) s = STAGE_ORDER[floor];
     if (s === 'MASTERED' && stage !== 'MASTERED') {
       masteredAt = e.at;
       masteredIdx = idx;

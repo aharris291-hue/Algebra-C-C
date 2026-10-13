@@ -306,7 +306,7 @@ export const genSeqExplicit: GeneratorDef = {
         solution: [
           { text: 'Identify the first term and common difference.', tex: `a_1 = ${a1.toTex()}, \\quad d = ${d.toTex()}` },
           { text: 'Substitute into the explicit formula.', tex: `a_{${n}} = ${a1.toTex()} + (${n} - 1)${sub(d)}`, why: `There are ${n - 1} jumps of $d$ between the 1st and ${ordinal(n)} terms, not ${n}.` },
-          { text: 'Simplify.', tex: `a_{${n}} = ${a1.toTex()} + ${d.mul(n - 1).toTex()} = ${an.toTex()}` },
+          { text: 'Simplify.', tex: `a_{${n}} = ${a1.toTex()} ${d.mul(n - 1).isNegative() ? '-' : '+'} ${d.mul(n - 1).abs().toTex()} = ${an.toTex()}` },
         ],
         misconceptions: numberMisconceptions(an, [
           { value: a1.add(d.mul(n)), tag: 'sequence-index', feedback: `From term 1 to term ${n} there are ${n - 1} steps, not ${n}. Use $(n - 1)d$.` },

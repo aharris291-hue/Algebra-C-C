@@ -166,6 +166,12 @@ export function App() {
   );
 
   const go = (s: Screen) => setScreen(s);
+  // the graphing tool opens from the lesson header, in the page flow, so it never covers an answer or action button
+  const toolButton = (
+    <button className="btn btn-small gt-launch" onClick={() => setToolOpen(true)} aria-label="Open the graphing tool" aria-expanded={toolOpen}>
+      📈 Graphing tool
+    </button>
+  );
   const openLesson = (id: string, testOut?: boolean, kind?: string) => go(kind && kind !== 'lesson' ? { name: 'day', lessonId: id } : { name: 'lesson', lessonId: id, testOut });
 
   return (
@@ -206,21 +212,13 @@ export function App() {
           onExit={() => go({ name: 'home' })}
           onOpenLesson={(id) => openLesson(id)}
           setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })}
+          tools={toolButton}
         />
       )}
       {screen.name === 'day' && profileId !== null && (
-        <DayPlayer key={screen.lessonId} profileId={profileId} lessonId={screen.lessonId} onExit={() => go({ name: 'home' })} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} />
+        <DayPlayer key={screen.lessonId} profileId={profileId} lessonId={screen.lessonId} onExit={() => go({ name: 'home' })} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} tools={toolButton} />
       )}
-      {(screen.name === 'lesson' || screen.name === 'day') && profileId !== null && (
-        <>
-          {!toolOpen && (
-            <button className="btn gt-launch" onClick={() => setToolOpen(true)} aria-label="Open the graphing tool">
-              📈 Graphing tool
-            </button>
-          )}
-          {toolOpen && <GraphingTool onClose={() => setToolOpen(false)} />}
-        </>
-      )}
+      {(screen.name === 'lesson' || screen.name === 'day') && profileId !== null && toolOpen && <GraphingTool onClose={() => setToolOpen(false)} />}
       {screen.name === 'diagnostic' && profileId !== null && (
         <DiagnosticPlayer profileId={profileId} onExit={() => go({ name: 'home' })} onOpenLesson={(id) => openLesson(id)} setActivity={(lessonId, a) => (activity.current = { lessonId, activity: a })} />
       )}

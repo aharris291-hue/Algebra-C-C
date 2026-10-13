@@ -591,7 +591,7 @@ export const genVertexAxis: GeneratorDef = {
       steps.push({
         prompt: [p(`What number is halfway between $${r}$ and $${s}$?`)],
         answer: numSpec(h),
-        hints: ['Add the two numbers.', 'Divide by $2$.', `$${r} + ${s < 0 ? `(${s})` : s} = ${r + s}$.`, 'Halve that.'],
+        hints: ['Add the two numbers.', 'Divide by $2$.', `Work out $${r} + ${s < 0 ? `(${s})` : s}$ first.`, 'Halve that.'],
         explanation: `$\\frac{${r + s}}{2} = ${hTex}$.`,
       });
     }
@@ -702,7 +702,7 @@ export const genIntercepts: GeneratorDef = {
           gstep(
             `Substitute $x = 0$ into $f(x) = ${ftex}$. What do the $x^{2}$ term and the $x$ term add up to?`,
             numSpec(Q(0)),
-            ['Every point on the $y$-axis has $x = 0$.', `Replace each $x$ with $0$: $${a1.toTex()}(0)^{2}$ and $${b1.toTex()}(0)$.`, 'Any number times $0$ is $0$.', 'Add the two products.'],
+            ['Every point on the $y$-axis has $x = 0$.', `Replace each $x$ with $0$: $${a1.toTex()}(0)^{2}$ and $${b1.toTex()}(0)$.`, 'Each of those products has a factor of $0$. What does that make each product?', 'Add the two products.'],
             'Both terms have a factor of $x$, so both become $0$ when $x = 0$.',
             numMis(0, [{ value: b1, tag: 'arithmetic-error', feedback: 'Multiply by $0$: any number times $0$ is $0$.' }, { value: a1.add(b1), tag: 'arithmetic-error', feedback: 'Substitute $0$ for $x$ first. Every term with an $x$ becomes $0$.' }]),
           ),

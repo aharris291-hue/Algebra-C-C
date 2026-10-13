@@ -6,6 +6,7 @@
 import type { Block, SolutionStep, WorkedExample, LessonKind, TeachAgainApproach } from '../core/curriculum/types';
 import type { MasteryStage } from '../core/engine/mastery';
 import type { CheckStatus } from '../core/math/answers';
+import type { GraphConfig } from '../core/math/graphAnswer';
 
 export type SectionId = 'goal' | 'needToKnow' | 'instruction' | 'examples' | 'guided' | 'independent' | 'quiz' | 'feedback' | 'mastery' | 'summary';
 export const LESSON_SECTIONS: SectionId[] = ['goal', 'needToKnow', 'instruction', 'examples', 'guided', 'independent', 'quiz', 'feedback', 'mastery', 'summary'];
@@ -113,7 +114,7 @@ export interface AppStatus {
 // Problems
 // ---------------------------------------------------------------------------
 
-export type AnswerKind = 'number' | 'expression' | 'equation' | 'inequality' | 'point' | 'region-point' | 'solutions' | 'interval' | 'choice' | 'sequence-terms';
+export type AnswerKind = 'number' | 'expression' | 'equation' | 'inequality' | 'point' | 'region-point' | 'solutions' | 'interval' | 'choice' | 'sequence-terms' | 'graph';
 
 export interface FeedbackView {
   status: CheckStatus;
@@ -134,9 +135,11 @@ export interface ProblemView {
   answerKind: AnswerKind;
   inputHint?: string;
   choices?: Array<{ id: string; label: string }>;
+  /** a graph to draw: the grid and the scale menus only (never the target or the accepted scales) */
+  graph?: GraphConfig;
   unit?: string;
   /** step-by-step mode (guided practice) */
-  step?: { index: number; total: number; prompt: Block[]; answerKind: AnswerKind; inputHint?: string; choices?: Array<{ id: string; label: string }>; completed: Array<{ prompt: Block[]; explanation: string }> };
+  step?: { index: number; total: number; prompt: Block[]; answerKind: AnswerKind; inputHint?: string; choices?: Array<{ id: string; label: string }>; graph?: GraphConfig; completed: Array<{ prompt: Block[]; explanation: string }> };
   hintsShown: string[];
   hintsRemaining: number;
   hintsAllowed: boolean;
@@ -231,7 +234,16 @@ export interface LessonView {
   results: ResultsView | null;
   /** extra problems for corrections after the quiz */
   corrections: PracticeView | null;
-  remediation: { active: boolean; reason: string; skills: string[] } | null;
+  /**
+   * refreshers: prerequisites below Proficient that the targeted practice starts with (one easy
+   * problem each), with the worked example from the lesson that teaches them when there is one.
+   */
+  remediation: {
+    active: boolean;
+    reason: string;
+    skills: string[];
+    refreshers: Array<{ skillId: string; skillName: string; lessonId?: string; lessonTitle?: string; example?: WorkedExample }>;
+  } | null;
   xpThisLesson: number;
   canAdvance: boolean;
   advanceBlockedReason?: string;
@@ -290,6 +302,8 @@ export interface CourseLesson {
   canTestOut: boolean;
   /** the diagnostic suggests trying Show What You Know here */
   suggestedTestOut?: boolean;
+  /** a unit review that can be skipped: the unit's lessons are done and its skills are Proficient or better */
+  optional?: boolean;
   quizBest: number | null;
   standards: string[];
 }
@@ -358,6 +372,8 @@ export interface ParentDashboard {
   assessments: Array<{ id: number; kind: string; refId: string; title: string; date: number; percent: number; durationMs: number; attemptNumber: number; missed: number }>;
   masteryByUnit: Array<{ unitId: string; title: string; standards: string[]; skills: SkillMasteryView[]; percentProficient: number }>;
   needsAttention: SkillMasteryView[];
+  /** repeated Teach Me Again use (3+ in a lesson or on a skill): a sign that more explanation may help, never a penalty */
+  supportSignals: string[];
   strengths: SkillMasteryView[];
   time: { totalMinutes: number; thisWeekMinutes: number; byWeek: Array<{ weekStart: string; minutes: number; lessons: number }> };
   engagement: { streak: number; longestStreak: number; xp: number; level: number; weeklyLessons: number };
@@ -394,6 +410,8 @@ export interface WeeklyReport {
   skillsMastered: string[];
   improvements: string[];
   needsAttention: string[];
+  /** repeated Teach Me Again use this week (absent in reports saved by older versions) */
+  supportSignals?: string[];
   recommendedFocus: string[];
   streak: number;
   xpEarned: number;

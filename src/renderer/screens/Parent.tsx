@@ -228,6 +228,16 @@ function Overview({ d }: { d: ParentDashboard }) {
               ))}
             </ul>
           )}
+          {d.supportSignals.length > 0 && (
+            <>
+              <h3>Support signals</h3>
+              <ul className="compact support-signals">
+                {d.supportSignals.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </>
+          )}
           {d.support.repeatedErrors.length > 0 && (
             <>
               <h3>Repeated error patterns</h3>
@@ -629,6 +639,7 @@ function Report({ pin, pid }: { pin: string; pid: number }) {
       <ReportList title="Skills mastered" items={r.skillsMastered} />
       <ReportList title="Skills that reached Proficient" items={r.improvements} />
       <ReportList title="Needs attention" items={r.needsAttention} />
+      <ReportList title="Support signals" items={r.supportSignals ?? []} />
       <ReportList title="Recommended focus for next week" items={r.recommendedFocus} />
       <p className="sub">Generated {new Date(r.generatedAt).toLocaleString()}</p>
     </section>

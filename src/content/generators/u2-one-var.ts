@@ -5,7 +5,7 @@
 import type { GeneratorDef, Rng, Difficulty, Block, ProblemStep } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
 import { linearTex } from '../../core/math/format';
-import { Q, p, makeProblem, numStr, makeChoice, choiceLabel, stringMisconceptions, texValue, numberMisconceptions } from './util';
+import { Q, p, makeProblem, numStr, coefPlain, makeChoice, choiceLabel, stringMisconceptions, texValue, numberMisconceptions } from './util';
 import { toPoly } from '../../core/math/poly';
 import { parseExpression } from '../../core/math/parser';
 import { Op, OP_TEX, FLIP_OP, TOGGLE_STRICT, isStrict, isGreater, pickOp, relTexToPlain, sameOneVarSolutions, holds, stepChoice, idOf, lastStepErrors, stepLabel, optionMisList } from './u2-common';
@@ -133,7 +133,7 @@ export const genSolveIneq: GeneratorDef = {
       ? [
           {
             prompt: [p(`Solve $${orig}$. ${firstStep} What inequality do you get, with only an $x$ term on the left?`)],
-            answer: { kind: 'inequality', value: `${numStr(s.coef)}x ${s.op} ${numStr(s.collected)}` },
+            answer: { kind: 'inequality', value: `${coefPlain(s.coef)}x ${s.op} ${numStr(s.collected)}` },
             hints: [
               'Adding or subtracting on both sides does **not** change the symbol.',
               s.kind === 'distribute' ? `Multiply $${s.lhs.split('(')[0] || '1'}$ by each term inside the parentheses first.` : 'Move every $x$ term to the left and every number to the right.',

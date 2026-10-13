@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react';
 import type { GraphSpec } from '../../core/curriculum/types';
 import { Graph } from './Graph';
-import { parseGraphInput, pointsOfInterest, intersections, tableOfValues, parseData, linearRegression, fmt, GraphEntry, PointOfInterest } from '../../core/math/graphing';
+import { parseGraphInput, pointsOfInterest, intersections, tableOfValues, parseData, linearRegression, oneVarStats, fmt, GraphEntry, PointOfInterest } from '../../core/math/graphing';
 
 const COLORS = ['#3557d4', '#d4572f', '#1f8a5b', '#8a3fbf'];
 const STANDARD = { xMin: -10, xMax: 10, yMin: -8, yMax: 8 };
@@ -18,7 +18,9 @@ export function GraphingTool(props: { onClose: () => void }) {
   const [rows, setRows] = useState<string[]>(['', '', '', '']);
   const [win, setWin] = useState<Win>(STANDARD);
   const [draftWin, setDraftWin] = useState<Record<keyof Win, string>>({ xMin: '-10', xMax: '10', yMin: '-8', yMax: '8' });
-  const [tab, setTab] = useState<'graph' | 'table' | 'data'>('graph');
+  const [tab, setTab] = useState<'graph' | 'table' | 'data' | 'stats'>('graph');
+  const [list, setList] = useState('');
+  const listStats = useMemo(() => oneVarStats(list), [list]);
   const [tableRow, setTableRow] = useState(0);
   const [tStart, setTStart] = useState('0');
   const [tStep, setTStep] = useState('1');
@@ -126,14 +128,14 @@ export function GraphingTool(props: { onClose: () => void }) {
         })}
       </div>
       <nav className="tabs" role="tablist">
-        {(['graph', 'table', 'data'] as const).map((t) => (
+        {(['graph', 'table', 'data', 'stats'] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'graph' ? 'Graph' : t === 'table' ? 'Table' : 'Data & best fit'}
+            {t === 'graph' ? 'Graph' : t === 'table' ? 'Table' : t === 'data' ? 'Data & best fit' : 'One-variable stats'}
           </button>
         ))}
       </nav>
 
-      {tab !== 'table' && <Graph spec={spec} />}
+      {tab !== 'table' && tab !== 'stats' && <Graph spec={spec} />}
 
       {tab === 'graph' && (
         <>
@@ -240,6 +242,34 @@ export function GraphingTool(props: { onClose: () => void }) {
             </p>
           )}
           {fit && dataParsed.points.length === 1 && <p className="sub">A line of best fit needs at least two points.</p>}
+        </div>
+      )}
+      {tab === 'stats' && (
+        <div className="gt-stats">
+          <label className="field">
+            <span>Data: a list of numbers, separated by commas, spaces or new lines</span>
+            <textarea aria-label="One-variable data" rows={4} value={list} onChange={(e) => setList(e.target.value)} placeholder={'12, 15, 15, 18, 21, 30'} spellCheck={false} />
+          </label>
+          {listStats.bad.length > 0 && <p className="gt-error">Could not read: {listStats.bad.slice(0, 5).join(', ')}. Type numbers only, like 12.5.</p>}
+          {listStats.stats ? (
+            <table className="gt-stats-table" aria-live="polite">
+              <tbody>
+                <tr><th scope="row">n (number of values)</th><td>{listStats.stats.n}</td></tr>
+                <tr><th scope="row">Mean</th><td>{fmt(listStats.stats.mean)}</td></tr>
+                <tr><th scope="row">Standard deviation σx</th><td>{fmt(listStats.stats.sd)}</td></tr>
+                {listStats.stats.sampleSd !== null && <tr><th scope="row">Sample standard deviation sx</th><td>{fmt(listStats.stats.sampleSd)}</td></tr>}
+                <tr><th scope="row">Minimum</th><td>{fmt(listStats.stats.min)}</td></tr>
+                <tr><th scope="row">Q1</th><td>{listStats.stats.q1 === null ? 'needs 4 or more values' : fmt(listStats.stats.q1)}</td></tr>
+                <tr><th scope="row">Median</th><td>{fmt(listStats.stats.median)}</td></tr>
+                <tr><th scope="row">Q3</th><td>{listStats.stats.q3 === null ? 'needs 4 or more values' : fmt(listStats.stats.q3)}</td></tr>
+                <tr><th scope="row">Maximum</th><td>{fmt(listStats.stats.max)}</td></tr>
+                <tr><th scope="row">IQR (Q3 − Q1)</th><td>{listStats.stats.iqr === null ? 'needs 4 or more values' : fmt(listStats.stats.iqr)}</td></tr>
+              </tbody>
+            </table>
+          ) : (
+            <p className="sub">Type a list of numbers to see the mean, median, standard deviation, five-number summary and IQR.</p>
+          )}
+          <p className="sub">Quartiles use the course method: the medians of the lower and upper halves, leaving out the median when the count is odd. σx is the standard deviation used in this course.</p>
         </div>
       )}
     </aside>

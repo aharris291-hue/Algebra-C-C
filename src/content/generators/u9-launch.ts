@@ -16,7 +16,7 @@ import { parseExpression } from '../../core/math/parser';
 import { evalNumeric } from '../../core/math/evaluate';
 import { Poly } from '../../core/math/poly';
 import { Rational } from '../../core/math/rational';
-import { p, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions, texToExpr } from './util';
+import { p, projectTasks, makeProblem, makeChoice, choiceLabel, numStr, Q, numberMisconceptions, texToExpr } from './util';
 import { pTex, plainPoly, ev } from './u4-common';
 import { dTex, pct, textOf } from './u5-common';
 
@@ -707,7 +707,7 @@ const genLimits: GeneratorDef = {
   },
 };
 
-export const CAP_LAUNCH_GENERATORS: GeneratorDef[] = [genWriteH, genMaxHeight, genLanding, genDomain, genWriteFish, genEvalFish, genThreshold, genCompareLinear, genLimits];
+export const CAP_LAUNCH_GENERATORS: GeneratorDef[] = projectTasks([genWriteH, genMaxHeight, genLanding, genDomain, genWriteFish, genEvalFish, genThreshold, genCompareLinear, genLimits]);
 
 const intro: Block[] = [
   p('It is science-club day, and the club has two investigations. In each one you will use the modeling cycle: define the quantities, write a model, use it to compute, interpret the answer in the situation, and check whether the model makes sense.'),

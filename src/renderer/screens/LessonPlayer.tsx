@@ -13,7 +13,7 @@ import { Results } from '../components/Results';
 import { STAGE_LABEL } from '../labels';
 import { playSound } from '../sound';
 
-export function LessonPlayer(props: { profileId: number; lessonId: string; testOut?: boolean; onExit: () => void; onOpenLesson: (id: string) => void; setActivity: (lessonId: string | null, activity: string) => void }) {
+export function LessonPlayer(props: { profileId: number; lessonId: string; testOut?: boolean; onExit: () => void; onOpenLesson: (id: string) => void; setActivity: (lessonId: string | null, activity: string) => void; tools?: React.ReactNode }) {
   const { profileId, lessonId } = props;
   const [view, setView] = useState<LessonView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -122,6 +122,7 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
           </div>
           <h1 className="lesson-title">{view.title}</h1>
         </div>
+        {props.tools}
         <div className="lesson-xp" aria-label="XP earned in this lesson">
           +{view.xpThisLesson} XP
         </div>
@@ -433,6 +434,31 @@ function Mastery(props: { view: LessonView; busy: boolean; actions: Parameters<t
       {rem && rem.active && view.practice && (
         <>
           <p className="practice-intro">{rem.reason}</p>
+          {rem.refreshers.length > 0 && (
+            <section className="refreshers" aria-label="Quick refresher">
+              <h3>Quick refresher first</h3>
+              <p>
+                {rem.refreshers.length === 1 ? 'This skill' : 'These skills'} from earlier {rem.refreshers.length === 1 ? 'is' : 'are'} what today's lesson builds on, so the practice starts with one
+                easy problem on {rem.refreshers.length === 1 ? 'it' : 'each'}: {rem.refreshers.map((r) => r.skillName).join(', ')}.
+              </p>
+              {rem.refreshers
+                .filter((r) => r.example)
+                .map((r) => (
+                  <details key={r.skillId} className="example refresher">
+                    <summary>
+                      Worked example: <Inline text={r.example!.title} />
+                      {r.lessonTitle ? ` (from ${r.lessonTitle})` : ''}
+                    </summary>
+                    <Blocks blocks={r.example!.problem} />
+                    <Steps items={r.example!.steps} reveal={r.example!.steps.length} />
+                    <div className="example-answer">
+                      <strong>Answer: </strong>
+                      <Inline text={r.example!.answer} />
+                    </div>
+                  </details>
+                ))}
+            </section>
+          )}
           <PracticePanel practice={view.practice} actions={props.actions} busy={busy} />
         </>
       )}

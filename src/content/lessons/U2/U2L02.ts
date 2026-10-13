@@ -99,6 +99,10 @@ export const U2L02: LessonContent = {
         'Check a shaded point in your answer.',
       ],
     },
+    { t: 'p', text: '### Graphing an inequality from a situation: labels and scales' },
+    { t: 'p', text: 'For the arcade gift card, $10x + 5y \\le 40$, the boundary crosses the axes at $(4, 0)$ and $(0, 8)$. Those intercepts are the easiest two points to plot.' },
+    { t: 'list', ordered: true, items: ['**Label both axes with what $x$ and $y$ count:** Number of laser tag games across, Number of snacks up.', '**Choose a scale for each axis.** The axis must reach the largest value the situation needs, the graph should fill a good part of the grid (not a corner of it), and the key points should land on grid lines. Count the squares: with 10 squares, 5 per square reaches 50.', 'Here 1 per square works on both axes: the $x$-axis reaches 10 (it needs 4) and the $y$-axis reaches 10 (it needs 8).', '**Plot the intercepts, then choose solid or dashed and the side to shade**, exactly as in the table above.'] },
+    { t: 'callout', variant: 'tip', title: 'Drawing a graph in this app', text: 'Type a label for each axis, choose what one grid square is worth on each axis, then place points: click a grid intersection, or click the grid and use the arrow keys and Enter. Click a point again to remove it.' },
   ],
   examples: [
     {
@@ -286,6 +290,7 @@ export const U2L02: LessonContent = {
     { generator: 'u2.ineq-from-graph', difficulty: 1 },
     { generator: 'u2.graph-ineq-features', difficulty: 1 },
     { generator: 'u2.ineq-from-graph', difficulty: 1 },
+    { generator: 'u2.graph-ineq-context', difficulty: 1 },
   ],
   independent: {
     count: 8,
@@ -297,6 +302,8 @@ export const U2L02: LessonContent = {
       { generator: 'u2.ineq-from-graph', difficulty: 1, weight: 1 },
       { generator: 'u2.ineq-from-graph', difficulty: 2, weight: 2 },
       { generator: 'u2.ineq-from-graph', difficulty: 3, weight: 1 },
+      { generator: 'u2.graph-ineq-context', difficulty: 1, weight: 1 },
+      { generator: 'u2.graph-ineq-context', difficulty: 2, weight: 1 },
     ],
   },
   quiz: {
@@ -307,6 +314,7 @@ export const U2L02: LessonContent = {
       { generator: 'u2.ineq-from-graph', difficulty: 2 },
       { generator: 'u2.ineq-from-graph', difficulty: 3 },
       { generator: 'u2.graph-ineq-features', difficulty: 2 },
+      { generator: 'u2.graph-ineq-context', difficulty: 2 },
     ],
   },
   summary: [

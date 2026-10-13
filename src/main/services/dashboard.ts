@@ -10,6 +10,7 @@ import { computeGrade, GradeResult, ScoredItem } from '../../core/engine/grading
 import { levelForXp, levelTitle } from '../../core/engine/xp';
 import { computeStreak, weekStart, addDays, dayDiff, localDate } from '../../core/engine/dates';
 import { STAGE_ORDER, MasteryStage } from '../../core/engine/mastery';
+import { summarizeSkills } from '../../core/engine/results';
 import { ServiceContext, UserFacingError, today } from './context';
 import { getProfile, getGoals } from './profiles';
 import { totalXp, skillStates } from './records';
@@ -45,6 +46,8 @@ export const MISCONCEPTION_LABELS: Record<string, string> = {
   'formula-error': 'Using a formula',
   'statistics-concept': 'Statistics concepts',
   units: 'Units',
+  'graph-scale': 'Choosing a scale for graph axes',
+  'axis-labels': 'Labeling graph axes',
   'function-input-output': 'Mixing up inputs and outputs',
   other: 'Other errors',
 };
@@ -288,7 +291,8 @@ function continueLesson(ctx: ServiceContext, profileId: number, course: CourseLe
     return { lessonId: id, title: l.title, section, unitTitle: `Unit ${u.number}: ${u.title}`, resume, kind: l.kind };
   };
   if (inProgress && course.find((c) => c.id === inProgress.lesson_id)?.hasContent) return mk(inProgress.lesson_id, inProgress.section, true);
-  const next = course.find((c) => c.status === 'available' && c.hasContent);
+  // an optional review (the unit is already shown) is not the suggested next step; the course map still offers it
+  const next = course.find((c) => c.status === 'available' && c.hasContent && !c.optional) ?? course.find((c) => c.status === 'available' && c.hasContent);
   return next ? mk(next.id, 'goal', false) : null;
 }
 
@@ -457,6 +461,7 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
     assessments,
     masteryByUnit,
     needsAttention,
+    supportSignals: teachAgainSignals(ctx, profileId, 0, Number.MAX_SAFE_INTEGER),
     strengths,
     time: { totalMinutes, thisWeekMinutes: minutesBetween(ctx, profileId, ws, addDays(ws, 6)), byWeek },
     engagement: { streak: streak.current, longestStreak: streak.longest, xp, level: levelForXp(xp).level, weeklyLessons: byWeek[byWeek.length - 1].lessons },
@@ -559,6 +564,8 @@ export function getWeeklyReport(ctx: ServiceContext, profileId: number, week?: s
   if (accuracy !== null) parts.push(`Accuracy on graded work was ${accuracy}%${prevAcc !== null ? ` (${accuracy >= prevAcc ? 'up' : 'down'} from ${prevAcc}% last week)` : ''}.`);
   if (skillsMastered.length) parts.push(`Mastered: ${skillsMastered.join(', ')}.`);
   if (needsAttention.length) parts.push(`Needs attention: ${needsAttention.slice(0, 3).join(', ')}.`);
+  const supportSignals = teachAgainSignals(ctx, profileId, from, to);
+  if (supportSignals.length) parts.push('Teach Me Again was used several times on some topics; a short talk-through together may help (this is a support signal, not a problem).');
   const report: WeeklyReport = {
     profileId,
     studentName: profile.displayName,
@@ -573,6 +580,7 @@ export function getWeeklyReport(ctx: ServiceContext, profileId: number, week?: s
     skillsMastered,
     improvements,
     needsAttention,
+    supportSignals,
     recommendedFocus,
     streak,
     xpEarned,
@@ -603,8 +611,8 @@ export function getStandardsProgress(ctx: ServiceContext, profileId: number): St
 }
 
 export function getAssessmentDetail(ctx: ServiceContext, profileId: number, assessmentId: number): ResultsView {
-  const a = ctx.db.get<{ kind: string; ref_id: string; attempt_number: number; score: number; max_score: number; duration_ms: number; items_json: string; mastery_before_json: string | null; mastery_after_json: string | null }>(
-    "SELECT kind, ref_id, attempt_number, score, max_score, duration_ms, items_json, mastery_before_json, mastery_after_json FROM assessments WHERE id = ? AND profile_id = ? AND status = 'completed'",
+  const a = ctx.db.get<{ kind: string; ref_id: string; attempt_number: number; score: number; max_score: number; duration_ms: number; items_json: string; mastery_before_json: string | null; mastery_after_json: string | null; summary_json: string | null }>(
+    "SELECT kind, ref_id, attempt_number, score, max_score, duration_ms, items_json, mastery_before_json, mastery_after_json, summary_json FROM assessments WHERE id = ? AND profile_id = ? AND status = 'completed'",
     [assessmentId, profileId],
   );
   if (!a) throw new UserFacingError('That assessment was not found.');
@@ -627,23 +635,68 @@ export function getAssessmentDetail(ctx: ServiceContext, profileId: number, asse
   const before = a.mastery_before_json ? (JSON.parse(a.mastery_before_json) as Record<string, MasteryStage>) : {};
   const after = a.mastery_after_json ? (JSON.parse(a.mastery_after_json) as Record<string, MasteryStage>) : {};
   const percent = a.max_score ? Math.round((1000 * a.score) / a.max_score) / 10 : 0;
-  const missed = [...new Set(items.filter((i) => !i.correct).map((i) => i.skillName))];
+  const passPercent = a.kind === 'test-out' ? 85 : a.kind === 'quiz' ? 80 : 70;
+  const passed = percent >= passPercent;
+  // stored with the row since schema v2; an older row's summary is rebuilt from its saved answers
+  let summary: { didWell: string[]; needsPractice: string[]; nextStep: string } | null = null;
+  try {
+    summary = a.summary_json ? JSON.parse(a.summary_json) : null;
+  } catch {
+    summary = null;
+  }
+  if (!summary) {
+    const s = summarizeSkills(items.map((i) => ({ skill: i.skillName, correct: i.correct })));
+    summary = { ...s, nextStep: rebuiltNextStep(a.kind, passed, s.needsPractice) };
+  }
   return {
     kind: (a.kind === 'test-out' ? 'test-out' : a.kind) as ResultsView['kind'],
     title: assessmentTitle(a.kind, a.ref_id),
     score: a.score,
     maxScore: a.max_score,
     percent,
-    passed: percent >= (a.kind === 'test-out' ? 85 : a.kind === 'quiz' ? 80 : 70),
-    passPercent: a.kind === 'test-out' ? 85 : a.kind === 'quiz' ? 80 : 70,
+    passed,
+    passPercent,
     durationMs: a.duration_ms ?? 0,
     attemptNumber: a.attempt_number,
     items,
-    didWell: [...new Set(items.filter((i) => i.correct).map((i) => i.skillName))].filter((n) => !missed.includes(n)),
-    needsPractice: missed,
-    nextStep: '',
+    didWell: summary.didWell,
+    needsPractice: summary.needsPractice,
+    nextStep: summary.nextStep,
     skillChanges: Object.keys(after).map((s) => ({ skillId: s, skillName: SKILL_BY_ID.get(s)?.name ?? s, before: before[s] ?? 'NOT_STARTED', after: after[s], score: 0 })),
     xpEarned: 0,
     canRetake: false,
   };
+}
+
+/** The recommended next step for an assessment saved before the summary was stored (schema v1). */
+function rebuiltNextStep(kind: string, passed: boolean, needsPractice: string[]): string {
+  const focus = needsPractice.length ? needsPractice.join(', ') : '';
+  if (kind === 'test-out') return passed ? 'Tested out of this lesson. Move on to the next lesson.' : 'Learn this lesson normally; its practice and quiz come next.';
+  if (kind === 'quiz') {
+    if (passed) return focus ? `Review the corrections for ${focus}, then move on.` : 'Passed with every question right. Move on to the next lesson.';
+    return `Use Teach Me Again and the targeted practice on ${focus || 'the missed skills'}, then retake the quiz.`;
+  }
+  if (kind === 'unit-assessment' || kind === 'semester-assessment') {
+    if (passed) return focus ? 'Passed. Fix the missed questions in the corrections, then move on.' : 'Passed with every question right. Move on.';
+    return `Not passed yet. Focus on ${focus || 'the missed skills'}, then retake it.`;
+  }
+  return focus ? `Go back over ${focus}. The lesson for each skill has Teach Me Again and more practice.` : 'Every question right. On to the next day.';
+}
+
+/** Teach Me Again uses that count as a support signal: this many in one lesson (each lesson teaches its own skills, so this is per skill too). */
+export const TEACH_AGAIN_SIGNAL = 3;
+
+/**
+ * Repeated Teach Me Again use between `from` and `to` (ms), worded as a support signal: asking for
+ * another explanation is a good learning habit and never a penalty, but it shows where a parent
+ * talking it through could help. One line per lesson with TEACH_AGAIN_SIGNAL or more uses.
+ */
+export function teachAgainSignals(ctx: ServiceContext, profileId: number, from: number, to: number): string[] {
+  const rows = ctx.db.all<{ lesson_id: string; n: number }>('SELECT lesson_id, COUNT(*) AS n FROM teach_again_events WHERE profile_id = ? AND created_at >= ? AND created_at < ? GROUP BY lesson_id', [profileId, from, to]);
+  const out: string[] = [];
+  for (const r of [...rows].sort((a, b) => Number(b.n) - Number(a.n))) {
+    if (Number(r.n) < TEACH_AGAIN_SIGNAL) continue;
+    out.push(`Asked for Teach Me Again ${r.n} times in "${refTitle(r.lesson_id)}": extra explanation may help there. Asking again is a good habit, not a problem.`);
+  }
+  return out;
 }

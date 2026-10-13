@@ -55,10 +55,15 @@ export function samplePoints(vars: string[], count: number, positiveOnly: boolea
   return pts;
 }
 
-function close(a: number, b: number): boolean {
+/**
+ * Equal up to floating-point error. Evaluation of the forms compared here (exponentials, radicals,
+ * quotients; polynomials are compared exactly elsewhere) is accurate to about 1e-15, so a 1e-12
+ * relative tolerance accepts every equivalent form while rejecting a tiny added constant (2^x + 1e-10).
+ */
+export function close(a: number, b: number): boolean {
   if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
   const scale = Math.max(1, Math.abs(a), Math.abs(b));
-  return Math.abs(a - b) <= 1e-9 * scale;
+  return Math.abs(a - b) <= 1e-12 * scale;
 }
 
 /**

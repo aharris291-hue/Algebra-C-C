@@ -49,6 +49,8 @@ The renderer never computes or writes grades, mastery, XP or completion. It send
 - `src/content/lessons/<unitId>/<lessonId>.ts`: lesson content (goal, need-to-know, instruction, worked examples with *why* for each step, Teach Me Again variants, guided/independent/quiz problem plans, summary, mastery criteria).
 - `src/content/generators/`: seeded problem generators. Each generator returns a `Problem` (prompt, exact answer spec, 4-level hints, worked solution, misconception answers, optional guided steps) **and** a `verify()` that re-derives the answer by an independent route. Problems that fail verification are rejected and regenerated, never shown (spec §41, §44).
 - Assessments are assembled from blueprints that reference generators, so retakes get fresh but equivalent problems.
+- Capstone project tasks (Unit 9) are marked `projectOnly`: they share their project's seeded situation, so `generatorsForSkill` never offers them for a skill (practice, reviews, assessments, remediation, spaced review, diagnostic); they appear only on their project day.
+- Hints and misconception feedback are checked for giving away the answer (`leaksAnswer` in `problems.ts`): "= key", "answer is key", a bound with any relation symbol before the key (TeX or Unicode, e.g. "y ≤ 102"), and "is key" closing a sentence. A problem that leaks is rejected like any failed verification.
 
 Problems are reproducible: an attempt stores `generatorId + seed + difficulty`, so any stored attempt can be regenerated exactly for review and audits.
 
@@ -56,9 +58,9 @@ Problems are reproducible: an attempt stores `generatorId + seed + difficulty`, 
 
 - `Rational` (BigInt) for exact arithmetic. No floating-point comparisons in grading.
 - `parser.ts` reads student input (implicit multiplication, unicode symbols, √, ∛, |x|) and gives friendly syntax messages. Thousands separators: "1,200" anywhere, and "1 200" (a space before exactly three digits) as a second reading when the answer cannot be read as typed.
-- Equivalence: polynomials compared by exact canonical form; constant radicals compared in an exact `Surd` field (`6√2 == √72`); other expressions by deterministic numeric sampling.
+- Equivalence: polynomials compared by exact canonical form; constant radicals compared in an exact `Surd` field (`6√2 == √72`); other expressions by deterministic numeric sampling with a 1e-12 relative tolerance, at negative inputs too wherever both sides are defined (so √(x²) is not x and 2^x + 1e-10 is not 2^x). Only a simplify-the-radical question, or two radical forms of an expression with a variable under a radical, is compared on non-negative inputs (the course convention that variables under a radical are non-negative). An exact irrational value typed for a rounded answer gets the wrong-form message "round it".
 - Forms: expanded, completely factored, vertex form, simplified radical, slope-intercept, point-slope, standard form. A correct-but-wrong-form answer is never marked wrong; the student is asked to finish rewriting.
-- Answer kinds: number (exact or rounded), expression, equation, inequality (half-plane equivalence; a compound inequality like -2 < x < 5 as the set it describes), ordered pair, solution set (with ±, double roots, "no real solutions"), interval (interval, set-builder, or inequality notation), sequence terms, multiple choice.
+- Answer kinds: number (exact or rounded), expression, equation, inequality (half-plane equivalence; a compound inequality like -2 < x < 5 as the set it describes), ordered pair, solution set (with ±, double roots, "no real solutions"), interval (interval, set-builder, or inequality notation), sequence terms, multiple choice, and a drawn graph (labels, scales, points, boundary and shading; see `graphAnswer.ts` and GRADING.md).
 - Misconceptions: each problem lists answers produced by specific errors (sign, reciprocal slope, rise/run swap, distribution, etc.). Matching one gives targeted feedback without revealing the answer, and the tag is stored for the Parent Dashboard.
 
 ## 5. Local database (spec §27-29, §42)
@@ -71,7 +73,7 @@ A failed save never throws out of the background timer: the data stays in memory
 
 Daily automatic backups go to `...\backups\auto\`. The date is checked on every API call and after every save, so an app left open for days still makes one per day. Pruning keeps the 14 most recently *written* files (ordered by modification time, which is forced forward past the existing backups), so a backup written after the system clock moved back is kept, and recovery tries the most recently written first. A safety backup is always created before a restore or a schema migration.
 
-### Schema (version 1)
+### Schema (version 2)
 
 | Table | Purpose |
 |---|---|
@@ -82,7 +84,7 @@ Daily automatic backups go to `...\backups\auto\`. The date is checked on every 
 | `attempts(id, profile_id, lesson_id, activity, assessment_id, skill_id, generator_id, seed, difficulty, problem_index, step_index, response, status, correct, attempt_number, hints_used, max_hint_level, misconception, elapsed_ms, counted, created_at)` | Every answer submitted |
 | `hint_events(id, profile_id, lesson_id, activity, skill_id, generator_id, seed, level, created_at)` | Every hint revealed |
 | `teach_again_events(id, profile_id, lesson_id, approach, created_at)` | Teach Me Again usage (never penalized) |
-| `assessments(id, profile_id, kind, ref_id, attempt_number, started_at, finished_at, duration_ms, score, max_score, status, items_json, skills_json, mastery_before_json, mastery_after_json)` | Quizzes, unit/semester assessments, diagnostic, test-out |
+| `assessments(id, profile_id, kind, ref_id, attempt_number, started_at, finished_at, duration_ms, score, max_score, status, items_json, skills_json, mastery_before_json, mastery_after_json, summary_json)` | Quizzes, unit/semester assessments, diagnostic, test-out. `summary_json` (added in schema v2): the results summary shown when it was graded (did well, needs practice, next step); NULL for older rows, which rebuild it |
 | `skill_state(profile_id, skill_id, stage, score, evidence_count, last_practiced_at, next_review_at, mastered_at, updated_at)` | Cached mastery; always recomputable from `attempts` |
 | `xp_events(id, profile_id, amount, reason, ref, created_at)` | XP ledger; XP total = sum |
 | `achievements(profile_id, achievement_id, earned_at)` | Badges |

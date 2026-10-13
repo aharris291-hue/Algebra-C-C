@@ -139,3 +139,30 @@ describe('spaced review intervals 2, 4, 7, 14, 30 days', () => {
     expect((ok.nextReviewAt! - due) / D).toBe(4);
   });
 });
+
+describe('drops are proportional (one stage per sitting unless the evidence is strong)', () => {
+  it('two easy assessment misses take MASTERED down one stage, to PROFICIENT, not to LEARNING', () => {
+    const e = masteredHistory();
+    const two = [...e, ev(3 * D, false, 'assessment', { difficulty: 1 }), ev(3 * D + 60_000, false, 'assessment', { difficulty: 1 })];
+    expect(computeSkillState(two).stage).toBe('PROFICIENT');
+  });
+  it('more misses in a later sitting lower it one more stage', () => {
+    const e = masteredHistory();
+    e.push(ev(3 * D, false, 'assessment', { difficulty: 1 }), ev(3 * D + 60_000, false, 'assessment', { difficulty: 1 }));
+    e.push(ev(4 * D, false, 'quiz'), ev(4 * D + 60_000, false, 'quiz'));
+    expect(computeSkillState(e).stage).toBe('DEVELOPING');
+  });
+  it('a sitting with three or more misses is strong evidence and may drop further', () => {
+    const e = masteredHistory();
+    for (let i = 0; i < 4; i++) e.push(ev(3 * D + i * 60_000, false, 'assessment'));
+    expect(['DEVELOPING', 'LEARNING']).toContain(computeSkillState(e).stage);
+    expect(computeSkillState(e).stage).not.toBe('PROFICIENT');
+  });
+  it('a proficient skill missed twice in one quiz goes to DEVELOPING, not LEARNING', () => {
+    const e: Evidence[] = [];
+    for (let i = 0; i < 5; i++) e.push(ev(i * 60_000, true));
+    expect(computeSkillState(e).stage).toBe('PROFICIENT');
+    e.push(ev(D, false, 'quiz'), ev(D + 60_000, false, 'quiz'));
+    expect(computeSkillState(e).stage).toBe('DEVELOPING');
+  });
+});

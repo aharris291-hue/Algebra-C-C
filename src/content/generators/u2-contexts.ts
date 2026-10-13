@@ -5,7 +5,7 @@
  */
 import type { Rng } from '../../core/curriculum/types';
 import { Rational } from '../../core/math/rational';
-import { Q, money, numStr } from './util';
+import { Q, money, numStr, coefPlain } from './util';
 import type { Op } from './u2-common';
 
 export interface SysContext {
@@ -149,7 +149,7 @@ export function buildSystem(rng: Rng, ctx: SysContext = rng.pick(SYS_CONTEXTS)):
     const A = Q(a);
     const B = Q(b);
     const T = Q(t);
-    return { ctx, a: A, b: B, n, t: T, countRel: `x + y ${ctx.countOp} ${n}`, moneyRel: `${numStr(A)}x + ${numStr(B)}y ${ctx.moneyOp} ${numStr(T)}` };
+    return { ctx, a: A, b: B, n, t: T, countRel: `x + y ${ctx.countOp} ${n}`, moneyRel: `${coefPlain(A)}x + ${coefPlain(B)}y ${ctx.moneyOp} ${numStr(T)}` };
   }
 }
 

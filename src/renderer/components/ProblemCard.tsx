@@ -4,6 +4,7 @@ import type { ProblemView } from '../../shared/api';
 import { Blocks, Steps } from './Blocks';
 import { Inline } from './RichText';
 import { MathInput } from './MathInput';
+import { GraphInput } from './GraphInput';
 import { playSound } from '../sound';
 
 export interface ProblemActions {
@@ -40,6 +41,7 @@ export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: Pr
   const finished = p.state !== 'open';
   const kind = p.step?.answerKind ?? p.answerKind;
   const choices = p.step ? p.step.choices : p.choices;
+  const graph = p.step ? p.step.graph : p.graph;
   const submit = (v = value) => {
     if (!v.trim() || busy || finished) return;
     actions.submit(p.key, v, Date.now() - shownAt.current, p.step?.index);
@@ -107,6 +109,8 @@ export function ProblemCard({ p, actions, deferred, busy, submitLabel }: { p: Pr
                 </button>
               ))}
             </div>
+          ) : kind === 'graph' && graph ? (
+            <GraphInput config={graph} value={value} onChange={setValue} disabled={busy} label={`Graph for problem ${p.index + 1}`} />
           ) : (
             <MathInput kind={kind} value={value} onChange={setValue} onSubmit={() => submit()} disabled={busy} unit={p.unit} inputHint={p.step?.inputHint ?? p.inputHint} autoFocus label={`Answer for problem ${p.index + 1}`} />
           )}

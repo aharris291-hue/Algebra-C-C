@@ -646,7 +646,7 @@ function fromGraphSteps(m: Rational, b: Rational, run: number, rise: Rational, s
         'The $y$-axis is the vertical axis, where $x = 0$.',
         'One of the marked points is on the $y$-axis.',
         'The $y$-intercept is the $y$-coordinate of that point.',
-        'Read the second number of the marked point whose first number is $0$.',
+        'Read the second number of the marked point that has first number $0$ (the point on the $y$-axis).',
       ],
       misconceptions: numberMisconceptions(b, [
         { value: b.neg(), tag: 'graph-reading', feedback: 'Check the sign: is the crossing point above or below the $x$-axis?' },
@@ -659,7 +659,7 @@ function fromGraphSteps(m: Rational, b: Rational, run: number, rise: Rational, s
       answer: { kind: 'number', value: numStr(m) },
       hints: [
         'Slope is rise over run: the change in $y$ divided by the change in $x$.',
-        `Going from $(0, ${b.toTex()})$ to $${p1}$, the run is $${run}$.`,
+        `Going from $(0, ${b.toTex()})$ to $${p1}$, count how many units to the right you move: that is the run.`,
         'Find the rise: how far up (positive) or down (negative) does the line go?',
         `Subtract the $y$-values: $${b.add(rise).toTex()} - ${b.isNegative() ? `(${b.toTex()})` : b.toTex()}$, then divide by the run.`,
       ],

@@ -53,6 +53,11 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                   <span className="lesson-name">
                     {l.title}
                     {l.kind !== 'lesson' && <span className="tag">{KIND_LABEL[l.kind]}</span>}
+                    {l.optional && (
+                      <span className="tag tag-ok" data-testid="optional-review" title="Every lesson in this unit is done and its skills are Proficient or better. You can do this review for extra practice or go straight on.">
+                        Optional: you already showed these skills
+                      </span>
+                    )}
                   </span>
                   <span className="lesson-status">
                     {STATUS_LABEL[l.status]}
@@ -65,7 +70,7 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                       </button>
                     )}
                     {l.kind !== 'lesson' && l.hasContent && l.status !== 'locked' && l.status !== 'coming_soon' && (
-                      <button className={`btn btn-small ${l.status === 'completed' ? '' : 'btn-primary'}`} onClick={() => props.onOpenLesson(l.id, false, l.kind)}>
+                      <button className={`btn btn-small ${l.status === 'completed' || l.optional ? '' : 'btn-primary'}`} onClick={() => props.onOpenLesson(l.id, false, l.kind)}>
                         {l.status === 'in_progress' ? 'Continue' : l.status === 'completed' ? 'Open' : 'Start'}
                       </button>
                     )}
