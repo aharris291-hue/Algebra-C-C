@@ -3,7 +3,7 @@ import { ServiceContext, today } from './context';
 import { computeSkillState, Evidence, EvidenceActivity, MasteryStage, SkillState, STAGE_ORDER } from '../../core/engine/mastery';
 import { dayQualifies } from '../../core/engine/dates';
 import { XP_POLICY } from '../../core/engine/xp';
-import { SKILL_BY_ID, LESSON_CONTENT } from '../../content';
+import { SKILL_BY_ID, LESSON_CONTENT, LESSON_BY_ID } from '../../content';
 import { summarizeSkills, nextStepFor } from '../../core/engine/results';
 import { TEST_OUT_PASS, ASSESSMENT_PASS } from '../../core/engine/grading';
 import { isLearningActivity } from '../../shared/api';
@@ -128,6 +128,60 @@ export interface ResultsSummary {
   didWell: string[];
   needsPractice: string[];
   nextStep: string;
+  /** what the student left the attempt to look at (see LeftNote); information, never a penalty */
+  leftDuring?: string[];
+}
+
+/**
+ * Open access: the student may leave a quiz, Show What You Know or assessment in progress to look at
+ * lesson pages, Teach Me Again or a review day. Each distinct place is noted on that attempt (`ref` =
+ * the course day, `what` = what was opened) and stored with the graded row (summary_json.leftNotes),
+ * so the parent sees it with the result. It never changes a score.
+ */
+export interface LeftNote {
+  ref: string;
+  what: string;
+  at: number;
+}
+
+/** Add a note once per (day, what): a second visit to the same page does not repeat it. */
+export function addLeftNote(notes: LeftNote[] | undefined, n: LeftNote): LeftNote[] {
+  const list = Array.isArray(notes) ? notes : [];
+  if (list.some((x) => x.ref === n.ref && x.what === n.what)) return list;
+  // a long browse is summarized by its first 30 places
+  return list.length >= 30 ? list : [...list, n];
+}
+
+/** Readable lines for the notes of one attempt ("Graphing Linear Functions: Worked Examples"). */
+export function leftDuringLines(notes: unknown): string[] {
+  if (!Array.isArray(notes)) return [];
+  return notes
+    .filter((n): n is LeftNote => !!n && typeof n === 'object' && typeof (n as LeftNote).ref === 'string' && typeof (n as LeftNote).what === 'string')
+    .map((n) => `${LESSON_BY_ID.get(n.ref)?.title ?? n.ref}: ${n.what}`);
+}
+
+/** The notes stored with a graded row (none for rows without any, or written before open access). */
+export function leftNotesOf(summaryJson: string | null | undefined): unknown[] {
+  if (!summaryJson) return [];
+  try {
+    const s = JSON.parse(summaryJson) as { leftNotes?: unknown };
+    return Array.isArray(s.leftNotes) ? s.leftNotes : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Store an attempt's notes with its graded row (merged into summary_json; call after storeResultsSummary). */
+export function storeLeftNotes(ctx: ServiceContext, assessmentId: number, notes: LeftNote[] | undefined): void {
+  if (!notes || !notes.length) return;
+  const row = ctx.db.get<{ summary_json: string | null }>('SELECT summary_json FROM assessments WHERE id = ?', [assessmentId]);
+  let base: Record<string, unknown> = {};
+  try {
+    base = row?.summary_json ? (JSON.parse(row.summary_json) as Record<string, unknown>) : {};
+  } catch {
+    base = {};
+  }
+  ctx.db.run('UPDATE assessments SET summary_json = ? WHERE id = ?', [JSON.stringify({ ...base, leftNotes: notes }), assessmentId]);
 }
 
 /** The share of a graded set needed to pass it, by assessment kind (a review or project has no pass mark). */
@@ -158,7 +212,10 @@ export interface AssessmentRow {
 export function assessmentSummary(ctx: ServiceContext, profileId: number, a: AssessmentRow): ResultsSummary {
   try {
     const s = a.summary_json ? (JSON.parse(a.summary_json) as ResultsSummary) : null;
-    if (s && Array.isArray(s.didWell) && Array.isArray(s.needsPractice) && typeof s.nextStep === 'string') return s;
+    if (s && Array.isArray(s.didWell) && Array.isArray(s.needsPractice) && typeof s.nextStep === 'string') {
+      const left = leftDuringLines(leftNotesOf(a.summary_json));
+      return { didWell: s.didWell, needsPractice: s.needsPractice, nextStep: s.nextStep, ...(left.length ? { leftDuring: left } : {}) };
+    }
   } catch {
     /* rebuilt below */
   }
@@ -196,7 +253,7 @@ export function withRowSummary<R extends { kind: string; attemptNumber: number }
   );
   if (!row) return results;
   const s = assessmentSummary(ctx, profileId, row);
-  return { ...results, didWell: s.didWell, needsPractice: s.needsPractice, nextStep: s.nextStep };
+  return { ...results, didWell: s.didWell, needsPractice: s.needsPractice, nextStep: s.nextStep, ...(s.leftDuring ? { leftDuring: s.leftDuring } : {}) };
 }
 
 export function logActivity(ctx: ServiceContext, profileId: number, type: string, detail: Record<string, unknown>): void {

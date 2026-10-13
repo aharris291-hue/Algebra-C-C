@@ -1,5 +1,6 @@
 /**
- * The lesson player (spec §7-§12): ten sections in order, autosaved by the app after every
+ * The lesson player (spec §7-§12): ten sections in order ("Continue" teaches before it tests), and
+ * any section can be opened from the section list (open access). Autosaved by the app after every
  * action. The UI only displays what the main process returns.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -73,7 +74,7 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
     );
   }
 
-  const furthest = Math.max(view.sections.indexOf(view.section), ...view.sectionsDone.map((s) => view.sections.indexOf(s)));
+  const quizTaken = !!view.results || view.sectionsDone.includes('quiz');
   const inQuiz = view.section === 'quiz' && !view.results;
   const testOutMode = view.section === 'quiz' && view.practice?.activity === 'testout';
   const done = view.status === 'completed' || view.status === 'tested_out';
@@ -133,29 +134,28 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
         </div>
       </header>
 
-      {!testOutMode && (
-        <nav className="section-nav" aria-label="Lesson sections">
-          <ol>
-            {view.sections.map((s, i) => {
-              const isDone = view.sectionsDone.includes(s);
-              const reachable = i <= furthest && !inQuiz;
-              return (
-                <li key={s}>
-                  <button
-                    className={`section-pill ${s === view.section ? 'current' : ''} ${isDone ? 'done' : ''}`}
-                    aria-current={s === view.section ? 'step' : undefined}
-                    disabled={!reachable || busy || s === view.section}
-                    onClick={() => run(() => api.goToSection(profileId, lessonId, s))}
-                  >
-                    <span className="pill-num">{isDone ? '✓' : i + 1}</span>
-                    <span className="pill-label">{SECTION_TITLES[s]}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </nav>
-      )}
+      <nav className="section-nav" aria-label="Lesson sections">
+        <ol>
+          {view.sections.map((s, i) => {
+            const isDone = view.sectionsDone.includes(s);
+            // open access: any section can be opened; feedback and the mastery check need a graded quiz
+            const reachable = (s !== 'feedback' && s !== 'mastery') || quizTaken;
+            return (
+              <li key={s}>
+                <button
+                  className={`section-pill ${s === view.section ? 'current' : ''} ${isDone ? 'done' : ''}`}
+                  aria-current={s === view.section ? 'step' : undefined}
+                  disabled={!reachable || busy || s === view.section}
+                  onClick={() => run(() => api.goToSection(profileId, lessonId, s))}
+                >
+                  <span className="pill-num">{isDone ? '✓' : i + 1}</span>
+                  <span className="pill-label">{SECTION_TITLES[s]}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
 
       <main id="lesson-main" className="lesson-body" tabIndex={-1}>
         <h2 className="section-title">{testOutMode ? 'Show What You Know' : SECTION_TITLES[view.section]}</h2>
@@ -173,7 +173,7 @@ export function LessonPlayer(props: { profileId: number; lessonId: string; testO
             Teach Me Again
           </button>
         ) : (
-          <span className="foot-note">Hints and Teach Me Again come back after the quiz.</span>
+          <span className="foot-note">No hints or Teach Me Again inside the quiz. You can leave it for the lesson pages at any time: your answers stay saved, and the quiz notes that you looked.</span>
         )}
         <div className="foot-right">
           {!view.canAdvance && view.advanceBlockedReason && !inQuiz && <span className="foot-note">{view.advanceBlockedReason}</span>}
@@ -288,7 +288,7 @@ function Section(props: {
       s === 'guided'
         ? 'Work through these together, one step at a time. Hints are always free to use here.'
         : view.practice.requiredCorrect
-          ? `Show you can do it on your own. Get ${view.practice.requiredCorrect} correct to unlock the quiz. Hints are available, and a hint lowers the XP for that problem a little.`
+          ? `Show you can do it on your own. Get ${view.practice.requiredCorrect} correct to finish this practice before the quiz. Hints are available, and a hint lowers the XP for that problem a little.`
           : undefined;
     return (
       <>
@@ -304,6 +304,11 @@ function Section(props: {
     const testOut = view.practice.activity === 'testout';
     return (
       <>
+        {view.suggestion && (
+          <aside className="callout callout-tip" data-testid="quiz-suggestion">
+            {view.suggestion}
+          </aside>
+        )}
         <p className="practice-intro">
           {testOut
             ? 'Answer every question without hints. Score 85% or better to skip this lesson. If not, no problem: you will learn it step by step.'

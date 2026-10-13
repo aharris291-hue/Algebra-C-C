@@ -466,7 +466,7 @@ function MasteryTab({ d }: { d: ParentDashboard }) {
   );
 }
 
-const LESSON_STATUS_LABEL: Record<string, string> = { completed: 'done', tested_out: 'tested out', in_progress: 'in progress', available: 'next', locked: 'later', coming_soon: 'coming soon' };
+const LESSON_STATUS_LABEL: Record<string, string> = { completed: 'done', tested_out: 'tested out', in_progress: 'in progress', available: 'not started', coming_soon: 'coming soon' };
 
 /** Every Georgia expectation: its text, where the course teaches, reviews and assesses it, and this student's progress. */
 function StandardsTab({ pin, pid }: { pin: string; pid: number }) {
@@ -593,7 +593,15 @@ function Assessments({ d, pin }: { d: ParentDashboard; pin: string }) {
                   {a.attemptNumber}
                   {a.kind === 'unit-assessment' && a.attemptNumber > 2 && <span className="sub"> (practice retake, not graded)</span>}
                 </td>
-                <td>{a.percent}%</td>
+                <td>
+                  {a.percent}%
+                  {a.leftDuring ? (
+                    <span className="sub" data-testid="left-during" title="The student left this attempt to look at lesson pages or other days, then came back. Information only: it does not change the score.">
+                      {' '}
+                      · left to view lessons ({a.leftDuring})
+                    </span>
+                  ) : null}
+                </td>
                 <td>{Math.max(1, Math.round(a.durationMs / 60000))} min</td>
                 <td>
                   <button className="btn btn-small" onClick={() => api.getAssessmentDetail(pin, d.profile.id, a.id).then(setDetail)}>

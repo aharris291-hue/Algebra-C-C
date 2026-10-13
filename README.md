@@ -11,6 +11,7 @@ An offline Windows desktop app that teaches Georgia's 9th-grade **Algebra: Conce
 1. Run `AlgebraCC-Academy-Setup-<version>.exe`. Windows SmartScreen may warn because the installer is not code-signed: choose **More info → Run anyway**.
 2. The installer adds a Start Menu shortcut and (optionally) a Desktop shortcut. No internet connection is needed, ever.
 3. On first launch a parent creates a **Parent PIN**, writes down the **recovery code**, and adds the student.
+4. Every lesson, review and assessment is open from the start and can be done in any order; the course map marks the suggested next day (see docs/GRADING.md, "Open access").
 
 **Where data lives:** `%APPDATA%\Algebra C&C Learning Academy\data\academy.sqlite` (with `academy.sqlite.prev`, the previous save). Automatic daily backups (last 14 days) are in `data\backups\auto`. The log is in `logs\app.log` and contains no names, answers or PINs.
 

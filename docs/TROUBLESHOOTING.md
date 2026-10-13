@@ -87,8 +87,8 @@ The old progress is not deleted; it stays in `data-old`. To bring it back, renam
 **"Something went wrong on this screen."**
 A screen hit an unexpected error. Work is saved as the student goes, so nothing is lost: choose **Return to dashboard** (or **Reload the app**) and carry on. The error is written to `logs\app.log` (lines tagged `[renderer]`, without names or answers); send that file to whoever supports the app if it keeps happening.
 
-**The next lesson is locked.**
-A lesson unlocks when the one before it is completed or tested out of, or after two honest quiz attempts, so a student is never stuck. **Show What You Know** lets a student test out of a lesson early.
+**Can the student skip ahead or work out of order?**
+Yes. Every lesson, review, project and assessment is open from the start and can be done in any order (nothing is locked). The course map marks the **Suggested next** day, the first day not finished yet, and "Continue learning" on the home screen goes there. **Show What You Know** lets a student skip a lesson with credit. If the student leaves a quiz or assessment to look at a lesson, the quiz or assessment stays saved where it was left; the parent sees "left to view lessons" with that result in Parent Mode. It never changes the score.
 
 **The diagnostic is gone from the home screen.**
 It disappears once it has been taken or skipped. A parent can offer it again: Parent Mode → Students & goals → *Offer it again*.

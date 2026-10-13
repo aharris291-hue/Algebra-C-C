@@ -1,5 +1,5 @@
 /**
- * QA regressions: XP farming through retakes, "two honest attempts" unlock, Show What You Know
+ * QA regressions: XP farming through retakes, open access (no unlock rules), Show What You Know
  * availability and re-rolls, and which lesson sections qualify a streak day.
  */
 import { totalXp } from '../../src/main/services/records';
@@ -78,65 +78,34 @@ describe('XP cannot be farmed with retakes', () => {
   });
 });
 
-describe('the next lesson unlocks after two honest quiz attempts', () => {
-  it('two junk attempts (every practice problem revealed, every quiz answer wrong) do not unlock it', async () => {
+describe('open access: no lesson waits for an earlier one (owner request 2026-10-13)', () => {
+  it('every later lesson is open before any quiz attempt, and failed attempts change nothing', async () => {
     const { ctx, pid } = await makeCtx();
-    const id = 'U1L01';
-    let v = L.openLesson(ctx, pid, id);
-    for (let i = 0; i < 4; i++) v = L.advanceSection(ctx, pid, id);
-    for (const section of ['guided', 'independent']) {
-      for (let g = 0; g < 400 && !v.canAdvance; g++) {
-        const pr = v.practice!.problems[v.practice!.currentIndex];
-        if (pr.state === 'open') v = pr.canReveal ? L.revealSolution(ctx, pid, id, pr.key) : L.requestHint(ctx, pid, id, pr.key);
-        else v = L.nextProblem(ctx, pid, id);
-      }
-      expect(v.section).toBe(section);
-      v = L.advanceSection(ctx, pid, id);
-    }
-    v = answerQuiz(ctx, pid, id, v, 99);
-    v = remediate(ctx, pid, id, v, 'reveal');
-    v = answerQuiz(ctx, pid, id, v, 99);
-    expect(v.results!.attemptNumber).toBe(2);
-    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('locked');
-  });
-
-  it('an honest struggling student (practice solved, quizzes failed) is unlocked after two attempts', async () => {
-    const { ctx, pid } = await makeCtx();
+    const course = () => L.getCourse(ctx, pid).flatMap((u) => u.lessons);
+    expect(course().every((l) => l.status === 'available')).toBe(true);
     let v = toQuiz(ctx, pid, 'U1L01');
     v = answerQuiz(ctx, pid, 'U1L01', v, 99); // 0%
-    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('locked');
-    v = remediate(ctx, pid, 'U1L01', v, 'solve');
-    v = answerQuiz(ctx, pid, 'U1L01', v, 99); // 0% again
-    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('available');
+    expect(course().find((l) => l.id === 'U1L02')!.status).toBe('available');
+    expect(course().find((l) => l.id === 'U1L01')!.suggestedNext).toBe(true); // still the suggested next day
+    // a late lesson opens and plays like any other
+    expect(L.openLesson(ctx, pid, 'U5L03').section).toBe('goal');
+    expect(course().find((l) => l.id === 'U5L03')!.status).toBe('in_progress');
   });
 
-  it('older saved lessons without the honest count keep their unlock', async () => {
+  it('a state saved by an older version (with its honest-attempt count) still reads, and the count is ignored', async () => {
     const { ctx, pid } = await makeCtx();
-    ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at) VALUES (?, 'U1L01', 'in_progress', 'mastery', '{\"v\":1,\"quizAttempts\":2}', 1, 1)", [pid]);
-    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('available');
+    ctx.db.run("INSERT INTO lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at) VALUES (?, 'U1L01', 'in_progress', 'mastery', '{\"v\":1,\"quizAttempts\":2,\"honestAttempts\":0}', 1, 1)", [pid]);
+    const ls = L.getCourse(ctx, pid)[0].lessons;
+    expect(ls[0].status).toBe('in_progress');
+    expect(ls[1].status).toBe('available');
   });
 
-  it('a lesson saved by an older version keeps its unlock after another attempt (the honest count starts from the old attempts)', async () => {
+  it('Show What You Know is offered on any lesson not finished, in any order', async () => {
     const { ctx, pid } = await makeCtx();
-    const id = 'U1L01';
-    let v = toQuiz(ctx, pid, id);
-    v = answerQuiz(ctx, pid, id, v, 99);
-    v = remediate(ctx, pid, id, v, 'solve');
-    v = answerQuiz(ctx, pid, id, v, 99);
-    // strip the honest count, as a save from an older version has none
-    const st = JSON.parse(ctx.db.get<{ state_json: string }>('SELECT state_json FROM lesson_progress WHERE profile_id = ? AND lesson_id = ?', [pid, id])!.state_json);
-    delete st.honestAttempts;
-    delete st.retakeHonest;
-    ctx.db.run('UPDATE lesson_progress SET state_json = ? WHERE profile_id = ? AND lesson_id = ?', [JSON.stringify(st), pid, id]);
-    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('available');
-    // a third attempt after the upgrade (scored 0, but honest) never takes the unlock away
-    v = L.openLesson(ctx, pid, id);
-    v = remediate(ctx, pid, id, v, 'solve');
-    v = answerQuiz(ctx, pid, id, v, 99);
-    expect(v.results!.attemptNumber).toBe(3);
-    expect(L.getCourse(ctx, pid)[0].lessons[1].status).toBe('available');
-    const after = JSON.parse(ctx.db.get<{ state_json: string }>('SELECT state_json FROM lesson_progress WHERE profile_id = ? AND lesson_id = ?', [pid, id])!.state_json);
-    expect(after.honestAttempts).toBe(3);
+    const cl = L.getCourse(ctx, pid).flatMap((u) => u.lessons).find((l) => l.id === 'U5L03')!;
+    expect(cl.canTestOut).toBe(true);
+    const v = L.startTestOut(ctx, pid, 'U5L03');
+    expect(v.practice!.activity).toBe('testout');
   });
 });
 

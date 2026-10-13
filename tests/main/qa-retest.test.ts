@@ -3,13 +3,15 @@
  * - refused answers in deferred sets (quiz and diagnostic): never "saved", the refused text is kept as a
  *   draft, and the same wrong-form text sent again is kept as written (item 1, item 7)
  * - known misconception answers can be saved in quizzes (item 5)
- * - a quiz, Show What You Know or assessment in progress is closed-book on the server (item 9)
+ * - a quiz, Show What You Know or assessment in progress is closed-book on the server inside it (item 9);
+ *   since open access (2026-10-13) the student may leave it, and the visit is noted on the attempt
  */
 import { makeCtx, L, D, rightFor, toQuiz, answerQuiz, unlockUpTo, rawState } from './qa-helpers';
 import * as G from '../../src/main/services/diagnostic';
 import { newPractice, realize, submitDeferred, problemView, getProblem } from '../../src/main/services/practice';
 import { checkAnswer } from '../../src/core/math/answers';
 import { canonicalInput } from '../../src/core/engine/problems';
+import { getParentDashboard, getAssessmentDetail, gradeFor } from '../../src/main/services/dashboard';
 import type { ServiceContext } from '../../src/main/services/context';
 
 function diagRight(ctx: ServiceContext, pid: number, key: string): string {
@@ -117,26 +119,45 @@ describe('refused answers in deferred sets', () => {
   });
 });
 
-describe('a quiz, Show What You Know or assessment in progress is closed-book', () => {
-  it('lesson quiz: once its questions are shown, the lesson pages and Teach Me Again are refused until it is graded', async () => {
+describe('a quiz, Show What You Know or assessment in progress is closed-book inside, and can be left (open access)', () => {
+  it('lesson quiz: inside it the pages and Teach Me Again are closed; leaving for them is allowed, noted on the attempt, and the quiz resumes', async () => {
     const { ctx, pid } = await makeCtx();
     const id = 'U1L01';
     let v = toQuiz(ctx, pid, id);
     expect(v.section).toBe('quiz');
-    // no answer saved yet: still in progress
-    expect(() => L.goToSection(ctx, pid, id, 'examples')).toThrow(/Finish the quiz/);
+    // inside the quiz: closed-book on the server
     expect(() => L.teachMeAgain(ctx, pid, id)).toThrow(/after the quiz/);
+    expect(() => L.requestHint(ctx, pid, id, v.practice!.problems[0].key)).toThrow(/Hints are not available/);
     expect(v.content.examples).toEqual([]);
     expect(v.content.instruction).toEqual([]);
     expect(v.teachAgainOptions).toEqual([]);
     v = L.openLesson(ctx, pid, id);
     expect(v.content.examples).toEqual([]);
     expect(ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM teach_again_events WHERE profile_id = ?', [pid])!.n).toBe(0);
-    // graded: open again
-    v = answerQuiz(ctx, pid, id, v, 99);
-    expect(v.results).toBeTruthy();
+    const keys = v.practice!.problems.map((p) => p.key);
+    v = L.submitAnswer(ctx, pid, id, keys[0], rightFor(ctx, pid, id, keys[0]), 30_000);
+    // leaving the quiz for the worked examples is allowed; Teach Me Again works from there
+    v = L.goToSection(ctx, pid, id, 'examples');
     expect(v.content.examples.length).toBeGreaterThan(0);
     expect(L.teachMeAgain(ctx, pid, id).blocks.length).toBeGreaterThan(0);
+    // back to the quiz: the same questions, the saved answer kept
+    v = L.goToSection(ctx, pid, id, 'quiz');
+    expect(v.practice!.problems.map((p) => p.key)).toEqual(keys);
+    expect(v.practice!.problems[0].saved).toBe(true);
+    expect(v.content.examples).toEqual([]);
+    // graded normally (all right = 100%), with the visits noted for the parent
+    v = answerQuiz(ctx, pid, id, v, 0);
+    expect(v.results!.percent).toBe(100);
+    expect(v.results!.passed).toBe(true);
+    expect(v.results!.leftDuring).toEqual([`${v.title}: Worked Examples`, `${v.title}: Teach Me Again`]);
+    const pd = getParentDashboard(ctx, pid);
+    const row = pd.assessments.find((a) => a.kind === 'quiz')!;
+    expect(row.leftDuring).toBe(2);
+    expect(getAssessmentDetail(ctx, pid, row.id).leftDuring).toEqual(v.results!.leftDuring);
+    // the next attempt starts with no notes
+    expect(rawState(ctx, pid, id).leftDuring).toEqual([]);
+    // graded: open again
+    expect(v.content.examples.length).toBeGreaterThan(0);
     expect(L.goToSection(ctx, pid, id, 'examples').section).toBe('examples');
   });
 
@@ -147,24 +168,45 @@ describe('a quiz, Show What You Know or assessment in progress is closed-book', 
     expect(() => L.teachMeAgain(ctx, pid, 'U1L01')).toThrow(/Show What You Know/);
   });
 
-  it('unit assessment: lessons and Teach Me Again are refused until it is graded', async () => {
+  it('unit assessment: the student may leave it for a lesson; the visit is noted, it resumes where it was left, and the grade is unchanged', async () => {
     const { ctx, pid } = await makeCtx();
     answerQuiz(ctx, pid, 'U1L01', toQuiz(ctx, pid, 'U1L01'), 0);
     unlockUpTo(ctx, pid, 'U1L12');
     D.openDay(ctx, pid, 'U1L12');
-    // the overview alone is not in progress
+    // the overview alone is not in progress: nothing is noted
     expect(L.openLesson(ctx, pid, 'U1L01').lessonId).toBe('U1L01');
     let v = D.startDay(ctx, pid, 'U1L12');
-    expect(() => L.teachMeAgain(ctx, pid, 'U1L01')).toThrow(/Finish the .* first/);
-    expect(() => L.openLesson(ctx, pid, 'U1L01')).toThrow(/Finish the .* first/);
-    for (const p of v.practice!.problems) {
-      const st = rawState(ctx, pid, 'U1L12');
+    const keys = v.practice!.problems.map((p) => p.key);
+    const right = (k: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const s = st.practice.items.find((i: any) => i.key === p.key);
-      v = D.daySubmit(ctx, pid, 'U1L12', p.key, canonicalInput(getProblem(s.generatorId, s.seed, s.difficulty).answer), 30_000);
-    }
-    D.finishDay(ctx, pid, 'U1L12');
+      const s = rawState(ctx, pid, 'U1L12').practice.items.find((i: any) => i.key === k);
+      return canonicalInput(getProblem(s.generatorId, s.seed, s.difficulty).answer);
+    };
+    v = D.daySubmit(ctx, pid, 'U1L12', keys[0], right(keys[0]), 30_000);
+    // leave for a lesson and Teach Me Again: allowed (open access), noted on the assessment
+    expect(L.openLesson(ctx, pid, 'U1L02').content.examples.length).toBeGreaterThan(0);
     expect(L.teachMeAgain(ctx, pid, 'U1L01').blocks.length).toBeGreaterThan(0);
-    expect(L.openLesson(ctx, pid, 'U1L01').content.examples.length).toBeGreaterThan(0);
+    expect(rawState(ctx, pid, 'U1L12').leftDuring.map((n: { ref: string; what: string }) => `${n.ref} ${n.what}`)).toEqual(['U1L02 opened the lesson', 'U1L01 Teach Me Again']);
+    // inside the assessment hints stay refused
+    expect(() => D.dayHint(ctx, pid, 'U1L12', keys[1])).toThrow(/Hints are not available/);
+    // coming back resumes the same questions with the saved answer
+    v = D.openDay(ctx, pid, 'U1L12');
+    expect(v.phase).toBe('practice');
+    expect(v.practice!.problems.map((p) => p.key)).toEqual(keys);
+    expect(v.practice!.problems[0].saved).toBe(true);
+    for (const k of keys.slice(1)) v = D.daySubmit(ctx, pid, 'U1L12', k, right(k), 30_000);
+    v = D.finishDay(ctx, pid, 'U1L12');
+    expect(v.results!.percent).toBe(100);
+    expect(v.results!.passed).toBe(true);
+    expect(v.results!.leftDuring).toHaveLength(2);
+    expect(v.results!.leftDuring![0]).toMatch(/opened the lesson/);
+    // the grade counts it normally; the parent sees the note as information
+    expect(gradeFor(ctx, pid).categories.find((c) => c.category === 'unitAssessments')!.percent).toBe(100);
+    const row = getParentDashboard(ctx, pid).assessments.find((a) => a.kind === 'unit-assessment')!;
+    expect(row.leftDuring).toBe(2);
+    expect(getAssessmentDetail(ctx, pid, row.id).leftDuring).toEqual(v.results!.leftDuring);
+    // after grading, opening lessons notes nothing more
+    L.openLesson(ctx, pid, 'U1L03');
+    expect(getAssessmentDetail(ctx, pid, row.id).leftDuring).toHaveLength(2);
   });
 });

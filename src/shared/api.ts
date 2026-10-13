@@ -213,6 +213,12 @@ export interface ResultsView {
   skillChanges: SkillChange[];
   xpEarned: number;
   canRetake: boolean;
+  /**
+   * Open access: what the student left this quiz/assessment/test-out attempt to look at while it was
+   * in progress (lesson pages, Teach Me Again, a review day), one line each. Information for the
+   * parent, never a penalty; absent when the student stayed in the attempt.
+   */
+  leftDuring?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +266,8 @@ export interface LessonView {
   xpThisLesson: number;
   canAdvance: boolean;
   advanceBlockedReason?: string;
+  /** a gentle tip, never a block (e.g. the quiz was reached without guided practice) */
+  suggestion?: string;
 }
 
 /** Review and assessment days (unit reviews, checkpoints, unit and semester assessments). */
@@ -302,7 +310,11 @@ export interface TeachAgainView {
 // Course map & dashboards
 // ---------------------------------------------------------------------------
 
-export type LessonStatus = 'locked' | 'available' | 'in_progress' | 'completed' | 'tested_out' | 'coming_soon';
+/**
+ * Open access (owner request 2026-10-13): every course day can be opened at any time, so there is no
+ * 'locked' status. 'available' = not started yet.
+ */
+export type LessonStatus = 'available' | 'in_progress' | 'completed' | 'tested_out' | 'coming_soon';
 
 export interface CourseLesson {
   id: string;
@@ -317,6 +329,8 @@ export interface CourseLesson {
   suggestedTestOut?: boolean;
   /** a unit review that can be skipped: the unit's lessons are done and its skills are Proficient or better */
   optional?: boolean;
+  /** the suggested next day: the first day not done for progress (isDoneForProgress) that has content */
+  suggestedNext?: boolean;
   quizBest: number | null;
   standards: string[];
 }
@@ -351,7 +365,10 @@ export interface Achievement {
 
 export interface StudentDashboard {
   profile: ProfileSummary;
+  /** "Continue learning": the suggested next day (the first day not done), resumed when it is in progress */
   continueLesson: { lessonId: string; title: string; section: string; unitTitle: string; resume: boolean; kind: LessonKind } | null;
+  /** the day the student worked on most recently, when it is in progress and is not the suggested next day */
+  recentLesson?: { lessonId: string; title: string; section: string; unitTitle: string; resume: boolean; kind: LessonKind } | null;
   todayGoal: string;
   semester: { completedLessons: number; totalLessons: number; percent: number; currentWeek: number; plannedWeek: number };
   currentUnit: { id: string; number: number; title: string; percent: number } | null;
@@ -382,7 +399,7 @@ export interface ParentDashboard {
   };
   gradeDetail: { categories: Array<{ category: string; label: string; weight: number; percent: number | null; items: Array<{ refId: string; label: string; percent: number; attempts: number }> }>; effectiveWeights: Record<string, number> };
   gradeTrend: Array<{ date: string; percent: number }>;
-  assessments: Array<{ id: number; kind: string; refId: string; title: string; date: number; percent: number; durationMs: number; attemptNumber: number; missed: number }>;
+  assessments: Array<{ id: number; kind: string; refId: string; title: string; date: number; percent: number; durationMs: number; attemptNumber: number; missed: number; /** how many lesson pages/days the student left the attempt to look at (information, not a penalty) */ leftDuring?: number }>;
   masteryByUnit: Array<{ unitId: string; title: string; standards: string[]; skills: SkillMasteryView[]; percentProficient: number }>;
   needsAttention: SkillMasteryView[];
   /** repeated Teach Me Again use (3+ in a lesson or on a skill): a sign that more explanation may help, never a penalty */

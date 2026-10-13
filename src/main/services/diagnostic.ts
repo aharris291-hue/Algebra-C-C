@@ -14,6 +14,7 @@
 import crypto from 'node:crypto';
 import type { Difficulty } from '../../core/curriculum/types';
 import { LESSONS, PREREQ_SKILLS, SKILL_BY_ID, generatorsForSkill } from '../../content';
+import { isDoneForProgress } from '../../shared/progress';
 import { checkAnswer } from '../../core/math/answers';
 import { xpForAnswer } from '../../core/engine/xp';
 import { deriveSeed } from '../../core/engine/rng';
@@ -169,9 +170,10 @@ function summarize(ctx: ServiceContext, profileId: number, run: DiagnosticRun): 
     };
   });
   const statuses = lessonStatuses(ctx, profileId);
+  // the suggested starting point: the first day not done for progress (any day can be opened: open access)
   const firstOpen = LESSONS.find((l) => {
-    const st = statuses.get(l.id)?.status;
-    return st === 'available' || st === 'in_progress';
+    const info = statuses.get(l.id);
+    return !!info && info.status !== 'coming_soon' && !isDoneForProgress(info);
   }) ?? LESSONS[0];
   const testOut = [...new Set(skills.filter((s) => s.group === 'course' && s.verdict === 'strong' && s.lessonId).map((s) => s.lessonId!))].sort(
     (a, b) => LESSONS.findIndex((l) => l.id === a) - LESSONS.findIndex((l) => l.id === b),
@@ -182,7 +184,7 @@ function summarize(ctx: ServiceContext, profileId: number, run: DiagnosticRun): 
     weakPre.length === 0 && strongCourse.length === 0
       ? 'Your earlier-grade skills look solid. Start at the beginning of the course.'
       : weakPre.length === 0
-        ? `Your earlier-grade skills look solid, and you already know some of this course. Try Show What You Know on ${testOut.length === 1 ? 'the marked lesson' : `the ${testOut.length} marked lessons`} when you reach them.`
+        ? `Your earlier-grade skills look solid, and you already know some of this course. Try Show What You Know on ${testOut.length === 1 ? 'the marked lesson' : `the ${testOut.length} marked lessons`} any time: they are marked on the course map.`
         : `${weakPre.length === 1 ? 'One earlier-grade skill needs' : `${weakPre.length} earlier-grade skills need`} a refresh: ${weakPre.map((s) => s.name).join(', ')}. The warm-up practice below helps, and lessons review ${weakPre.length === 1 ? 'it' : 'them'} as ${weakPre.length === 1 ? 'it comes' : 'they come'} up.`;
   return { completedAt: ctx.now(), skills, testOutLessonIds: testOut, recommendedLessonId: firstOpen.id, recommendedLessonTitle: firstOpen.title, headline };
 }

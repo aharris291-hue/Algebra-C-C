@@ -158,6 +158,7 @@ export function DayPlayer(props: { profileId: number; lessonId: string; onExit: 
                   {view.itemCount} questions covering every skill in this unit. Key skills appear twice. Plan on about {view.durationMinutes} minutes; you can save and come back.
                 </li>
                 <li>No hints during the assessment. You can move between questions and change answers until you select Finish and grade.</li>
+                <li>You can take it whenever you like, even before the unit's lessons. If you leave it to look at a lesson, it stays saved where you left off; the results note that you looked (this never changes the score).</li>
                 <li>{view.passPercent}% passes. Afterwards you will see every question with a worked solution, correct what you missed, and can retake it. Your best of the first two attempts counts toward your grade.</li>
               </ul>
             ) : (

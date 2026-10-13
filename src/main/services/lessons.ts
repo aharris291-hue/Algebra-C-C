@@ -11,7 +11,7 @@ import { MAX_UNIT_ASSESSMENT_ATTEMPTS, TEST_OUT_PASS } from '../../core/engine/g
 import { isDoneForProgress } from '../../shared/progress';
 import { isStruggling, STAGE_ORDER, type MasteryStage } from '../../core/engine/mastery';
 import type { LessonView, ResultsView, SectionId, TeachAgainView, CourseUnit, CourseLesson, LessonStatus, SkillChange, OnboardingState } from '../../shared/api';
-import { LESSON_SECTIONS } from '../../shared/api';
+import { LESSON_SECTIONS, SECTION_TITLES } from '../../shared/api';
 import { ServiceContext, UserFacingError, today, saveNow } from './context';
 import { requireProfile } from './profiles';
 import {
@@ -32,7 +32,7 @@ import {
   findItem,
   getProblem,
 } from './practice';
-import { recordTeachAgain, bumpDay, awardXp, awardXpOnce, logActivity, skillStates, evidenceFor, storedStage, recomputeSkill, storeResultsSummary, withRowSummary } from './records';
+import { recordTeachAgain, bumpDay, awardXp, awardXpOnce, logActivity, skillStates, evidenceFor, storedStage, recomputeSkill, storeResultsSummary, withRowSummary, addLeftNote, leftDuringLines, storeLeftNotes, type LeftNote } from './records';
 import { answerToText } from '../../core/math/answers';
 import { checkAchievements } from './achievements';
 
@@ -62,12 +62,11 @@ export interface LessonState {
   quizActiveMs?: number;
   quizLastActionAt?: number | null;
   /**
-   * Quiz attempts that count toward unlocking the next lesson ("two honest attempts").
-   * Missing in states saved by older versions: then every attempt counts, so no one is stranded.
+   * Open access: what the student left the quiz or Show What You Know in progress to look at (lesson
+   * pages, Teach Me Again, other days). Reset when an attempt starts; stored with its graded row.
+   * (States saved before open access may also hold honestAttempts/retakeHonest: no longer used.)
    */
-  honestAttempts?: number;
-  /** set by retakeQuiz: whether the targeted practice before this retake had a problem the student solved */
-  retakeHonest?: boolean;
+  leftDuring?: LeftNote[];
 }
 
 interface ProgressRow {
@@ -168,7 +167,8 @@ function parseState(row: ProgressRow, lessonId: string, ctx: ServiceContext): Le
   try {
     const s = JSON.parse(row.state_json) as LessonState;
     if (s.v !== 1) return null;
-    return s;
+    // a minimal saved state (e.g. a day marked complete by a test helper) gets defaults for missing fields
+    return { ...freshState(), ...s };
   } catch (e) {
     ctx.log.error('lessons', `unreadable state for ${lessonId}; starting the lesson fresh`, e);
     return null;
@@ -221,14 +221,12 @@ export interface LessonStatusInfo {
   status: LessonStatus;
   quizBest: number | null;
   quizAttempts: number;
-  /** attempts that count toward unlocking the next day ("two honest attempts") */
-  unlockAttempts: number;
   /** a Show What You Know was already finished for this lesson */
   testOutTried: boolean;
   /**
    * A unit review the student may skip: every lesson of its unit is completed or tested out and every
-   * skill it reviews is at Proficient or above. It stays open, and the day after it unlocks anyway.
-   * Assessments are never optional.
+   * skill it reviews is at Proficient or above. It stays open; it counts as done for progress, and
+   * "Continue learning" skips it. Assessments are never optional.
    */
   optional?: boolean;
 }
@@ -238,18 +236,16 @@ export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<stri
   const byId = new Map(rows.map((r) => [r.lesson_id, r]));
   const stages = new Map(ctx.db.all<{ skill_id: string; stage: string }>('SELECT skill_id, stage FROM skill_state WHERE profile_id = ?', [profileId]).map((r) => [r.skill_id, r.stage]));
   const out = new Map<string, LessonStatusInfo>();
-  let prevUnlocks = true; // first lesson is available
+  // Open access (owner request 2026-10-13): every day with content can be opened at any time, in any
+  // order. A day's status depends only on its own record, never on the days before it.
   for (const l of LESSONS) {
     const r = byId.get(l.id);
     let attempts = 0;
-    let unlockAttempts = 0;
     let testOutTried = false;
     if (r) {
       try {
         const js = JSON.parse(r.state_json) as Partial<LessonState>;
         attempts = js.quizAttempts ?? 0;
-        // states from older versions (and review/assessment days) have no honest count: every attempt counts
-        unlockAttempts = typeof js.honestAttempts === 'number' ? js.honestAttempts : attempts;
         testOutTried = !!js.testOutResult;
       } catch {
         attempts = 0;
@@ -259,13 +255,9 @@ export function lessonStatuses(ctx: ServiceContext, profileId: number): Map<stri
     const hasContent = isLessonPlayable(l);
     if (r && (r.status === 'completed' || r.status === 'tested_out')) status = r.status as LessonStatus;
     else if (r) status = 'in_progress';
-    else if (!prevUnlocks) status = 'locked';
     else status = hasContent ? 'available' : 'coming_soon';
-    const optional = l.kind === 'unit-review' && status !== 'locked' && status !== 'completed' && reviewIsOptional(l, out, stages);
-    out.set(l.id, { status, quizBest: r?.quiz_best ?? null, quizAttempts: attempts, unlockAttempts, testOutTried, ...(optional ? { optional } : {}) });
-    // the next lesson unlocks when this one is finished, or after two honest quiz attempts so a student is
-    // never stuck; an optional review (everything in the unit already shown) can be skipped
-    prevUnlocks = status === 'completed' || status === 'tested_out' || unlockAttempts >= 2 || optional;
+    const optional = l.kind === 'unit-review' && status !== 'completed' && reviewIsOptional(l, out, stages);
+    out.set(l.id, { status, quizBest: r?.quiz_best ?? null, quizAttempts: attempts, testOutTried, ...(optional ? { optional } : {}) });
   }
   return out;
 }
@@ -305,11 +297,11 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
   const states = skillStates(ctx, profileId);
   const counted = countedAssessmentScores(ctx, profileId);
   const units = new Map<string, CourseUnit>();
+  let suggestedGiven = false;
   for (const l of LESSONS) {
     const u = UNIT_BY_ID.get(l.unitId)!;
     if (!units.has(u.id)) units.set(u.id, { id: u.id, number: u.number, title: u.title, lessons: [], completedCount: 0, masteryPercent: 0 });
     const s = st.get(l.id)!;
-    const prereqOk = l.prerequisites.every((p) => ['completed', 'tested_out'].includes(st.get(p)!.status));
     const cl: CourseLesson = {
       id: l.id,
       title: l.title,
@@ -318,19 +310,20 @@ export function getCourse(ctx: ServiceContext, profileId: number): CourseUnit[] 
       day: l.day,
       status: s.status,
       hasContent: isLessonPlayable(l),
-      // exactly the rule startTestOut enforces: before any quiz attempt and before a finished test-out
-      canTestOut:
-        l.kind === 'lesson' &&
-        LESSON_CONTENT.has(l.id) &&
-        s.quizAttempts === 0 &&
-        !s.testOutTried &&
-        (s.status === 'available' || s.status === 'in_progress' || (s.status === 'locked' && prereqOk)),
+      // exactly the rule startTestOut enforces: any lesson not completed or tested out, in any order,
+      // before its first quiz attempt and before a finished test-out
+      canTestOut: l.kind === 'lesson' && LESSON_CONTENT.has(l.id) && s.quizAttempts === 0 && !s.testOutTried && (s.status === 'available' || s.status === 'in_progress'),
       suggestedTestOut: suggested.has(l.id) && s.status !== 'completed' && s.status !== 'tested_out' ? true : undefined,
       optional: s.optional ? true : undefined,
       // unit/semester assessments show the score that counts toward the grade, not a later practice retake
       quizBest: l.kind === 'unit-assessment' || l.kind === 'semester-assessment' ? (counted.get(l.id) ?? null) : s.quizBest,
       standards: l.standards,
     };
+    // the suggested next day: the first day not done for progress (an optional review counts as done)
+    if (!suggestedGiven && cl.hasContent && !isDoneForProgress(cl)) {
+      cl.suggestedNext = true;
+      suggestedGiven = true;
+    }
     const unit = units.get(u.id)!;
     unit.lessons.push(cl);
     if (isDoneForProgress(cl)) unit.completedCount++;
@@ -364,10 +357,10 @@ function countedAssessmentScores(ctx: ServiceContext, profileId: number): Map<st
   return out;
 }
 
+/** Open access: any lesson can be opened at any time; only a lesson without content in this version cannot. */
 function assertCanOpen(ctx: ServiceContext, profileId: number, lessonId: string): void {
   const st = lessonStatuses(ctx, profileId).get(lessonId);
   if (!st) throw new UserFacingError('Unknown lesson.');
-  if (st.status === 'locked') throw new UserFacingError('This lesson unlocks after you finish the one before it. You can also try "Show What You Know" to test out.');
   if (st.status === 'coming_soon') throw new UserFacingError('This lesson is not available in this version yet.');
 }
 
@@ -379,17 +372,20 @@ export function openLesson(ctx: ServiceContext, profileId: number, lessonId: str
   requireProfile(ctx, profileId);
   const meta = lessonMeta(lessonId);
   if (meta.kind !== 'lesson') throw new UserFacingError('Open review and assessment days from the course map.');
-  assertNotDuringAssessment(ctx, profileId);
   const row = loadRow(ctx, profileId, lessonId);
   let st = row ? parseState(row, lessonId, ctx) : null;
   if (!row) assertCanOpen(ctx, profileId, lessonId);
   lessonContent(lessonId);
-  if (!st) {
-    st = freshState();
-    save(ctx, profileId, lessonId, st);
-    logActivity(ctx, profileId, 'lesson-start', { lessonId, title: meta.title });
-  }
-  return buildView(ctx, profileId, lessonId, st);
+  // open access: a quiz or assessment in progress elsewhere stays saved; opening this lesson is noted on it
+  ctx.db.transaction(() => {
+    noteLeftAttempts(ctx, profileId, { ref: lessonId, what: 'opened the lesson', at: ctx.now() }, lessonId);
+    if (!st) {
+      st = freshState();
+      save(ctx, profileId, lessonId, st);
+      logActivity(ctx, profileId, 'lesson-start', { lessonId, title: meta.title });
+    }
+  });
+  return buildView(ctx, profileId, lessonId, st!);
 }
 
 function withState<T>(ctx: ServiceContext, profileId: number, lessonId: string, fn: (st: LessonState, meta: LessonMeta, content: LessonContent) => T): LessonView {
@@ -431,7 +427,9 @@ function ensurePractice(ctx: ServiceContext, profileId: number, st: LessonState,
   if (section === 'independent' && !st.independent) {
     const ps = newPractice('independent', { seedBase: nextSeed(st), hintsAllowed: true, requiredCorrect: content.mastery.practiceMinCorrect, extras: 4 });
     const plan: Array<ProblemRef & { review?: boolean }> = planFromMix(content.independent.mix, content.independent.count, ps.seedBase);
-    const candidates = LESSONS.filter((l) => l.day < meta.day).flatMap((l) => l.skillsTaught).concat(meta.reviewSkills);
+      // spaced review: any skill already practiced (reviewRefs keeps only skills with a record), in
+    // whatever order the student learned them, other than the skills this lesson teaches
+    const candidates = LESSONS.filter((l) => l.id !== meta.id).flatMap((l) => l.skillsTaught).filter((x) => !meta.skillsTaught.includes(x)).concat(meta.reviewSkills);
     const review = reviewRefs(skillStates(ctx, profileId), [...new Set(candidates)], content.independent.reviewCount, ctx.now(), ps.seedBase ^ 0x5bd1e995);
     // spread review items through the set
     review.forEach((r, i) => plan.splice(Math.min(plan.length, 2 + i * 3), 0, r));
@@ -456,40 +454,50 @@ function startQuiz(ctx: ServiceContext, st: LessonState, content: LessonContent,
   st.quizLastActionAt = st.quizStartedAt;
   // results from an earlier attempt (e.g. a Show What You Know try) belong to that attempt
   st.results = null;
+  st.leftDuring = [];
 }
 
 /**
- * A quiz or Show What You Know is in progress from the moment its questions are shown until it is
- * graded. Meanwhile the lesson is closed-book: its pages, worked examples and Teach Me Again are
- * not served (the renderer hides them too), so a quiz never turns into an open-book quiz.
+ * The student is inside a quiz or Show What You Know: its questions are shown and it is not graded.
+ * Inside it the lesson is closed-book: its pages, worked examples and Teach Me Again are not served
+ * (the renderer hides them too) and hints are refused. The student may leave it at any time (open
+ * access); the attempt stays saved, the visit is noted on it (noteLeftAttempts), and going back to
+ * the quiz section resumes the same questions.
  */
 export function quizInProgress(st: LessonState): boolean {
-  return st.section === 'quiz' && !!st.quiz && !st.results;
+  return st.section === 'quiz' && quizAttemptOpen(st);
+}
+
+/** A quiz or Show What You Know attempt has started and is not graded yet (wherever the student is now). */
+export function quizAttemptOpen(st: Pick<LessonState, 'quiz' | 'results'>): boolean {
+  return !!st.quiz && !st.results;
 }
 
 /**
- * A unit or semester assessment whose questions have been shown and that is not graded yet (the
- * same meaning of "in progress" as for a quiz). While one is, lessons are closed: they would make
- * it open-book (worked examples, Teach Me Again). The assessment is saved where the student left it.
+ * Note on every graded attempt in progress (a unit or semester assessment, a lesson quiz or Show What
+ * You Know) that the student left it to look at `note.ref`. `exceptId` is the day being worked on
+ * now: its own attempt is handled by the caller (which holds its state), so it is skipped here.
+ * Information for the parent only; nothing is refused and no score changes.
  */
-export function assessmentInProgress(ctx: ServiceContext, profileId: number): LessonMeta | null {
-  const rows = ctx.db.all<{ lesson_id: string; state_json: string }>("SELECT lesson_id, state_json FROM lesson_progress WHERE profile_id = ? AND section = 'practice'", [profileId]);
+export function noteLeftAttempts(ctx: ServiceContext, profileId: number, note: LeftNote, exceptId?: string): void {
+  const rows = ctx.db.all<{ lesson_id: string; state_json: string }>("SELECT lesson_id, state_json FROM lesson_progress WHERE profile_id = ? AND status = 'in_progress'", [profileId]);
   for (const r of rows) {
+    if (r.lesson_id === exceptId) continue;
     const meta = LESSON_BY_ID.get(r.lesson_id);
-    if (!meta || (meta.kind !== 'unit-assessment' && meta.kind !== 'semester-assessment')) continue;
+    if (!meta) continue;
+    let js: { phase?: string; practice?: unknown; quiz?: unknown; results?: unknown; day?: boolean; leftDuring?: LeftNote[] };
     try {
-      const js = JSON.parse(r.state_json) as { phase?: string; practice?: unknown };
-      if (js.phase === 'practice' && js.practice) return meta;
+      js = JSON.parse(r.state_json);
     } catch {
       continue;
     }
+    const open = meta.kind === 'lesson' ? !js.day && quizAttemptOpen(js as Pick<LessonState, 'quiz' | 'results'>) : (meta.kind === 'unit-assessment' || meta.kind === 'semester-assessment') && js.phase === 'practice' && !!js.practice;
+    if (!open) continue;
+    const before = js.leftDuring?.length ?? 0;
+    js.leftDuring = addLeftNote(js.leftDuring, note);
+    if (js.leftDuring.length === before) continue;
+    ctx.db.run('UPDATE lesson_progress SET state_json = ? WHERE profile_id = ? AND lesson_id = ?', [JSON.stringify(js), profileId, r.lesson_id]);
   }
-  return null;
-}
-
-function assertNotDuringAssessment(ctx: ServiceContext, profileId: number): void {
-  const a = assessmentInProgress(ctx, profileId);
-  if (a) throw new UserFacingError(`Finish the ${a.title} first. It is saved where you left off; lessons and Teach Me Again open again once it is graded.`);
 }
 
 function sectionComplete(st: LessonState, s: SectionId): boolean {
@@ -501,6 +509,8 @@ function sectionComplete(st: LessonState, s: SectionId): boolean {
     case 'quiz':
       return !!st.results;
     case 'mastery':
+    case 'summary':
+      // the lesson is finished from its summary once the quiz is passed (reachable early from the section list)
       return st.passed;
     default:
       return true;
@@ -513,25 +523,32 @@ function blockedReason(st: LessonState, s: SectionId): string | undefined {
     case 'guided':
       return 'Finish each guided problem first. Use hints whenever you need them.';
     case 'independent':
-      return 'Finish the practice set to unlock the quiz.';
+      return 'Finish the practice set to continue, or go to the quiz from the section list whenever you are ready.';
     case 'quiz':
       return 'Answer every question, then select Finish quiz.';
     case 'mastery':
       return st.remediation && !st.remediation.done ? 'Finish the targeted practice, then retake the quiz.' : 'Review what you missed, practice, and retake the quiz when you are ready.';
+    case 'summary':
+      return 'Pass the quiz to finish this lesson. You can go to any section from the list above.';
     default:
       return undefined;
   }
 }
 
+/**
+ * Jump to any section of the lesson from the section list (open access). The usual flow still
+ * teaches before it tests ("Continue" moves one section at a time); a jump ahead is never refused,
+ * only feedback and the mastery check need a graded quiz to show. Leaving a quiz or Show What You
+ * Know in progress is allowed: the attempt stays saved (the quiz section resumes it) and the visit is
+ * noted on it for the parent.
+ */
 export function goToSection(ctx: ServiceContext, profileId: number, lessonId: string, section: SectionId): LessonView {
   return withState(ctx, profileId, lessonId, (st, meta, content) => {
     if (!LESSON_SECTIONS.includes(section)) throw new UserFacingError('Unknown section.');
-    const target = LESSON_SECTIONS.indexOf(section);
-    const furthest = Math.max(LESSON_SECTIONS.indexOf(st.section), ...st.sectionsDone.map((s) => LESSON_SECTIONS.indexOf(s)));
-    if (target > furthest) throw new UserFacingError('Finish the current section first.');
-    if (st.mode === 'testout' && section !== 'quiz') throw new UserFacingError('Finish the Show What You Know quiz first.');
-    // A quiz in progress can't be left to look at the lesson (it would turn into an open-book quiz).
-    if (quizInProgress(st) && section !== 'quiz') throw new UserFacingError('Finish the quiz before going back to the lesson.');
+    if ((section === 'feedback' || section === 'mastery') && !st.results && st.quizAttempts === 0) throw new UserFacingError('Feedback and the mastery check come after the quiz. Take the quiz first.');
+    if (section !== 'quiz' && quizAttemptOpen(st)) st.leftDuring = addLeftNote(st.leftDuring, { ref: lessonId, what: SECTION_TITLES[section], at: ctx.now() });
+    // a quiz or assessment in progress in another day is noted too (reading lesson pages)
+    if (section !== 'quiz') noteLeftAttempts(ctx, profileId, { ref: lessonId, what: SECTION_TITLES[section], at: ctx.now() }, lessonId);
     st.section = section;
     ensurePractice(ctx, profileId, st, meta, content, section);
   });
@@ -772,15 +789,6 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
     } else {
       st.quizAttempts = attemptNumber;
       st.passed = st.passed || passed;
-      // "two honest attempts" unlock the next lesson. An attempt is honest when the student scored at
-      // least half, or solved (not just revealed) at least one problem in the practice before it:
-      // hints always lead to a solved problem, so an honest struggling student is never stuck.
-      const practiceBefore = attemptNumber === 1 ? solvedAny(st.guided) || solvedAny(st.independent) : !!st.retakeHonest;
-      const honest = practiceBefore || score / max >= HONEST_QUIZ_SCORE - 1e-9;
-      // a lesson saved by an older version has no honest count: every earlier attempt counted there
-      // (as lessonStatuses reads it), so start from those attempts instead of from zero
-      st.honestAttempts = (typeof st.honestAttempts === 'number' ? st.honestAttempts : attemptNumber - 1) + (honest ? 1 : 0);
-      st.retakeHonest = undefined;
       ctx.db.run('UPDATE lesson_progress SET quiz_best = MAX(COALESCE(quiz_best, 0), ?) WHERE profile_id = ? AND lesson_id = ?', [percent, profileId, lessonId]);
       if (passed) {
         xp += awardXpOnce(ctx, profileId, XP_POLICY.quizPass, 'quiz-pass', lessonId);
@@ -821,19 +829,17 @@ export function finishQuiz(ctx: ServiceContext, profileId: number, lessonId: str
       canRetake: !testOut && !passed,
     };
     storeResultsSummary(ctx, assessmentId, st.results);
+    // what the student left the attempt to look at: stored with the row, shown to the parent (not a penalty)
+    storeLeftNotes(ctx, assessmentId, st.leftDuring);
+    const left = leftDuringLines(st.leftDuring);
+    if (left.length) st.results.leftDuring = left;
+    st.leftDuring = [];
     st.quizLastActionAt = null;
     checkAchievements(ctx, profileId);
   });
   // ARCHITECTURE.md: assessment results are written to disk immediately, not batched
   flushImmediately(ctx);
   return view;
-}
-
-/** Score at which a quiz attempt counts as honest on its own (see finishQuiz). */
-export const HONEST_QUIZ_SCORE = 0.5;
-
-function solvedAny(ps: PracticeState | null | undefined): boolean {
-  return !!ps && ps.items.some((i) => i.state === 'correct');
 }
 
 /** Adaptive remediation (spec §17): targeted easier practice on missed skills, then reassess. */
@@ -906,7 +912,6 @@ export function retakeQuiz(ctx: ServiceContext, profileId: number, lessonId: str
   return withState(ctx, profileId, lessonId, (st, _meta, content) => {
     if (!st.results || st.results.passed) throw new UserFacingError('There is no quiz to retake.');
     if (!st.remediation || !st.remediation.done) throw new UserFacingError('Finish the targeted practice first. It is what makes the retake go better.');
-    st.retakeHonest = solvedAny(st.remediation.practice);
     st.results = null;
     st.corrections = null;
     st.remediation = null;
@@ -924,7 +929,7 @@ export function startTestOut(ctx: ServiceContext, profileId: number, lessonId: s
   if (existing && (existing.quizAttempts > 0 || existing.testOutResult)) throw new UserFacingError('You have already started this lesson\'s quiz, so finish the lesson instead.');
   const course = getCourse(ctx, profileId).flatMap((u) => u.lessons);
   const cl = course.find((l) => l.id === lessonId);
-  if (!cl || !cl.canTestOut) throw new UserFacingError('Show What You Know is available once the lesson before this one is finished.');
+  if (!cl || !cl.canTestOut) throw new UserFacingError(cl && (cl.status === 'completed' || cl.status === 'tested_out') ? 'You have already finished this lesson.' : 'Show What You Know is not available for this lesson.');
   // a Show What You Know already under way is resumed, never re-rolled with new questions
   if (existing && existing.mode === 'testout' && existing.quiz && !existing.results) return buildView(ctx, profileId, lessonId, existing);
   const st = existing ?? freshState();
@@ -948,14 +953,18 @@ export function teachMeAgain(ctx: ServiceContext, profileId: number, lessonId: s
   const content = lessonContent(lessonId);
   const row = loadRow(ctx, profileId, lessonId);
   const st = row ? parseState(row, lessonId, ctx) ?? freshState() : freshState();
-  assertNotDuringAssessment(ctx, profileId);
+  // inside the quiz itself Teach Me Again stays closed; from the lesson's pages it is open, and a quiz
+  // or assessment still in progress notes the visit (open access)
   if (quizInProgress(st)) throw new UserFacingError(st.mode === 'testout' ? 'Teach Me Again comes back after Show What You Know. Finish it first.' : 'Teach Me Again comes back after the quiz. Finish the quiz first.');
   let variant = approach ? content.teachMeAgain.find((t) => t.approach === approach) : undefined;
   if (!variant) {
     variant = content.teachMeAgain.find((t) => !st.teachAgainUsed.includes(t.approach)) ?? content.teachMeAgain[st.teachAgainUsed.length % content.teachMeAgain.length];
   }
   st.teachAgainUsed.push(variant.approach);
+  const note: LeftNote = { ref: lessonId, what: 'Teach Me Again', at: ctx.now() };
+  if (quizAttemptOpen(st)) st.leftDuring = addLeftNote(st.leftDuring, note);
   ctx.db.transaction(() => {
+    noteLeftAttempts(ctx, profileId, note, lessonId);
     recordTeachAgain(ctx, profileId, lessonId, variant!.approach);
     if (row) save(ctx, profileId, lessonId, st);
   });
@@ -1012,6 +1021,9 @@ export function buildView(ctx: ServiceContext, profileId: number, lessonId: stri
     canAdvance: sectionComplete(st, st.section) && st.mode !== 'testout' && !(st.section === 'summary' && (row?.status === 'completed' || row?.status === 'tested_out')),
     advanceBlockedReason: blockedReason(st, st.section),
   };
+  // a gentle tip, never a block: the quiz was reached from the section list without guided practice
+  if (st.section === 'quiz' && st.mode === 'normal' && !st.results && !(st.guided && allResolved(st.guided)))
+    view.suggestion = 'Tip: you have not finished Guided Practice for this lesson. You can take the quiz now, or open Guided Practice from the section list first. Your quiz answers stay saved either way.';
   if (st.section === 'mastery' && st.remediation) view.practice = practiceView(st.remediation.practice, suggestion);
   return view;
 }

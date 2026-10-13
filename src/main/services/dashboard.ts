@@ -14,7 +14,7 @@ import { computeStreak, weekStart, addDays, dayDiff, localDate } from '../../cor
 import { STAGE_ORDER, MasteryStage } from '../../core/engine/mastery';
 import { ServiceContext, UserFacingError, today } from './context';
 import { getProfile, getGoals } from './profiles';
-import { totalXp, skillStates, assessmentSummary, passShare } from './records';
+import { totalXp, skillStates, assessmentSummary, passShare, leftNotesOf } from './records';
 import { getCourse } from './lessons';
 import { isDoneForProgress } from '../../shared/progress';
 import { listAchievements } from './achievements';
@@ -110,8 +110,9 @@ function practiceRecords(ctx: ServiceContext, profileId: number): { lessons: Pra
 /**
  * Practice completion as of a moment: of the instructional lessons started by then, the share whose
  * independent practice was complete. The lesson the student is working on right now (practice not
- * finished, nothing later started) is left out, so opening a lesson never lowers the grade; a lesson
- * left unfinished while the student moved on to a later day counts as incomplete.
+ * finished, no other day started after it) is left out, so opening a lesson never lowers the grade; a
+ * lesson left unfinished while the student moved on to another day (started after it, in any course
+ * order: open access) counts as incomplete.
  */
 export function practiceAsOf(rec: ReturnType<typeof practiceRecords>, at: number): { lessonsStarted: number; lessonsPracticeComplete: number } {
   let started = 0;
@@ -119,7 +120,8 @@ export function practiceAsOf(rec: ReturnType<typeof practiceRecords>, at: number
   for (const l of rec.lessons) {
     if (l.startedAt > at) continue;
     const isDone = l.doneAt !== null && l.doneAt <= at;
-    const movedOn = rec.dayStarts.some((d) => d.day > l.day && d.startedAt <= at);
+    // moved on = another day was started after this lesson (by time, not course order: days can be done in any order)
+    const movedOn = rec.dayStarts.some((d) => d.day !== l.day && d.startedAt > l.startedAt && d.startedAt <= at);
     if (!isDone && !movedOn) continue;
     started++;
     if (isDone) done++;
@@ -292,17 +294,25 @@ function xpBetween(ctx: ServiceContext, profileId: number, fromDate: string, toD
   return Number(ctx.db.get<{ s: number }>('SELECT COALESCE(SUM(amount), 0) AS s FROM xp_events WHERE profile_id = ? AND local_date >= ? AND local_date <= ?', [profileId, fromDate, toDate])!.s);
 }
 
-function continueLesson(ctx: ServiceContext, profileId: number, course: CourseLesson[]): StudentDashboard['continueLesson'] {
-  const inProgress = ctx.db.get<{ lesson_id: string; section: string }>("SELECT lesson_id, section FROM lesson_progress WHERE profile_id = ? AND status = 'in_progress' ORDER BY updated_at DESC LIMIT 1", [profileId]);
-  const mk = (id: string, section: string, resume: boolean) => {
+/**
+ * "Continue learning" (open access): the suggested next day, i.e. the first day not done for progress
+ * (an optional review counts as done, so it is skipped), resumed where it was left when it is in
+ * progress. `recent` is the day worked on most recently when it is a different day still in progress,
+ * so a student working out of order can pick that up too.
+ */
+function continueLesson(ctx: ServiceContext, profileId: number, course: CourseLesson[]): { next: StudentDashboard['continueLesson']; recent: StudentDashboard['continueLesson'] } {
+  const sections = new Map(ctx.db.all<{ lesson_id: string; section: string }>("SELECT lesson_id, section FROM lesson_progress WHERE profile_id = ? AND status = 'in_progress'", [profileId]).map((r) => [r.lesson_id, r.section]));
+  const latest = ctx.db.get<{ lesson_id: string }>("SELECT lesson_id FROM lesson_progress WHERE profile_id = ? AND status = 'in_progress' ORDER BY updated_at DESC, rowid DESC LIMIT 1", [profileId]);
+  const mk = (id: string) => {
     const l = LESSON_BY_ID.get(id)!;
     const u = UNIT_BY_ID.get(l.unitId)!;
-    return { lessonId: id, title: l.title, section, unitTitle: `Unit ${u.number}: ${u.title}`, resume, kind: l.kind };
+    const section = sections.get(id);
+    return { lessonId: id, title: l.title, section: section ?? 'goal', unitTitle: `Unit ${u.number}: ${u.title}`, resume: section !== undefined, kind: l.kind };
   };
-  if (inProgress && course.find((c) => c.id === inProgress.lesson_id)?.hasContent) return mk(inProgress.lesson_id, inProgress.section, true);
-  // an optional review (the unit is already shown) is not the suggested next step; the course map still offers it
-  const next = course.find((c) => c.status === 'available' && c.hasContent && !c.optional) ?? course.find((c) => c.status === 'available' && c.hasContent);
-  return next ? mk(next.id, 'goal', false) : null;
+  const suggested = course.find((c) => c.suggestedNext);
+  const next = suggested ? mk(suggested.id) : null;
+  const recent = latest && latest.lesson_id !== suggested?.id && course.find((c) => c.id === latest.lesson_id)?.hasContent ? mk(latest.lesson_id) : null;
+  return { next, recent };
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +338,7 @@ export function getStudentDashboard(ctx: ServiceContext, profileId: number): Stu
   const grade = gradeFor(ctx, profileId);
   const weekLessons = completedBetween(ctx, profileId, startOfLocalDate(ctx, ws), startOfLocalDate(ctx, addDays(ws, 7))).length;
   const todayMinutes = minutesBetween(ctx, profileId, t, t);
-  const cont = continueLesson(ctx, profileId, course);
+  const { next: cont, recent } = continueLesson(ctx, profileId, course);
   const todayGoal =
     todayMinutes >= goals.dailyMinutes
       ? `Daily goal met: ${todayMinutes} minutes today. Nice work!`
@@ -338,6 +348,7 @@ export function getStudentDashboard(ctx: ServiceContext, profileId: number): Stu
   return {
     profile,
     continueLesson: cont,
+    recentLesson: recent,
     todayGoal,
     semester: { completedLessons: done, totalLessons: course.length, percent: Math.round((100 * done) / course.length), currentWeek: firstOpen?.week ?? 18, plannedWeek: Math.max(1, Math.ceil(pace.plannedDay / 5)) },
     currentUnit: curUnit ? { id: curUnit.id, number: curUnit.number, title: curUnit.title, percent: Math.round((100 * curUnit.completedCount) / curUnit.lessons.length) } : null,
@@ -390,8 +401,8 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
   const firstOpen = course.find((c) => !isDoneForProgress(c));
   const curUnit = firstOpen ? units.find((u) => u.lessons.some((l) => l.id === firstOpen.id)) : null;
 
-  const assessRows = ctx.db.all<{ id: number; kind: string; ref_id: string; finished_at: number; score: number; max_score: number; duration_ms: number; attempt_number: number }>(
-    "SELECT id, kind, ref_id, finished_at, score, max_score, duration_ms, attempt_number FROM assessments WHERE profile_id = ? AND status = 'completed' ORDER BY finished_at DESC",
+  const assessRows = ctx.db.all<{ id: number; kind: string; ref_id: string; finished_at: number; score: number; max_score: number; duration_ms: number; attempt_number: number; summary_json: string | null }>(
+    "SELECT id, kind, ref_id, finished_at, score, max_score, duration_ms, attempt_number, summary_json FROM assessments WHERE profile_id = ? AND status = 'completed' ORDER BY finished_at DESC",
     [profileId],
   );
   const assessments = assessRows.map((a) => ({
@@ -404,6 +415,8 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
     durationMs: a.duration_ms ?? 0,
     attemptNumber: a.attempt_number,
     missed: a.max_score - a.score,
+    // open access: lesson pages or days the student left this attempt to look at (information, not a penalty)
+    ...(leftNotesOf(a.summary_json).length ? { leftDuring: leftNotesOf(a.summary_json).length } : {}),
   }));
 
   // grade trend: the grade as it stood after each day of graded work, ending at the current grade
@@ -644,7 +657,7 @@ export function getStandardsProgress(ctx: ServiceContext, profileId: number): St
   getProfile(ctx, profileId);
   const states = skillStates(ctx, profileId);
   const statuses = new Map(getCourse(ctx, profileId).flatMap((u) => u.lessons).map((l) => [l.id, l.status]));
-  const lessons = (ids: string[]) => ids.map((id) => ({ id, title: LESSON_BY_ID.get(id)!.title, status: statuses.get(id) ?? 'locked' }));
+  const lessons = (ids: string[]) => ids.map((id) => ({ id, title: LESSON_BY_ID.get(id)!.title, status: statuses.get(id) ?? ('available' as const) }));
   return standardsCoverage().map((c) => {
     const skills = c.skills.map((s) => ({ skillId: s, name: SKILL_BY_ID.get(s)!.name, stage: states.get(s)?.stage ?? ('NOT_STARTED' as MasteryStage) }));
     const prof = skills.filter((s) => STAGE_ORDER.indexOf(s.stage) >= STAGE_ORDER.indexOf('PROFICIENT')).length;
@@ -696,6 +709,7 @@ export function getAssessmentDetail(ctx: ServiceContext, profileId: number, asse
     didWell: summary.didWell,
     needsPractice: summary.needsPractice,
     nextStep: summary.nextStep,
+    ...(summary.leftDuring ? { leftDuring: summary.leftDuring } : {}),
     skillChanges: Object.keys(after).map((s) => ({ skillId: s, skillName: SKILL_BY_ID.get(s)?.name ?? s, before: before[s] ?? 'NOT_STARTED', after: after[s], score: 0 })),
     xpEarned: 0,
     canRetake: false,

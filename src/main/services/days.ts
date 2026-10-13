@@ -18,8 +18,8 @@ import type { DayView, ResultsView, SkillChange } from '../../shared/api';
 import { ServiceContext, UserFacingError, today } from './context';
 import { requireProfile } from './profiles';
 import { PracticeState, newPractice, realize, submitImmediate, submitDeferred, gradeDeferred, hint, reveal, practiceView, allResolved, allAnswered, advance, getProblem } from './practice';
-import { awardXp, awardXpOnce, bumpDay, logActivity, skillStates, storedStage, recomputeSkill, storeResultsSummary, withRowSummary } from './records';
-import { lessonStatuses, tickActive, flushImmediately, capSupportXp, supportXp, lastXpId, answerXpImprovement } from './lessons';
+import { awardXp, awardXpOnce, bumpDay, logActivity, skillStates, storedStage, recomputeSkill, storeResultsSummary, withRowSummary, storeLeftNotes, leftDuringLines, type LeftNote } from './records';
+import { lessonStatuses, tickActive, flushImmediately, capSupportXp, supportXp, lastXpId, answerXpImprovement, noteLeftAttempts } from './lessons';
 import { MAX_UNIT_ASSESSMENT_ATTEMPTS, ASSESSMENT_PASS } from '../../core/engine/grading';
 import { checkAchievements } from './achievements';
 
@@ -39,13 +39,15 @@ export interface DayState {
   startedAt: number | null;
   results: ResultsView | null;
   corrections: PracticeState | null;
-  /** graded assessment attempts (named like the lesson field so unlock rules read it the same way) */
+  /** graded assessment attempts (named like the lesson field so the course map reads it the same way) */
   quizAttempts: number;
   passed: boolean;
   xp: number;
   /** active time in the set in progress (capped gaps between actions; see ACTIVE_GAP_CAP_MS) */
   activeMs?: number;
   lastActionAt?: number | null;
+  /** an assessment in progress: what the student left it to look at (open access; see LeftNote) */
+  leftDuring?: LeftNote[];
 }
 
 export function isReviewKind(k: LessonKind): boolean {
@@ -199,13 +201,19 @@ function withDay(ctx: ServiceContext, profileId: number, id: string, fn: (st: Da
   return buildDayView(ctx, profileId, id, loaded.st);
 }
 
+/**
+ * Open access (owner request 2026-10-13): any review, project or assessment day can be opened and
+ * started at any time, in any order (an assessment before its lessons or review too). Opening a
+ * review or project while a quiz or assessment is in progress elsewhere is noted on that attempt.
+ */
 export function openDay(ctx: ServiceContext, profileId: number, id: string): DayView {
   requireProfile(ctx, profileId);
   const meta = dayMeta(id);
   const loaded = load(ctx, profileId, id);
+  if (!isAssessmentKind(meta.kind)) ctx.db.transaction(() => noteLeftAttempts(ctx, profileId, { ref: id, what: isCapstoneKind(meta.kind) ? 'opened the project' : 'opened the review', at: ctx.now() }, id));
   if (!loaded) {
     const s = lessonStatuses(ctx, profileId).get(id);
-    if (!s || s.status === 'locked') throw new UserFacingError('This day unlocks after you finish the lesson before it.');
+    if (!s) throw new UserFacingError('Unknown lesson.');
     if (s.status === 'coming_soon') throw new UserFacingError('This day is not available in this version yet.');
     const st = freshState();
     save(ctx, profileId, id, st);
@@ -223,6 +231,7 @@ export function startDay(ctx: ServiceContext, profileId: number, id: string): Da
     st.startedAt = ctx.now();
     st.activeMs = 0;
     st.lastActionAt = st.startedAt;
+    st.leftDuring = [];
     st.phase = 'practice';
   });
 }
@@ -413,6 +422,13 @@ export function finishDay(ctx: ServiceContext, profileId: number, id: string): D
     };
     // the summary is stored with the row, so the Parent Dashboard shows the same next step later
     storeResultsSummary(ctx, assessmentId, st.results);
+    // what the student left the assessment to look at: stored with the row for the parent (not a penalty)
+    if (assessment) {
+      storeLeftNotes(ctx, assessmentId, st.leftDuring);
+      const left = leftDuringLines(st.leftDuring);
+      if (left.length) st.results.leftDuring = left;
+    }
+    st.leftDuring = [];
     st.phase = 'results';
     st.lastActionAt = null;
     checkAchievements(ctx, profileId);
@@ -438,6 +454,7 @@ export function retakeDay(ctx: ServiceContext, profileId: number, id: string): D
     st.startedAt = ctx.now();
     st.activeMs = 0;
     st.lastActionAt = st.startedAt;
+    st.leftDuring = [];
     st.phase = 'practice';
   });
 }

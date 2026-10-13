@@ -127,7 +127,7 @@ export function FirstRun(props: { onDone: (profileId: number, startDiagnostic: b
             <h1>How it works</h1>
             <ul className="how-list">
               <li>
-                <b>Lessons</b> follow the Georgia course in order: learn, see examples, practice with hints, then a short quiz.
+                <b>Lessons</b> follow the Georgia course: learn, see examples, practice with hints, then a short quiz. Every lesson, review and assessment is open from the start, so you can work in any order; the course map marks the suggested next day.
               </li>
               <li>
                 <b>Mastery</b> grows as you answer correctly over time. Skills move from Learning to Developing, Proficient and Mastered. Missed something? You get a different explanation and targeted practice, then try again.

@@ -84,21 +84,25 @@ function answerQuiz(ctx: ServiceContext, pid: number, v: LessonView, wrongCount:
 }
 
 describe('lesson player: U1L01 end to end', () => {
-  it('runs every section, remediates a failed quiz, passes the retake, completes and unlocks the next lesson', async () => {
+  it('runs every section, remediates a failed quiz, passes the retake and completes; every lesson is open all along', async () => {
     const ctx = await makeCtx();
     setupParent(ctx, '2580');
     const pid = createProfile(ctx, 'Jordan', 'spark').id;
 
-    // before starting: lesson 1 is available, lesson 2 is locked
+    // before starting (open access): every day is open, and lesson 1 is the suggested next day
     let course = L.getCourse(ctx, pid).flatMap((u) => u.lessons);
-    expect(course.find((l) => l.id === 'U1L01')!.status).toBe('available');
-    expect(course.find((l) => l.id === 'U1L02')!.status).not.toBe('available');
+    expect(course.every((l) => l.status === 'available')).toBe(true);
+    expect(course.filter((l) => l.suggestedNext).map((l) => l.id)).toEqual(['U1L01']);
 
     let v = L.openLesson(ctx, pid, LESSON);
     expect(v.section).toBe('goal');
     expect(v.practice).toBeNull();
-    // cannot skip ahead
-    expect(() => L.goToSection(ctx, pid, LESSON, 'quiz')).toThrow(/Finish the current section/);
+    // any section can be opened from the section list; feedback needs a graded quiz first
+    expect(() => L.goToSection(ctx, pid, LESSON, 'feedback')).toThrow(/Take the quiz first/);
+    v = L.goToSection(ctx, pid, LESSON, 'examples');
+    expect(v.section).toBe('examples');
+    expect(v.content.examples.length).toBeGreaterThan(0);
+    v = L.goToSection(ctx, pid, LESSON, 'goal');
 
     for (const s of ['goal', 'needToKnow', 'instruction', 'examples'] as const) {
       expect(v.section).toBe(s);
@@ -131,8 +135,18 @@ describe('lesson player: U1L01 end to end', () => {
     v = answerQuiz(ctx, pid, v, 3); // 3 of 6 wrong -> 50%, fails the 80% bar
     // during the quiz the answers are not revealed
     expect(v.practice!.problems.every((p) => p.correctAnswer === undefined)).toBe(true);
-    expect(() => L.goToSection(ctx, pid, LESSON, 'instruction')).toThrow(/Finish the quiz/);
+    // inside the quiz the lesson is closed-book; leaving it for the lesson pages is allowed and noted
+    expect(v.content.instruction).toEqual([]);
+    expect(v.teachAgainOptions).toEqual([]);
+    const quizKeys = v.practice!.problems.map((p) => p.key);
+    v = L.goToSection(ctx, pid, LESSON, 'instruction');
+    expect(v.section).toBe('instruction');
+    expect(v.content.instruction.length).toBeGreaterThan(0);
+    v = L.goToSection(ctx, pid, LESSON, 'quiz'); // resumes the same questions and saved answers
+    expect(v.practice!.problems.map((p) => p.key)).toEqual(quizKeys);
+    expect(v.practice!.problems.every((p) => p.saved)).toBe(true);
     v = L.finishQuiz(ctx, pid, LESSON);
+    expect(v.results!.leftDuring).toEqual([`${v.title}: Learn`]);
     expect(v.section).toBe('feedback');
     expect(v.results!.passed).toBe(false);
     expect(v.results!.percent).toBe(50);
@@ -185,7 +199,8 @@ describe('lesson player: U1L01 end to end', () => {
 
     course = L.getCourse(ctx, pid).flatMap((u) => u.lessons);
     expect(course.find((l) => l.id === 'U1L01')!.status).toBe('completed');
-    expect(['available', 'coming_soon']).toContain(course.find((l) => l.id === 'U1L02')!.status);
+    expect(course.find((l) => l.id === 'U1L02')!.status).toBe('available');
+    expect(course.find((l) => l.id === 'U1L02')!.suggestedNext).toBe(true);
 
     expect(totalXp(ctx, pid)).toBeGreaterThan(0);
     const earned = listAchievements(ctx, pid).filter((a) => a.earnedAt).map((a) => a.id);

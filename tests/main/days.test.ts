@@ -55,9 +55,11 @@ describe('review and assessment days', () => {
     pid = createProfile(ctx, 'Sam', 'fox').id;
   });
 
-  it('is locked until the lessons before it are done, then the review works end to end', () => {
-    expect(lessonStatuses(ctx, pid).get(REVIEW)!.status).toBe('locked');
-    expect(() => D.openDay(ctx, pid, REVIEW)).toThrow(/unlocks/);
+  it('is open from the start (open access), and the review works end to end', () => {
+    // open access: a review and an assessment can be opened before any lesson of the unit
+    expect(lessonStatuses(ctx, pid).get(REVIEW)!.status).toBe('available');
+    expect(lessonStatuses(ctx, pid).get(TEST)!.status).toBe('available');
+    expect(D.openDay(ctx, pid, TEST).phase).toBe('overview');
     completeLessonsBefore(ctx, pid, LESSON_BY_ID.get(REVIEW)!.day);
     expect(lessonStatuses(ctx, pid).get(REVIEW)!.status).toBe('available');
     let v = D.openDay(ctx, pid, REVIEW);
@@ -84,7 +86,7 @@ describe('review and assessment days', () => {
     expect(v.status).toBe('completed');
     expect(v.results!.kind).toBe('review');
     expect(v.results!.score).toBe(v.results!.maxScore - 1); // the hinted one is not a first-try success
-    expect(lessonStatuses(ctx, pid).get(TEST)!.status).toBe('available');
+    expect(lessonStatuses(ctx, pid).get(TEST)!.status).toBe('in_progress'); // opened above, before the lessons
   });
 
   it('assessment: no hints, graded at the end, corrections, retake, best of two counts', () => {
@@ -424,7 +426,7 @@ describe('Unit 9: capstone projects, semester review and semester assessment', (
     return D.finishDay(ctx, pid, id);
   }
 
-  it('each capstone is one situation: its parts come in order from one seed, and finishing it unlocks the next day', async () => {
+  it('each capstone is one situation: its parts come in order from one seed, and the next day stays open', async () => {
     const { ctx, pid } = await ready('U9L01');
     const next: Record<string, string> = { U9L01: 'U9L02', U9L02: 'U9L03', U9L03: 'U9L04' };
     for (const id of ['U9L01', 'U9L02', 'U9L03']) {

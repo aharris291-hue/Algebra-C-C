@@ -1,11 +1,15 @@
-/** Course map (spec §6): all 90 days by unit, with status and Show What You Know. */
+/**
+ * Course map (spec §6): all 90 days by unit, with status and Show What You Know. Open access (owner
+ * request 2026-10-13): every day can be opened at any time, in any order; the first day not done is
+ * marked as the suggested next step.
+ */
 import { useEffect, useState } from 'react';
 import type { CourseUnit, SkillMasteryView } from '../../shared/api';
 import { api, errorMessage } from '../api';
 import { isDoneForProgress } from '../../shared/progress';
 import { KIND_LABEL, STAGE_LABEL } from '../labels';
 
-const STATUS_LABEL: Record<string, string> = { locked: 'Locked', available: 'Ready', in_progress: 'In progress', completed: 'Complete', tested_out: 'Tested out', coming_soon: 'Coming in a later version' };
+const STATUS_LABEL: Record<string, string> = { available: 'Not started', in_progress: 'In progress', completed: 'Complete', tested_out: 'Tested out', coming_soon: 'Coming in a later version' };
 
 export function CourseMap(props: { profileId: number; onOpenLesson: (id: string, testOut?: boolean, kind?: string) => void; onBack: () => void }) {
   const [units, setUnits] = useState<CourseUnit[] | null>(null);
@@ -29,6 +33,7 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
         </button>
         <h1>Course map</h1>
       </header>
+      <p className="sub">Open any lesson, review or assessment whenever you like, in any order. The day marked "Suggested next" is the next one in the course plan.</p>
       {error && (
         <div className="error-box" role="alert">
           {error}
@@ -47,13 +52,18 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
           {open === u.id && (
             <ol className="lesson-list">
               {u.lessons.map((l) => (
-                <li key={l.id} className={`lesson-row status-${l.status}`}>
+                <li key={l.id} className={`lesson-row status-${l.status}${l.suggestedNext ? ' suggested-next' : ''}`} data-lesson-id={l.id}>
                   <span className="lesson-day">
                     Week {l.week} · Day {l.day}
                   </span>
                   <span className="lesson-name">
                     {l.title}
                     {l.kind !== 'lesson' && <span className="tag">{KIND_LABEL[l.kind]}</span>}
+                    {l.suggestedNext && (
+                      <span className="tag tag-next" data-testid="suggested-next" title="The next day in the course plan. You can open any other day too.">
+                        Suggested next
+                      </span>
+                    )}
                     {l.optional && (
                       <span className="tag tag-ok" data-testid="optional-review" title="Every lesson in this unit is done and its skills are Proficient or better. You can do this review for extra practice or go straight on.">
                         Optional: you already showed these skills
@@ -65,13 +75,13 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                     {l.quizBest !== null && (l.kind === 'unit-assessment' ? ` · graded score ${l.quizBest}% (best of first two attempts)` : l.kind === 'semester-assessment' ? ` · graded score ${l.quizBest}%` : ` · best quiz ${l.quizBest}%`)}
                   </span>
                   <span className="lesson-actions">
-                    {(l.status === 'available' || l.status === 'in_progress') && l.kind === 'lesson' && (
-                      <button className="btn btn-small btn-primary" onClick={() => props.onOpenLesson(l.id)}>
+                    {l.hasContent && (l.status === 'available' || l.status === 'in_progress') && l.kind === 'lesson' && (
+                      <button className={`btn btn-small ${l.suggestedNext || l.status === 'in_progress' ? 'btn-primary' : ''}`} onClick={() => props.onOpenLesson(l.id)}>
                         {l.status === 'in_progress' ? 'Continue' : 'Start'}
                       </button>
                     )}
-                    {l.kind !== 'lesson' && l.hasContent && l.status !== 'locked' && l.status !== 'coming_soon' && (
-                      <button className={`btn btn-small ${l.status === 'completed' || l.optional ? '' : 'btn-primary'}`} onClick={() => props.onOpenLesson(l.id, false, l.kind)}>
+                    {l.kind !== 'lesson' && l.hasContent && l.status !== 'coming_soon' && (
+                      <button className={`btn btn-small ${l.status === 'completed' || l.optional || !(l.suggestedNext || l.status === 'in_progress') ? '' : 'btn-primary'}`} onClick={() => props.onOpenLesson(l.id, false, l.kind)}>
                         {l.status === 'in_progress' ? 'Continue' : l.status === 'completed' ? 'Open' : 'Start'}
                       </button>
                     )}
@@ -80,7 +90,7 @@ export function CourseMap(props: { profileId: number; onOpenLesson: (id: string,
                         Review
                       </button>
                     )}
-                    {l.suggestedTestOut && l.status !== 'in_progress' && <span className="tag tag-ok" title="Your diagnostic showed you may already know this. Try Show What You Know when you get here.">Suggested: Show What You Know</span>}
+                    {l.suggestedTestOut && l.status !== 'in_progress' && <span className="tag tag-ok" title="Your diagnostic showed you may already know this. Try Show What You Know any time.">Suggested: Show What You Know</span>}
                     {/* shown whenever the service allows it (no quiz attempt, no finished test-out), even after peeking at the lesson */}
                     {l.canTestOut && (
                       <button className={`btn btn-small ${l.suggestedTestOut ? 'btn-primary' : ''}`} onClick={() => props.onOpenLesson(l.id, true)} title="Take a short quiz. Score 85% or more to skip this lesson.">

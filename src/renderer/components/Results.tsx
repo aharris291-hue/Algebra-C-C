@@ -25,6 +25,12 @@ export function Results({ r }: { r: ResultsView }) {
           </div>
         </div>
       </div>
+      {r.leftDuring && r.leftDuring.length > 0 && (
+        <p className="left-during sub" data-testid="results-left-during">
+          <strong>Left during this attempt to view: </strong>
+          {r.leftDuring.join('; ')}. This is noted for information only; it does not change the score.
+        </p>
+      )}
       {r.nextStep && (
         <p className="next-step">
           <strong>Next: </strong>

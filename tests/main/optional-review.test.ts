@@ -41,7 +41,12 @@ describe('a unit review can be skipped once the unit is shown (L4)', () => {
     setStages(ctx, pid, skills, 'PROFICIENT');
     setStages(ctx, pid, [skills[0]], 'DEVELOPING');
     expect(day(ctx, pid, 'U3L04').optional).toBeUndefined();
-    expect(day(ctx, pid, 'U3L05').status).toBe('locked');
+    // the review stays the suggested next day; the assessment is open anyway (open access)
+    expect(day(ctx, pid, 'U3L04').suggestedNext).toBe(true);
+    expect(getStudentDashboard(ctx, pid).continueLesson?.lessonId).toBe('U3L04');
+    expect(day(ctx, pid, 'U3L05').status).toBe('available');
+    D.openDay(ctx, pid, 'U3L05');
+    expect(() => D.startDay(ctx, pid, 'U3L05')).not.toThrow();
   });
 
   it('a skipped optional review counts as done everywhere progress is shown, and student and parent agree', async () => {

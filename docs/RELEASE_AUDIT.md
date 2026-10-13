@@ -132,7 +132,7 @@ Low findings (contrast, focus, wording, formatting, sampling edge cases, the one
 - **Equivalent equations.** A step answer that is an equivalent equation with the same solution set (for example `x - 2 = -(2(x - 2))` for `x - 2 = 2(x - 2)`) is accepted. This is mathematically sound and was left as is.
 - **`y/3 = 2^x`** is not recognised as equivalent to `y = 3(2)^x`.
 - **Thousand-dollar answers.** Typing the right dollar amount for a "thousand dollars" answer gets a "give it in thousand dollars" message, which hints that the value is right.
-- **Assessments in progress.** While a unit or semester assessment is in progress, all lessons are closed until it is finished.
+- **Assessments in progress.** While a unit or semester assessment is in progress, all lessons are closed until it is finished. (Superseded 2026-10-13 by open access: lessons stay open; visits during an assessment are noted on it for the parent. See docs/GRADING.md.)
 - **Unsigned installer.** Windows SmartScreen shows "unknown publisher".
 
 ## Windows build

@@ -81,6 +81,14 @@ export function Home(props: { profileId: number; onOpenLesson: (id: string, kind
             <div className="hero-sub">More lessons are on the way in the next version. Review your skills in the meantime.</div>
           </div>
         )}
+        {d.recentLesson && (
+          <p className="recent-lesson">
+            Also in progress: <b>{d.recentLesson.title}</b>{' '}
+            <button className="btn btn-small" onClick={() => props.onOpenLesson(d.recentLesson!.lessonId, d.recentLesson!.kind)}>
+              Pick it up
+            </button>
+          </p>
+        )}
         <p className="today-goal">{d.todayGoal}</p>
         {d.profile.onboarding.diagnostic === 'completed' && (
           <button className="btn btn-quiet" onClick={props.onDiagnostic}>
