@@ -4,6 +4,7 @@ import { computeSkillState, Evidence, EvidenceActivity, MasteryStage, SkillState
 import { dayQualifies } from '../../core/engine/dates';
 import { XP_POLICY } from '../../core/engine/xp';
 import { SKILL_BY_ID } from '../../content';
+import { isLearningActivity } from '../../shared/api';
 
 export interface AttemptRecord {
   profileId: number;
@@ -81,7 +82,13 @@ export function bumpDay(ctx: ServiceContext, profileId: number, inc: { problems?
   ctx.db.run('UPDATE activity_days SET qualifying = ? WHERE profile_id = ? AND local_date = ?', [q, profileId, d]);
 }
 
+/**
+ * Add active learning time. Only learning activities count (lessons, review/assessment days, the
+ * diagnostic, practice): time on the dashboard, course map, skills list or settings is not
+ * recorded, so it never adds study minutes and never makes a streak day by itself.
+ */
 export function addStudyTime(ctx: ServiceContext, profileId: number, lessonId: string | null, activity: string, seconds: number): void {
+  if (!isLearningActivity(activity)) return;
   const s = Math.max(0, Math.min(30, Math.round(seconds)));
   if (!s) return;
   const d = today(ctx);

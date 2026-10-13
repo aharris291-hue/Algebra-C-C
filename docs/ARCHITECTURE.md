@@ -77,7 +77,7 @@ Daily automatic backups go to `...\backups\auto\`. The date is checked on every 
 |---|---|
 | `meta(key, value)` | `schema_version`, `app_version`, `created_at`, install id |
 | `parent(id=1, pin_hash, pin_salt, pin_iterations, recovery_hash, recovery_salt, created_at, updated_at, failed_attempts, locked_until)` | Parent PIN (PBKDF2-SHA256) and one-time recovery code |
-| `profiles(id, display_name, avatar, created_at, archived, settings_json, onboarding_json)` | Student profiles; per-profile settings (sound, reduced motion, text size, theme, daily goal) |
+| `profiles(id, display_name, avatar, created_at, archived, settings_json, onboarding_json)` | Student profiles; per-profile settings (sound, reduced motion, text size, theme). The daily study goal is not a student setting: it is the parent's goal in `goals` (a `dailyGoalMinutes` key in older saves is ignored and dropped on the next settings save) |
 | `lesson_progress(profile_id, lesson_id, status, section, state_json, started_at, updated_at, completed_at, tested_out, quiz_best, xp_awarded)` | Lesson state and exact resume point (autosave) |
 | `attempts(id, profile_id, lesson_id, activity, assessment_id, skill_id, generator_id, seed, difficulty, problem_index, step_index, response, status, correct, attempt_number, hints_used, max_hint_level, misconception, elapsed_ms, counted, created_at)` | Every answer submitted |
 | `hint_events(id, profile_id, lesson_id, activity, skill_id, generator_id, seed, level, created_at)` | Every hint revealed |
@@ -96,7 +96,11 @@ Derived values (grade, XP total, level, streak, mastery stage, completion %) are
 
 ### Migrations
 
-`src/main/db/migrations.ts` holds an ordered list of migrations. On startup: open DB → read `schema_version` → if older, write a safety backup → run each migration in a transaction → bump the version. A database from a *newer* app version is never modified; the app shows an explanation instead.
+`src/main/db/schema.ts` holds the ordered list of migrations (`MIGRATIONS`); the current schema version is the last migration's (`currentSchemaVersion()`). On startup: open DB → read `schema_version` → if older, write a safety backup of the data exactly as it was (`backups/safety/pre-migration-v<N>-…`) → run each migration in memory in its own transaction (which also bumps the version) → save. A failing migration rolls back and raises `MigrationError` before anything is written, so the files on disk are unchanged (and the app explains instead of starting). An older backup being restored is migrated the same way, in memory, before it replaces anything. A database from a *newer* app version is never modified; the app shows an explanation instead. `tests/main/release-audit.test.ts` registers a fake v2 migration to test the whole path.
+
+### When no copy can be read (startup recovery)
+
+`AppDatabase.open` tries the main file, an interrupted save, the previous save and each daily backup. If none can be read it throws `NoReadableDatabaseError`. Parent Mode cannot be reached then, so the startup error (`main.ts`, functions in `src/main/db/startup-recovery.ts`) offers: **Restore from a backup file…** (the file gets every check a Parent Mode restore makes and an older one is migrated; a file that fails changes nothing), **Start fresh** (after a confirmation; empty data and first-time setup), or **Quit**. Restoring or starting fresh first *moves* every unreadable copy, unchanged, into `data\unreadable-<time>\` (daily backups into its `auto` subfolder); nothing is ever deleted.
 
 ## 6. Backup and restore (spec §29)
 
@@ -109,6 +113,7 @@ Restore validation, before anything is changed: parse JSON → check format → 
 - Parent PIN: 4-8 digits, PBKDF2-SHA256 with random salt; failed-attempt lockout; reset with the recovery code shown once at setup, or with a documented local reset procedure that does not delete student data.
 - No network access is needed or used. No analytics, ads, accounts or telemetry. CSP blocks remote content; the renderer has no Node access.
 - Logs (`...\logs\app.log`, rotated) record errors, not names or answers.
+- Renderer errors (`window.onerror`, unhandled promise rejections, and errors caught by the React error boundary, which shows a friendly "Return to dashboard / Reload" screen) are sent to the log through the `reportClientError` API method. Its arguments are validated (short strings only); the main process keeps only the error message with quoted text and long numbers removed, and the stack reduced to function names and file:line locations, truncates both, and logs at most 50 reports per session.
 - Optional AI tutoring later would go through a main-process service with the key stored in Windows Credential Manager, never in the renderer (spec §54).
 
 ## 8. Packaging (spec §2, §3)

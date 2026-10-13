@@ -13,6 +13,7 @@ import * as diagnostic from './diagnostic';
 import * as backup from './backup';
 import { previewAnswer } from './preview';
 import { addStudyTime } from './records';
+import { reportClientError } from './client-errors';
 
 export function createApi(ctx: ServiceContext): AcademyApi {
   const guard = (pin: string) => parent.requireParent(ctx, pin);
@@ -222,6 +223,10 @@ export function createApi(ctx: ServiceContext): AcademyApi {
     async restoreBackup(pin, data) {
       guard(pin);
       return backup.restoreBackup(ctx, data);
+    },
+
+    async reportClientError(kind, message, detail) {
+      return reportClientError(ctx, kind, message, detail);
     },
   };
   // The daily automatic backup is checked on every call (and after every save), not only at

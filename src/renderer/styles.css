@@ -15,7 +15,20 @@
   --warn-soft: #fff3df;
   --bad: #c0392b;
   --bad-soft: #fde9e7;
-  --focus: #ffb000;
+  /* focus ring: a dark ring on a light halo, so it is >= 3:1 against any background it sits on */
+  --focus: #1d2a8a;
+  --focus-halo: #ffffff;
+  /* mastery stage pills (text >= 4.5:1 on the pill) */
+  --stage-not-started-bg: #eef1f8;
+  --stage-not-started-ink: #5a6378;
+  --stage-learning-bg: #fff3df;
+  --stage-learning-ink: #8a4f00;
+  --stage-developing-bg: #fff1c2;
+  --stage-developing-ink: #6b5000;
+  --stage-proficient-bg: #e6ebfc;
+  --stage-proficient-ink: #2c49b8;
+  --stage-mastered-bg: #e3f4ec;
+  --stage-mastered-ink: #166b46;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(20, 30, 60, 0.06), 0 4px 16px rgba(20, 30, 60, 0.06);
   --font: 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
@@ -37,6 +50,18 @@
   --warn-soft: #3a2c12;
   --bad: #ff7a6b;
   --bad-soft: #3d1b18;
+  --focus: #ffd166;
+  --focus-halo: #12151f;
+  --stage-not-started-bg: #232a3d;
+  --stage-not-started-ink: #b4bcd0;
+  --stage-learning-bg: #3a2c12;
+  --stage-learning-ink: #f3bb5e;
+  --stage-developing-bg: #3b3416;
+  --stage-developing-ink: #f3d36b;
+  --stage-proficient-bg: #263055;
+  --stage-proficient-ink: #a4b7ff;
+  --stage-mastered-bg: #173528;
+  --stage-mastered-ink: #6fd6a3;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   color-scheme: dark;
 }
@@ -85,9 +110,20 @@ code {
   padding: 0.05em 0.35em;
   border-radius: 4px;
 }
+/* Focus indicator (WCAG 2.4.7 / 1.4.11): a 3px ring in --focus over a 2px --focus-halo gap, so the
+   ring has >= 3:1 contrast whatever the background (light page, dark page, or a coloured banner). */
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--focus-halo);
+}
+/* text fields show the same ring whenever they have focus (mouse or keyboard), not only a border colour */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--focus-halo);
 }
 .sub {
   color: var(--muted);
@@ -557,28 +593,24 @@ ol.compact li {
   white-space: nowrap;
 }
 .stage-NOT_STARTED {
-  background: var(--surface-2);
-  color: var(--muted);
+  background: var(--stage-not-started-bg);
+  color: var(--stage-not-started-ink);
 }
 .stage-LEARNING {
-  background: var(--warn-soft);
-  color: var(--warn);
+  background: var(--stage-learning-bg);
+  color: var(--stage-learning-ink);
 }
 .stage-DEVELOPING {
-  background: #fff1c2;
-  color: #7a5b00;
-}
-:root[data-theme='dark'] .stage-DEVELOPING {
-  background: #3b3416;
-  color: #f3d36b;
+  background: var(--stage-developing-bg);
+  color: var(--stage-developing-ink);
 }
 .stage-PROFICIENT {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--stage-proficient-bg);
+  color: var(--stage-proficient-ink);
 }
 .stage-MASTERED {
-  background: var(--ok-soft);
-  color: var(--ok);
+  background: var(--stage-mastered-bg);
+  color: var(--stage-mastered-ink);
 }
 
 /* Course map */
@@ -1086,7 +1118,6 @@ figcaption {
 }
 .answer-input:focus {
   border-color: var(--accent);
-  outline: none;
 }
 .answer-unit {
   color: var(--muted);

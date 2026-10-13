@@ -82,8 +82,27 @@ export function verifyPin(ctx: ServiceContext, pin: string): { ok: boolean; lock
   return lockedUntil ? { ok: false, lockedForSeconds: Math.ceil((lockedUntil - now) / 1000) } : { ok: false, attemptsLeft: MAX_FAILS - fails };
 }
 
+/**
+ * The PIN that was replaced by the last change, for a while. A Parent Mode screen that was opened
+ * with it (or a call already on its way) must not count as a wrong PIN and lock Parent Mode.
+ * Kept in memory only; it is forgotten on restart.
+ */
+const superseded = new WeakMap<ServiceContext, { hash: string; salt: string; iterations: number; until: number }>();
+export const SUPERSEDED_PIN_GRACE_MS = 30 * 60_000;
+export const STALE_PIN_MESSAGE = 'The Parent PIN was just changed. Leave Parent Mode and open it again with the new PIN.';
+
+function isSupersededPin(ctx: ServiceContext, pin: string): boolean {
+  const old = superseded.get(ctx);
+  if (!old || old.until <= ctx.now() || typeof pin !== 'string' || !/^\d{4,8}$/.test(pin)) return false;
+  if (!safeEqual(hash(pin, old.salt, old.iterations), old.hash)) return false;
+  const row = ctx.db.get<ParentRow>('SELECT * FROM parent WHERE id = 1');
+  // the same digits chosen again as the new PIN are simply the current PIN
+  return !row || !safeEqual(hash(pin, row.pin_salt, row.pin_iterations), row.pin_hash);
+}
+
 /** Throws unless the PIN is correct. Used to guard every Parent Mode operation. */
 export function requireParent(ctx: ServiceContext, pin: string): void {
+  if (isSupersededPin(ctx, pin)) throw new UserFacingError(STALE_PIN_MESSAGE);
   const r = verifyPin(ctx, pin);
   if (!r.ok) throw new UserFacingError(r.lockedForSeconds ? `Parent Mode is locked for ${r.lockedForSeconds} seconds after too many tries.` : 'That Parent PIN is not correct.');
 }
@@ -97,8 +116,11 @@ export function changePin(ctx: ServiceContext, current: string, next: string): {
   const err = validatePinFormat(next);
   if (err) return { ok: false, message: err };
   const salt = crypto.randomBytes(16).toString('hex');
+  const prev = ctx.db.get<ParentRow>('SELECT * FROM parent WHERE id = 1')!;
   ctx.db.run('UPDATE parent SET pin_hash = ?, pin_salt = ?, pin_iterations = ?, updated_at = ? WHERE id = 1', [hash(next, salt), salt, ITERATIONS, ctx.now()]);
+  superseded.set(ctx, { hash: prev.pin_hash, salt: prev.pin_salt, iterations: prev.pin_iterations, until: ctx.now() + SUPERSEDED_PIN_GRACE_MS });
   saveNow(ctx);
+  ctx.log.info('parent', 'parent PIN changed');
   return { ok: true };
 }
 

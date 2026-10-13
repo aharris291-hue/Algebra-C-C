@@ -78,6 +78,11 @@ async function main() {
       res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
       return;
     }
+    // Test-only: the log lines written for renderer errors (reportClientError).
+    if (process.env.HARNESS_TEST_ANSWERS === '1' && url.pathname === '/__test/renderer-log') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(log.lines.filter((l) => l.includes('[renderer]'))));
+      return;
+    }
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
       const method = url.pathname.slice(5);
       let body = '';

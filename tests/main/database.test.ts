@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AppDatabase, NewerDatabaseError, DatabaseOpenError } from '../../src/main/db/database';
 import { MemoryLogger } from '../../src/main/logger';
-import { CURRENT_SCHEMA_VERSION } from '../../src/main/db/schema';
+import { currentSchemaVersion } from '../../src/main/db/schema';
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acc-db-'));
 
@@ -12,7 +12,7 @@ describe('AppDatabase', () => {
     const dir = tmpDir();
     const { db, created } = await AppDatabase.open(dir, new MemoryLogger());
     expect(created).toBe(true);
-    expect(db.schemaVersion()).toBe(CURRENT_SCHEMA_VERSION);
+    expect(db.schemaVersion()).toBe(currentSchemaVersion());
     db.insert("INSERT INTO profiles(display_name, created_at) VALUES ('Sam', 1)");
     db.flushNow();
     db.close();
@@ -64,7 +64,7 @@ describe('AppDatabase', () => {
   it('refuses to open data from a newer app version without changing it', async () => {
     const dir = tmpDir();
     const { db } = await AppDatabase.open(dir, new MemoryLogger());
-    db.setMeta('schema_version', String(CURRENT_SCHEMA_VERSION + 5));
+    db.setMeta('schema_version', String(currentSchemaVersion() + 5));
     db.close();
     const before = fs.readFileSync(path.join(dir, 'academy.sqlite'));
     await expect(AppDatabase.open(dir, new MemoryLogger())).rejects.toBeInstanceOf(NewerDatabaseError);

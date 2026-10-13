@@ -216,7 +216,13 @@ export const MIGRATIONS: Migration[] = [
   },
 ];
 
-export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
+/**
+ * The schema version this app writes: the last migration's. A function, not a constant, so it
+ * always agrees with MIGRATIONS (tests register a future migration to exercise the upgrade path).
+ */
+export function currentSchemaVersion(): number {
+  return MIGRATIONS[MIGRATIONS.length - 1].version;
+}
 
 export const REQUIRED_TABLES = [
   'meta',

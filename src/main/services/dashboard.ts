@@ -4,6 +4,8 @@
  * the parent view and the report always agree.
  */
 import type { StudentDashboard, ParentDashboard, WeeklyReport, SkillMasteryView, CourseLesson, ResultsView, StandardProgress } from '../../shared/api';
+import { LEARNING_ACTIVITIES } from '../../shared/api';
+import type { ComingUp, CourseUnit } from '../../shared/api';
 import { standardsCoverage } from '../../content/coverage';
 import { LESSONS, LESSON_BY_ID, SKILLS, SKILL_BY_ID, UNITS, UNIT_BY_ID, STANDARDS } from '../../content';
 import { computeGrade, GradeResult, ScoredItem } from '../../core/engine/grading';
@@ -190,7 +192,11 @@ function atLeast(stage: MasteryStage, min: MasteryStage): boolean {
  * first and ranges add up days, so today + this week + every week always sum to the all-time total.
  */
 function minutesBetween(ctx: ServiceContext, profileId: number, from: string, to: string): number {
-  const rows = ctx.db.all<{ s: number }>('SELECT SUM(active_seconds) AS s FROM study_time WHERE profile_id = ? AND local_date >= ? AND local_date <= ? GROUP BY local_date', [profileId, from, to]);
+  // learning activities only (older versions also recorded time on the dashboard and settings screens)
+  const rows = ctx.db.all<{ s: number }>(
+    `SELECT SUM(active_seconds) AS s FROM study_time WHERE profile_id = ? AND local_date >= ? AND local_date <= ? AND activity IN (${LEARNING_ACTIVITIES.map(() => '?').join(',')}) GROUP BY local_date`,
+    [profileId, from, to, ...LEARNING_ACTIVITIES],
+  );
   return rows.reduce((a, r) => a + Math.round(Number(r.s ?? 0) / 60), 0);
 }
 
@@ -470,7 +476,42 @@ export function getParentDashboard(ctx: ServiceContext, profileId: number): Pare
     },
     recentActivity: recent,
     upcoming: course.filter((c) => c.status !== 'completed' && c.status !== 'tested_out').slice(0, 5),
+    comingUp: comingUpFor(units, xp, skills, goals.weeklyLessons),
     goals,
+  };
+}
+
+const isDone = (c: CourseLesson) => c.status === 'completed' || c.status === 'tested_out';
+
+/**
+ * What is coming up next, for the Parent Overview: the next open course days, the next unit or
+ * semester assessment (and how many open course days come before it), and near milestones.
+ */
+export function comingUpFor(units: CourseUnit[], xp: number, skills: SkillMasteryView[], weeklyLessons: number): ComingUp {
+  const course = units.flatMap((u) => u.lessons);
+  const open = course.filter((c) => !isDone(c));
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const ai = open.findIndex((c) => c.kind === 'unit-assessment' || c.kind === 'semester-assessment');
+  const a = ai >= 0 ? open[ai] : null;
+  const milestones: string[] = [];
+  const lv = levelForXp(xp);
+  milestones.push(`Level ${lv.level + 1} in ${lv.needed - lv.current} XP (now level ${lv.level}, ${xp} XP).`);
+  const cur = open.length ? units.find((u) => u.lessons.some((l) => l.id === open[0].id)) : undefined;
+  if (cur) {
+    const left = cur.lessons.filter((l) => !isDone(l)).length;
+    milestones.push(`Unit ${cur.number} (${cur.title}) is finished after ${plural(left, 'more course day')}.`);
+  }
+  const doneCount = course.length - open.length;
+  const half = Math.ceil(course.length / 2);
+  if (doneCount < half) milestones.push(`Halfway through the course after ${plural(half - doneCount, 'more course day')}.`);
+  else if (open.length) milestones.push(`The course is finished after ${plural(open.length, 'more course day')}.`);
+  else milestones.push('Every course day is finished.');
+  const due = skills.filter((s) => s.dueForReview).length;
+  if (due) milestones.push(`${plural(due, 'skill')} due for a spaced review (mixed into the next practice).`);
+  return {
+    nextLessons: open.slice(0, 5),
+    nextAssessment: a ? { id: a.id, title: a.title, kind: a.kind, daysBefore: ai, weeksAtGoal: Math.ceil((ai + 1) / Math.max(1, weeklyLessons)) } : null,
+    milestones,
   };
 }
 
