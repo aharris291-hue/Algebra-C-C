@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const css = fs.readFileSync(path.resolve(__dirname, '../../src/renderer/styles.css'), 'utf8');
+const css = fs.readFileSync(path.resolve(__dirname, '../../src/renderer/styles.css'), 'utf8').replace(/\r\n/g, '\n'); // Windows checkouts use CRLF
 
 function block(selector: string): Record<string, string> {
   const i = css.indexOf(`${selector} {`);
